@@ -194,6 +194,33 @@ async fn ensure_default_tenant_id(app: &axum::Router, admin_token: &str) -> Uuid
     Uuid::parse_str(payload["id"].as_str().unwrap()).unwrap()
 }
 
+async fn login_default_admin_tenant_token(app: &axum::Router) -> (Uuid, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/tenant/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "email": "admin@tenant.local",
+                        "password": "admin123456"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    let tenant_id = Uuid::parse_str(payload["tenant_id"].as_str().unwrap()).unwrap();
+    let access_token = payload["access_token"].as_str().unwrap().to_string();
+    (tenant_id, access_token)
+}
+
 async fn register_verified_tenant_token(app: &axum::Router) -> (Uuid, String) {
     let suffix = Uuid::new_v4().simple().to_string();
     let email = format!("tenant-e2e-{suffix}@example.com");
@@ -291,6 +318,9 @@ async fn admin_dashboard_logs_billing_flow_records_audit_and_enforces_rbac() {
 
     let admin_token = login_admin_token(&app).await;
     let tenant_id = ensure_default_tenant_id(&app, &admin_token).await;
+    let (default_tenant_id_from_login, _default_tenant_token) =
+        login_default_admin_tenant_token(&app).await;
+    assert_eq!(default_tenant_id_from_login, tenant_id);
     let (_other_tenant_id, tenant_token) = register_verified_tenant_token(&app).await;
 
     let requests = vec![

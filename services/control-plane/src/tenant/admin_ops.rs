@@ -1,3 +1,8 @@
+const DEFAULT_ADMIN_TENANT_LOGIN_EMAIL_ENV: &str = "DEFAULT_ADMIN_TENANT_LOGIN_EMAIL";
+const DEFAULT_ADMIN_TENANT_LOGIN_PASSWORD_ENV: &str = "DEFAULT_ADMIN_TENANT_LOGIN_PASSWORD";
+const DEFAULT_ADMIN_TENANT_LOGIN_EMAIL: &str = "admin@tenant.local";
+const DEFAULT_ADMIN_TENANT_LOGIN_PASSWORD: &str = "admin123456";
+
 impl TenantAuthService {
     pub async fn admin_create_tenant(
         &self,
@@ -110,7 +115,7 @@ impl TenantAuthService {
         .await
         .context("failed to query default admin tenant")?
         {
-            return Ok(AdminTenantItem {
+            let tenant = AdminTenantItem {
                 id: row.try_get("id")?,
                 name: row.try_get("name")?,
                 status: row.try_get("status")?,
@@ -118,16 +123,21 @@ impl TenantAuthService {
                 expires_at: row.try_get("expires_at")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
-            });
+            };
+            self.ensure_default_admin_tenant_login(tenant.id).await?;
+            return Ok(tenant);
         }
 
-        self.admin_create_tenant(AdminTenantCreateRequest {
+        let tenant = self
+            .admin_create_tenant(AdminTenantCreateRequest {
             name: "admin".to_string(),
             status: Some("active".to_string()),
             plan: Some("credit".to_string()),
             expires_at: None,
         })
-        .await
+        .await?;
+        self.ensure_default_admin_tenant_login(tenant.id).await?;
+        Ok(tenant)
     }
 
     pub async fn admin_patch_tenant(
@@ -487,4 +497,108 @@ impl TenantAuthService {
         }
         Ok(())
     }
+
+    async fn ensure_default_admin_tenant_login(&self, tenant_id: Uuid) -> Result<()> {
+        let default_email = normalize_email(&read_default_admin_tenant_login_email())?;
+        let default_password = read_default_admin_tenant_login_password();
+        validate_password(&default_password)?;
+        let password_hash = hash(&default_password, DEFAULT_COST)
+            .context("failed to hash default admin tenant login password")?;
+        let now = Utc::now();
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("failed to start ensure default admin tenant login transaction")?;
+
+        let existing = sqlx::query(
+            r#"
+            SELECT id, tenant_id
+            FROM tenant_users
+            WHERE email = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(&default_email)
+        .fetch_optional(tx.as_mut())
+        .await
+        .context("failed to query default admin tenant login account")?;
+
+        if let Some(row) = existing {
+            let tenant_user_id: Uuid = row.try_get("id")?;
+            let existing_tenant_id: Uuid = row.try_get("tenant_id")?;
+            if existing_tenant_id != tenant_id {
+                return Err(anyhow!(
+                    "default admin tenant login email is already used by another tenant"
+                ));
+            }
+            sqlx::query(
+                r#"
+                UPDATE tenant_users
+                SET
+                    password_hash = $2,
+                    email_verified = true,
+                    enabled = true,
+                    updated_at = $3
+                WHERE id = $1
+                "#,
+            )
+            .bind(tenant_user_id)
+            .bind(&password_hash)
+            .bind(now)
+            .execute(tx.as_mut())
+            .await
+            .context("failed to update default admin tenant login account")?;
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO tenant_users (
+                    id, tenant_id, email, password_hash, email_verified, enabled, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, true, true, $5, $5)
+                "#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(tenant_id)
+            .bind(&default_email)
+            .bind(&password_hash)
+            .bind(now)
+            .execute(tx.as_mut())
+            .await
+            .context("failed to create default admin tenant login account")?;
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE tenants
+            SET updated_at = $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(now)
+        .execute(tx.as_mut())
+        .await
+        .context("failed to update tenant updated_at after ensuring default login account")?;
+
+        tx.commit()
+            .await
+            .context("failed to commit ensure default admin tenant login transaction")?;
+        Ok(())
+    }
+}
+
+fn read_default_admin_tenant_login_email() -> String {
+    std::env::var(DEFAULT_ADMIN_TENANT_LOGIN_EMAIL_ENV)
+        .ok()
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+        .unwrap_or_else(|| DEFAULT_ADMIN_TENANT_LOGIN_EMAIL.to_string())
+}
+
+fn read_default_admin_tenant_login_password() -> String {
+    std::env::var(DEFAULT_ADMIN_TENANT_LOGIN_PASSWORD_ENV)
+        .ok()
+        .filter(|raw| !raw.is_empty())
+        .unwrap_or_else(|| DEFAULT_ADMIN_TENANT_LOGIN_PASSWORD.to_string())
 }
