@@ -376,6 +376,44 @@ async fn rewrites_v1_responses_compact_to_codex_responses_compact_for_codex_base
 }
 
 #[tokio::test]
+async fn rewrites_v1_memories_trace_summarize_to_codex_memories_trace_summarize_for_codex_base_profile(
+) {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/memories/trace_summarize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "output": [
+                {
+                    "trace_summary": "raw summary",
+                    "memory_summary": "memory summary"
+                }
+            ]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/memories/trace_summarize")
+                .body(Body::from("{\"model\":\"gpt-test\",\"traces\":[]}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["output"][0]["memory_summary"], "memory summary");
+}
+
+#[tokio::test]
 async fn rewrites_v1_models_to_codex_models_and_appends_client_version() {
     let upstream = MockServer::start().await;
 

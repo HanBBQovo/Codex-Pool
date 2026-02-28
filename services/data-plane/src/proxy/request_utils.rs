@@ -71,6 +71,7 @@ fn canonical_codex_path<'a>(
     match normalize_input_path(path).as_str() {
         "/v1/responses" | "/backend-api/codex/responses" => Some("/responses"),
         "/v1/responses/compact" => Some("/responses/compact"),
+        "/v1/memories/trace_summarize" => Some("/memories/trace_summarize"),
         "/v1/models" | "/backend-api/codex/models" => Some("/models"),
         _ => None,
     }

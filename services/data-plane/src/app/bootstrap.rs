@@ -357,6 +357,7 @@ pub async fn build_app_with_event_sink_and_allowed_keys(
             post(proxy_handler).get(proxy_websocket_handler),
         )
         .route("/v1/responses/compact", post(proxy_handler))
+        .route("/v1/memories/trace_summarize", post(proxy_handler))
         .route(
             "/backend-api/codex/responses",
             post(proxy_handler).get(proxy_websocket_handler),
