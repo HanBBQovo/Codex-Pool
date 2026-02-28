@@ -8,7 +8,7 @@ use data_plane::config::DataPlaneConfig;
 use data_plane::event::NoopEventSink;
 use futures_util::{SinkExt, StreamExt};
 use http::StatusCode;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_hdr_async;
 use tokio_tungstenite::connect_async;
@@ -16,6 +16,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::server::ErrorResponse;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use uuid::Uuid;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::support;
 
@@ -56,6 +58,16 @@ fn test_account(base_url: String, token: &str) -> UpstreamAccount {
 }
 
 async fn test_app(accounts: Vec<UpstreamAccount>) -> Router {
+    test_app_with_control_plane(accounts, None).await
+}
+
+async fn test_app_with_control_plane(
+    accounts: Vec<UpstreamAccount>,
+    control_plane_base_url: Option<String>,
+) -> Router {
+    let auth_validate_url = control_plane_base_url
+        .as_deref()
+        .map(|base| format!("{}/internal/v1/auth/validate", base.trim_end_matches('/')));
     let cfg = DataPlaneConfig {
         listen_addr: "127.0.0.1:0".parse().unwrap(),
         routing_strategy: RoutingStrategy::RoundRobin,
@@ -80,7 +92,7 @@ async fn test_app(accounts: Vec<UpstreamAccount>) -> Router {
         billing_capture_retry_max: 3,
         billing_capture_retry_backoff_ms: 200,
         redis_url: None,
-        auth_validate_url: None,
+        auth_validate_url,
         auth_validate_cache_ttl_sec: 30,
         auth_validate_negative_cache_ttl_sec: 5,
         auth_fail_open: false,
@@ -93,6 +105,18 @@ async fn test_app(accounts: Vec<UpstreamAccount>) -> Router {
 
 async fn spawn_data_plane_server(accounts: Vec<UpstreamAccount>) -> String {
     let app = test_app(accounts).await;
+    spawn_data_plane_server_with_app(app).await
+}
+
+async fn spawn_data_plane_server_with_control_plane(
+    accounts: Vec<UpstreamAccount>,
+    control_plane_base_url: Option<String>,
+) -> String {
+    let app = test_app_with_control_plane(accounts, control_plane_base_url).await;
+    spawn_data_plane_server_with_app(app).await
+}
+
+async fn spawn_data_plane_server_with_app(app: Router) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -493,5 +517,79 @@ async fn ws_upgrade_fails_over_to_next_account_before_handshake_success() {
     assert_eq!(
         records[0].header("authorization"),
         Some("Bearer upstream-token-b")
+    );
+}
+
+#[tokio::test]
+async fn ws_upgrade_account_deactivated_triggers_disable_and_failover() {
+    let failing_upstream_base = spawn_rejecting_ws_upstream(
+        StatusCode::UNAUTHORIZED,
+        "account_deactivated",
+        "account is deactivated",
+    )
+    .await;
+    let (healthy_upstream_base, records) = spawn_ws_upstream().await;
+    let account_a = test_account(failing_upstream_base, "upstream-token-a");
+    let account_b = test_account(healthy_upstream_base, "upstream-token-b");
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    let disable_path = format!("/internal/v1/upstream-accounts/{}/disable", account_a.id);
+    Mock::given(method("POST"))
+        .and(path(disable_path.clone()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status":"disabled"})))
+        .mount(&control_plane)
+        .await;
+
+    let data_plane_base = spawn_data_plane_server_with_control_plane(
+        vec![account_a, account_b],
+        Some(control_plane.uri()),
+    )
+    .await;
+
+    let mut request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert("authorization", "Bearer cp_identity".parse().unwrap());
+
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    let first = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(first, Message::Text("upstream-ready".to_string().into()));
+    ws_client.close(None).await.unwrap();
+
+    let records = records.lock().unwrap().clone();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0].header("authorization"),
+        Some("Bearer upstream-token-b")
+    );
+
+    let mut disable_called = false;
+    for _ in 0..30 {
+        let requests = control_plane.received_requests().await.unwrap();
+        if requests
+            .iter()
+            .any(|req| req.method.as_str() == "POST" && req.url.path() == disable_path)
+        {
+            disable_called = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        disable_called,
+        "expected disable endpoint to be called for deactivated account"
     );
 }

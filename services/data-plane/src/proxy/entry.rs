@@ -1239,20 +1239,13 @@ pub async fn proxy_websocket_handler(
                 Ok(request) => request,
                 Err(err) => {
                     warn!(error = %err, account_id = %account.id, "failed to build upstream websocket request");
-                    state
-                        .router
-                        .mark_unhealthy(account.id, state.account_ejection_ttl);
-                    let _ = state
-                        .routing_cache
-                        .set_unhealthy(account.id, state.account_ejection_ttl)
-                        .await;
-                    if let Some(sticky_key) = sticky_key.as_deref() {
-                        let _ = state.router.unbind_sticky(sticky_key);
-                        let _ = state
-                            .routing_cache
-                            .delete_sticky_account_id(sticky_key)
-                            .await;
-                    }
+                    mark_account_unhealthy_and_clear_sticky(
+                        &state,
+                        account.id,
+                        sticky_key.as_deref(),
+                        state.account_ejection_ttl,
+                    )
+                    .await;
 
                     let response = json_error(
                         StatusCode::BAD_GATEWAY,
@@ -1341,26 +1334,35 @@ pub async fn proxy_websocket_handler(
                         && should_retry_same_account
                         && Instant::now() < failover_deadline
                     {
+                        log_failover_decision(
+                            Some(account.id),
+                            Some(status),
+                            error_context
+                                .as_ref()
+                                .and_then(|context| context.error_code.as_deref()),
+                            upstream_error_class_label(error_context.as_ref()),
+                            if is_http_handshake_error {
+                                "websocket_handshake_error"
+                            } else {
+                                "transport_error"
+                            },
+                            recovery_action_label(error_context.as_ref()),
+                            "not_applied",
+                            "retry_same_account",
+                        );
                         same_account_retry_attempt += 1;
                         record_same_account_retry(&state);
                         tokio::time::sleep(state.retry_poll_interval).await;
                         continue;
                     }
 
-                    state
-                        .router
-                        .mark_unhealthy(account.id, state.account_ejection_ttl);
-                    let _ = state
-                        .routing_cache
-                        .set_unhealthy(account.id, state.account_ejection_ttl)
-                        .await;
-                    if let Some(sticky_key) = sticky_key.as_deref() {
-                        let _ = state.router.unbind_sticky(sticky_key);
-                        let _ = state
-                            .routing_cache
-                            .delete_sticky_account_id(sticky_key)
-                            .await;
-                    }
+                    let failover_reason_class = if status == StatusCode::UPGRADE_REQUIRED {
+                        "websocket_upgrade_required"
+                    } else if is_http_handshake_error {
+                        "websocket_handshake_error"
+                    } else {
+                        "transport_error"
+                    };
                     let can_cross_account_failover = if is_http_handshake_error {
                         is_failover_retryable_error(status, error_context.as_ref())
                     } else {
@@ -1368,10 +1370,61 @@ pub async fn proxy_websocket_handler(
                     };
                     let force_cross_account = !did_cross_account_failover
                         && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
-                    if state.enable_request_failover
+                    let should_cross_account_failover = state.enable_request_failover
                         && can_cross_account_failover
-                        && (Instant::now() < failover_deadline || force_cross_account)
-                    {
+                        && (Instant::now() < failover_deadline || force_cross_account);
+                    let recovery_outcome = if should_cross_account_failover {
+                        if error_context.is_some() {
+                            let state_for_recovery = state.clone();
+                            let recovery_context = error_context.clone();
+                            tokio::spawn(async move {
+                                let _ = apply_recovery_action(
+                                    state_for_recovery.as_ref(),
+                                    account.id,
+                                    recovery_context.as_ref(),
+                                )
+                                .await;
+                            });
+                        }
+                        ProxyRecoveryOutcome::NotApplied
+                    } else {
+                        apply_recovery_action(&state, account.id, error_context.as_ref()).await
+                    };
+
+                    let ejection_ttl = if is_http_handshake_error {
+                        ejection_ttl_for_response(
+                            status,
+                            state.account_ejection_ttl,
+                            false,
+                            error_context.as_ref(),
+                            recovery_outcome,
+                        )
+                    } else {
+                        Some(state.account_ejection_ttl)
+                    };
+                    if let Some(ejection_ttl) = ejection_ttl {
+                        mark_account_unhealthy_and_clear_sticky(
+                            &state,
+                            account.id,
+                            sticky_key.as_deref(),
+                            ejection_ttl,
+                        )
+                        .await;
+                    }
+
+                    if should_cross_account_failover {
+                        log_failover_decision(
+                            Some(account.id),
+                            Some(status),
+                            error_context
+                                .as_ref()
+                                .and_then(|context| context.error_code.as_deref()),
+                            upstream_error_class_label(error_context.as_ref()),
+                            failover_reason_class,
+                            recovery_action_label(error_context.as_ref()),
+                            recovery_outcome_label(recovery_outcome),
+                            "cross_account_failover",
+                        );
                         record_cross_account_failover_attempt(
                             &state,
                             &mut tried_account_ids,
@@ -1381,6 +1434,19 @@ pub async fn proxy_websocket_handler(
                         last_failure = Some(response);
                         break;
                     }
+
+                    log_failover_decision(
+                        Some(account.id),
+                        Some(status),
+                        error_context
+                            .as_ref()
+                            .and_then(|context| context.error_code.as_deref()),
+                        upstream_error_class_label(error_context.as_ref()),
+                        failover_reason_class,
+                        recovery_action_label(error_context.as_ref()),
+                        recovery_outcome_label(recovery_outcome),
+                        "return_failure",
+                    );
                     record_failover_exhausted_if_needed(&state, did_cross_account_failover);
                     return response;
                 }
@@ -1407,4 +1473,21 @@ async fn wait_for_route_update_or_deadline(state: &AppState, deadline: Instant) 
         .min(deadline.saturating_duration_since(now))
         .max(Duration::from_millis(1));
     state.wait_for_route_update(timeout).await;
+}
+
+async fn mark_account_unhealthy_and_clear_sticky(
+    state: &Arc<AppState>,
+    account_id: Uuid,
+    sticky_key: Option<&str>,
+    ejection_ttl: Duration,
+) {
+    state.router.mark_unhealthy(account_id, ejection_ttl);
+    let _ = state.routing_cache.set_unhealthy(account_id, ejection_ttl).await;
+    if let Some(sticky_key) = sticky_key {
+        let _ = state.router.unbind_sticky(sticky_key);
+        let _ = state
+            .routing_cache
+            .delete_sticky_account_id(sticky_key)
+            .await;
+    }
 }
