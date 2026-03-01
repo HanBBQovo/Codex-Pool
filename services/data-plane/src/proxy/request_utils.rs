@@ -1170,6 +1170,37 @@ fn estimate_request_input_tokens(value: &Value) -> Option<i64> {
     }
 }
 
+fn estimate_response_output_tokens(body: &bytes::Bytes) -> Option<i64> {
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return None;
+    };
+
+    let mut total_chars = 0usize;
+    if let Some(output_text) = value.get("output_text").and_then(Value::as_str) {
+        total_chars = total_chars.saturating_add(output_text.chars().count());
+    }
+    if total_chars == 0 {
+        if let Some(output) = value.get("output") {
+            total_chars = total_chars.saturating_add(collect_request_text_chars(output));
+        }
+    }
+    if total_chars == 0 {
+        if let Some(choices) = value.get("choices") {
+            total_chars = total_chars.saturating_add(collect_request_text_chars(choices));
+        }
+    }
+
+    if total_chars == 0 {
+        // Best-effort fallback for non-standard response payloads.
+        total_chars = total_chars.saturating_add(collect_request_text_chars(&value));
+    }
+
+    if total_chars == 0 {
+        return None;
+    }
+    Some(rough_token_estimate_from_char_count(total_chars))
+}
+
 fn collect_request_text_chars(value: &Value) -> usize {
     match value {
         Value::String(text) => text.chars().count(),

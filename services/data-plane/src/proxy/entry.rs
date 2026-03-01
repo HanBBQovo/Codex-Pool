@@ -11,7 +11,7 @@ use axum::extract::ws::{
     CloseFrame as AxumCloseFrame, Message as AxumWsMessage, WebSocket, WebSocketUpgrade,
 };
 use axum::extract::State;
-use axum::http::header::{AUTHORIZATION, CONTENT_LENGTH, HOST};
+use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_LENGTH, ETAG, HOST, IF_NONE_MATCH};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, StatusCode};
 use axum::response::Response;
 use codex_pool_core::api::ErrorEnvelope;
@@ -20,6 +20,7 @@ use codex_pool_core::model::{UpstreamAccount, UpstreamMode};
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -36,7 +37,7 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::app::AppState;
+use crate::app::{AppState, CachedModelsResponse};
 use crate::auth::ApiPrincipal;
 
 const CHATGPT_ACCOUNT_ID: &str = "chatgpt-account-id";
@@ -66,6 +67,7 @@ const INTERNAL_BILLING_PRICING_TIMEOUT_SEC: u64 = 2;
 const ROUTING_CACHE_STICKY_TTL_SEC: u64 = 30 * 60;
 const BILLING_AUTHORIZATION_TTL_SEC: u64 = 15 * 60;
 const BILLING_PRICING_CACHE_TTL_SEC: u64 = 30;
+const MODELS_CACHE_TTL_SEC: u64 = 60;
 const STREAM_PROXY_BUFFER_SIZE: usize = 16;
 const STREAM_USAGE_ESTIMATE_FALLBACK_ENABLED: bool = true;
 
@@ -141,6 +143,13 @@ struct BillingSettleResult {
     cached_input_tokens: i64,
     output_tokens: i64,
     reasoning_tokens: i64,
+}
+
+#[derive(Debug, Clone)]
+enum BillingSettleOutcome {
+    NotNeeded,
+    Settled(BillingSettleResult),
+    DeferredEstimated { authorization_id: Uuid, usage: UsageTokens },
 }
 
 #[derive(Debug, Default)]
@@ -276,12 +285,21 @@ pub async fn proxy_handler(
     let method = parts.method.clone();
     let sticky_key = sticky_session_key_from_headers(&parts.headers);
 
-    let body_bytes = match axum::body::to_bytes(body, state.max_request_body_bytes).await {
+    let is_models_request = method == axum::http::Method::GET && path == "/v1/models";
+    if is_models_request {
+        if let Some(response) = serve_models_from_cache(state.as_ref(), &parts.headers) {
+            return response;
+        }
+    }
+
+    let max_request_body_bytes = max_request_body_bytes_for_path(state.max_request_body_bytes, &path);
+    let body_bytes = match axum::body::to_bytes(body, max_request_body_bytes).await {
         Ok(bytes) => bytes,
         Err(err) => {
             warn!(
                 error = %err,
-                max_request_body_bytes = state.max_request_body_bytes,
+                max_request_body_bytes,
+                default_max_request_body_bytes = state.max_request_body_bytes,
                 "failed to read request body"
             );
             if is_body_too_large_error(&err) {
@@ -895,6 +913,7 @@ pub async fn proxy_handler(
             }
 
             let mut non_stream_billing_settle: Option<BillingSettleResult> = None;
+            let mut non_stream_billing_deferred: Option<(Uuid, UsageTokens)> = None;
 
             let (response, upstream_error_context, is_503_overloaded) =
                 if status == StatusCode::SERVICE_UNAVAILABLE {
@@ -904,16 +923,33 @@ pub async fn proxy_handler(
                     matches!(error_context.class, UpstreamErrorClass::Overloaded);
                 (response, Some(error_context), is_overloaded)
             } else {
-                let (response, error_context, body) =
+                let (mut response, error_context, body) =
                     buffered_response(status, &response_headers, upstream_response).await;
+                let mut models_cached: Option<CachedModelsResponse> = None;
+                if is_models_request && status.is_success() {
+                    let cached = cache_models_response(state.as_ref(), &response_headers, &body);
+                    apply_models_cache_headers(&mut response, &cached, Instant::now());
+                    models_cached = Some(cached);
+                }
                 let response =
-                    match settle_billing_if_needed(&state, billing_session.as_ref(), status, &body)
+                    match settle_billing_if_needed(state.clone(), billing_session.as_ref(), status, &body)
                         .await
                     {
-                        Ok(settle_result) => {
-                            if let Some(settle_result) = settle_result {
-                                non_stream_billing_settle = Some(settle_result);
-                                billing_session = None;
+                        Ok(outcome) => {
+                            match outcome {
+                                BillingSettleOutcome::NotNeeded => {}
+                                BillingSettleOutcome::Settled(settle_result) => {
+                                    non_stream_billing_settle = Some(settle_result);
+                                    billing_session = None;
+                                }
+                                BillingSettleOutcome::DeferredEstimated {
+                                    authorization_id,
+                                    usage,
+                                } => {
+                                    non_stream_billing_deferred =
+                                        Some((authorization_id, usage));
+                                    billing_session = None;
+                                }
                             }
                             response
                         }
@@ -938,6 +974,15 @@ pub async fn proxy_handler(
                             *error_response
                         }
                     };
+                let response = if let Some(cached) = models_cached.as_ref() {
+                    if request_if_none_match_matches(&parts.headers, cached.etag.as_ref()) {
+                        build_models_not_modified_response(cached, Instant::now())
+                    } else {
+                        response
+                    }
+                } else {
+                    response
+                };
                 (response, error_context, false)
             };
 
@@ -972,6 +1017,16 @@ pub async fn proxy_handler(
                             Some(settle_result.cached_input_tokens),
                             Some(settle_result.output_tokens),
                             Some(settle_result.reasoning_tokens),
+                        )
+                    } else if let Some((authorization_id, usage)) = non_stream_billing_deferred {
+                        (
+                            Some("deferred_estimated"),
+                            Some(authorization_id),
+                            None,
+                            Some(usage.input_tokens),
+                            Some(usage.cached_input_tokens),
+                            Some(usage.output_tokens),
+                            Some(usage.reasoning_tokens),
                         )
                     } else {
                         (None, None, None, None, None, None, None)
@@ -1160,6 +1215,131 @@ pub async fn proxy_handler(
             return response;
         }
     }
+}
+
+fn max_request_body_bytes_for_path(default_limit: usize, path: &str) -> usize {
+    // Large Codex-specific endpoints may send a full trace or conversation snapshot as input.
+    // Keep a stricter default limit for most requests, but allow these paths to accept larger payloads.
+    const LARGE_LIMIT: usize = 64 * 1024 * 1024;
+    match path {
+        "/v1/responses/compact"
+        | "/backend-api/codex/responses/compact"
+        | "/v1/memories/trace_summarize" => default_limit.max(LARGE_LIMIT),
+        _ => default_limit,
+    }
+}
+
+fn serve_models_from_cache(state: &AppState, request_headers: &HeaderMap) -> Option<Response> {
+    let now = Instant::now();
+    let cached = state
+        .models_cache
+        .read()
+        .ok()
+        .and_then(|guard| guard.as_ref().cloned())?;
+    if cached.expires_at <= now {
+        return None;
+    }
+    if request_if_none_match_matches(request_headers, cached.etag.as_ref()) {
+        return Some(build_models_not_modified_response(&cached, now));
+    }
+
+    let mut response = Response::builder().status(StatusCode::OK);
+    if let Some(headers) = response.headers_mut() {
+        if let Some(content_type) = cached.content_type.as_deref() {
+            if let Ok(value) = HeaderValue::from_str(content_type) {
+                headers.insert(axum::http::header::CONTENT_TYPE, value);
+            }
+        }
+        apply_models_cache_headers_to_map(headers, &cached, now);
+    }
+    Some(
+        response
+            .body(Body::from(cached.body))
+            .unwrap_or_else(|_| Response::new(Body::from("internal response error"))),
+    )
+}
+
+fn cache_models_response(
+    state: &AppState,
+    response_headers: &HeaderMap,
+    body: &bytes::Bytes,
+) -> CachedModelsResponse {
+    let now = Instant::now();
+    let etag = response_headers
+        .get(ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| compute_strong_etag(body));
+    let content_type = response_headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| Arc::<str>::from(value.to_string()));
+    let cached = CachedModelsResponse {
+        body: body.clone(),
+        etag: Arc::<str>::from(etag),
+        content_type,
+        expires_at: now + Duration::from_secs(MODELS_CACHE_TTL_SEC),
+    };
+
+    if let Ok(mut guard) = state.models_cache.write() {
+        *guard = Some(cached.clone());
+    }
+    cached
+}
+
+fn request_if_none_match_matches(request_headers: &HeaderMap, etag: &str) -> bool {
+    let Some(raw) = request_headers
+        .get(IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    raw.split(',')
+        .map(str::trim)
+        .any(|item| item == "*" || item == etag)
+}
+
+fn build_models_not_modified_response(cached: &CachedModelsResponse, now: Instant) -> Response {
+    let mut response = Response::builder().status(StatusCode::NOT_MODIFIED);
+    if let Some(headers) = response.headers_mut() {
+        apply_models_cache_headers_to_map(headers, cached, now);
+    }
+    response
+        .body(Body::empty())
+        .unwrap_or_else(|_| Response::new(Body::from("internal response error")))
+}
+
+fn apply_models_cache_headers(response: &mut Response, cached: &CachedModelsResponse, now: Instant) {
+    let headers = response.headers_mut();
+    apply_models_cache_headers_to_map(headers, cached, now);
+}
+
+fn apply_models_cache_headers_to_map(
+    headers: &mut HeaderMap,
+    cached: &CachedModelsResponse,
+    now: Instant,
+) {
+    let max_age = cached
+        .expires_at
+        .saturating_duration_since(now)
+        .as_secs();
+    if let Ok(value) = HeaderValue::from_str(cached.etag.as_ref()) {
+        headers.insert(ETAG, value);
+    }
+    if let Ok(value) = HeaderValue::from_str(&format!("private, max-age={max_age}")) {
+        headers.insert(CACHE_CONTROL, value);
+    }
+}
+
+fn compute_strong_etag(body: &bytes::Bytes) -> String {
+    let digest = Sha256::digest(body.as_ref());
+    format!("\"{}\"", hex::encode(digest))
 }
 
 pub async fn proxy_websocket_handler(

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use axum::body::Body;
+use bytes::Bytes;
 use axum::extract::{rejection::JsonRejection, Extension, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Request, StatusCode};
 use axum::middleware;
@@ -71,6 +72,14 @@ pub struct CachedBillingPricing {
     pub expires_at: Instant,
 }
 
+#[derive(Debug, Clone)]
+pub struct CachedModelsResponse {
+    pub body: Bytes,
+    pub etag: Arc<str>,
+    pub content_type: Option<Arc<str>>,
+    pub expires_at: Instant,
+}
+
 pub struct AppState {
     pub router: RoundRobinRouter,
     pub http_client: reqwest::Client,
@@ -96,6 +105,7 @@ pub struct AppState {
     pub billing_capture_retry_max: u32,
     pub billing_capture_retry_backoff: Duration,
     pub billing_pricing_cache: RwLock<HashMap<String, CachedBillingPricing>>,
+    pub models_cache: RwLock<Option<CachedModelsResponse>>,
     pub routing_cache: Arc<dyn RoutingCache>,
     pub alive_ring_router: Option<Arc<AliveRingRouter>>,
     pub seen_ok_reporter: Option<Arc<SeenOkReporter>>,
@@ -295,6 +305,7 @@ pub async fn build_app_with_event_sink_and_allowed_keys(
             config.billing_capture_retry_backoff_ms,
         ),
         billing_pricing_cache: RwLock::new(HashMap::new()),
+        models_cache: RwLock::new(None),
         routing_cache,
         alive_ring_router,
         seen_ok_reporter,

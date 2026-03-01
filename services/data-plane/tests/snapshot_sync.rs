@@ -97,6 +97,7 @@ fn test_state() -> AppState {
         billing_capture_retry_max: 3,
         billing_capture_retry_backoff: Duration::from_millis(200),
         billing_pricing_cache: std::sync::RwLock::new(std::collections::HashMap::new()),
+        models_cache: std::sync::RwLock::new(None),
         routing_cache: Arc::new(InMemoryRoutingCache::new()),
         alive_ring_router: None,
         seen_ok_reporter: None,

@@ -338,27 +338,73 @@ async fn authorize_billing_session(
 }
 
 async fn settle_billing_if_needed(
-    state: &AppState,
+    state: Arc<AppState>,
     billing_session: Option<&BillingSession>,
     status: StatusCode,
     body: &bytes::Bytes,
-) -> std::result::Result<Option<BillingSettleResult>, Box<Response>> {
+) -> std::result::Result<BillingSettleOutcome, Box<Response>> {
     let Some(billing_session) = billing_session else {
-        return Ok(None);
+        return Ok(BillingSettleOutcome::NotNeeded);
     };
     if !status.is_success() {
-        return Ok(None);
+        return Ok(BillingSettleOutcome::NotNeeded);
     }
     let Some(usage_tokens) = extract_usage_tokens(body) else {
-        return Err(Box::new(json_error(
-            StatusCode::BAD_GATEWAY,
-            "billing_usage_missing",
-            "upstream response does not include usage tokens required for billing",
-        )));
+        let estimated_input_tokens = billing_session.estimated_input_tokens.max(0);
+        let estimated_output_tokens = estimate_response_output_tokens(body).unwrap_or(0).max(0);
+        let estimated_usage = UsageTokens {
+            input_tokens: estimated_input_tokens,
+            cached_input_tokens: 0,
+            output_tokens: estimated_output_tokens,
+            reasoning_tokens: 0,
+        };
+        let billing_session = billing_session.clone();
+        let authorization_id = billing_session.authorization_id;
+        let billing_session_for_task = billing_session.clone();
+        tokio::spawn(async move {
+            warn!(
+                request_id = %billing_session_for_task.request_id,
+                authorization_id = %billing_session_for_task.authorization_id,
+                estimated_input_tokens,
+                estimated_output_tokens,
+                usage_confidence = "low",
+                "non-stream usage missing; applying low-confidence token estimate and deferring billing capture"
+            );
+            if estimated_input_tokens == 0 && estimated_output_tokens == 0 {
+                release_billing_hold_best_effort(
+                    state,
+                    Some(billing_session_for_task),
+                    Some(BillingReleaseFailureContext {
+                        release_reason: Some("usage_missing_zero_estimate".to_string()),
+                        failover_action: Some("return_success".to_string()),
+                        failover_reason_class: Some("usage_missing_zero_estimate".to_string()),
+                        ..Default::default()
+                    }),
+                )
+                .await;
+                return;
+            }
+            if let Err(err) =
+                settle_authorized_billing(state.as_ref(), &billing_session_for_task, estimated_usage).await
+            {
+                warn!(
+                    status = ?err.status(),
+                    request_id = %billing_session_for_task.request_id,
+                    authorization_id = %billing_session_for_task.authorization_id,
+                    reserved_microcredits = billing_session_for_task.reserved_microcredits,
+                    "non-stream deferred billing settle failed"
+                );
+            }
+        });
+        return Ok(BillingSettleOutcome::DeferredEstimated {
+            authorization_id,
+            usage: estimated_usage,
+        });
     };
 
-    let settle_result = settle_authorized_billing(state, billing_session, usage_tokens).await?;
-    Ok(Some(settle_result))
+    let settle_result =
+        settle_authorized_billing(state.as_ref(), billing_session, usage_tokens).await?;
+    Ok(BillingSettleOutcome::Settled(settle_result))
 }
 
 async fn settle_authorized_billing(
