@@ -196,6 +196,7 @@ mod tests {
     use axum::http::HeaderMap;
     use axum::http::HeaderName;
     use axum::http::StatusCode;
+    use bytes::Bytes;
     use codex_pool_core::model::UpstreamMode;
     use std::time::Duration;
 
@@ -203,7 +204,8 @@ mod tests {
         build_upstream_url, build_upstream_ws_url, compose_upstream_path, ejection_ttl_for_status,
         ensure_client_version_query, extract_upstream_error_code, is_body_too_large_error,
         is_compatibility_passthrough_header, is_websocket_passthrough_header,
-        recovery_action_for_upstream_error_code, sticky_session_key_from_headers,
+        parse_request_policy_context, recovery_action_for_upstream_error_code,
+        sticky_session_key_from_headers,
         ProxyRecoveryAction,
     };
 
@@ -228,6 +230,8 @@ mod tests {
         let turn_metadata = HeaderName::from_static("x-codex-turn-metadata");
         let beta_features = HeaderName::from_static("x-codex-beta-features");
         let session_id = HeaderName::from_static("session_id");
+        let conversation_id = HeaderName::from_static("conversation_id");
+        let x_session_id = HeaderName::from_static("x-session-id");
 
         assert!(is_compatibility_passthrough_header(&openai_beta));
         assert!(is_compatibility_passthrough_header(&subagent));
@@ -235,6 +239,8 @@ mod tests {
         assert!(is_compatibility_passthrough_header(&turn_metadata));
         assert!(is_compatibility_passthrough_header(&beta_features));
         assert!(is_compatibility_passthrough_header(&session_id));
+        assert!(is_compatibility_passthrough_header(&conversation_id));
+        assert!(is_compatibility_passthrough_header(&x_session_id));
     }
 
     #[test]
@@ -291,9 +297,13 @@ mod tests {
     #[test]
     fn treats_session_id_and_x_codex_as_websocket_passthrough_headers() {
         let session_id = HeaderName::from_static("session_id");
+        let conversation_id = HeaderName::from_static("conversation_id");
+        let x_session_id = HeaderName::from_static("x-session-id");
         let codex_state = HeaderName::from_static("x-codex-turn-state");
 
         assert!(is_websocket_passthrough_header(&session_id, true));
+        assert!(is_websocket_passthrough_header(&conversation_id, true));
+        assert!(is_websocket_passthrough_header(&x_session_id, true));
         assert!(is_websocket_passthrough_header(&codex_state, true));
     }
 
@@ -364,6 +374,36 @@ mod tests {
             sticky_session_key_from_headers(&headers).as_deref(),
             Some("conv-123")
         );
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-session-id", "x-session-xyz".parse().unwrap());
+        assert_eq!(
+            sticky_session_key_from_headers(&headers).as_deref(),
+            Some("x-session-xyz")
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-codex-turn-state", "turn-state-1".parse().unwrap());
+        assert_eq!(
+            sticky_session_key_from_headers(&headers).as_deref(),
+            Some("turn-state-1")
+        );
+    }
+
+    #[test]
+    fn parses_zstd_compressed_request_body_for_policy_context() {
+        let json = br#"{"model":"gpt-4.1-mini","stream":true,"prompt_cache_key":"conv-1","input":"hello"}"#;
+        let compressed =
+            zstd::stream::encode_all(std::io::Cursor::new(json.as_slice()), 3).unwrap();
+        let body = Bytes::from(compressed);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "zstd".parse().unwrap());
+
+        let context = parse_request_policy_context(&headers, &body);
+        assert_eq!(context.model.as_deref(), Some("gpt-4.1-mini"));
+        assert!(context.stream);
+        assert_eq!(context.sticky_key_hint.as_deref(), Some("conv-1"));
+        assert!(context.estimated_input_tokens.is_some());
     }
 
     #[test]

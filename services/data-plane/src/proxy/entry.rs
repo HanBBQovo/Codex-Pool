@@ -44,6 +44,7 @@ const CHATGPT_ACCOUNT_ID: &str = "chatgpt-account-id";
 const OPENAI_BETA_HEADER: &str = "openai-beta";
 const X_OPENAI_SUBAGENT_HEADER: &str = "x-openai-subagent";
 const SESSION_ID_HEADER: &str = "session_id";
+const X_SESSION_ID_HEADER: &str = "x-session-id";
 const X_CODEX_HEADER_PREFIX: &str = "x-codex-";
 const SEC_WEBSOCKET_PROTOCOL_HEADER: &str = "sec-websocket-protocol";
 const CODEX_CLIENT_VERSION_QUERY_KEY: &str = "client_version";
@@ -99,6 +100,7 @@ struct ParsedRequestPolicyContext {
     stream: bool,
     request_id: Option<String>,
     estimated_input_tokens: Option<i64>,
+    sticky_key_hint: Option<String>,
 }
 
 #[derive(Debug)]
@@ -283,7 +285,6 @@ pub async fn proxy_handler(
     let path = parts.uri.path().to_string();
     let query = parts.uri.query().map(|v| v.to_string());
     let method = parts.method.clone();
-    let sticky_key = sticky_session_key_from_headers(&parts.headers);
 
     let is_models_request = method == axum::http::Method::GET && path == "/v1/models";
     if is_models_request {
@@ -317,6 +318,8 @@ pub async fn proxy_handler(
         }
     };
     let parsed_policy_context = parse_request_policy_context(&parts.headers, &body_bytes);
+    let sticky_key = sticky_session_key_from_headers(&parts.headers)
+        .or_else(|| parsed_policy_context.sticky_key_hint.clone());
     if let Err(response) =
         enforce_principal_request_policy(principal.as_ref(), &parts.headers, &parsed_policy_context)
     {
@@ -551,6 +554,23 @@ pub async fn proxy_handler(
                 .http_client
                 .request(method.clone(), upstream_url.clone());
             upstream_request = apply_passthrough_headers(upstream_request, &parts.headers);
+            if parts.headers.get(SESSION_ID_HEADER).is_none() {
+                if let Some(raw_value) = parts.headers.get(X_SESSION_ID_HEADER) {
+                    if let Ok(value) = raw_value.to_str() {
+                        let value = value.trim();
+                        if !value.is_empty() {
+                            upstream_request = upstream_request.header(SESSION_ID_HEADER, value);
+                        }
+                    }
+                } else if let Some(raw_value) = parts.headers.get(CONVERSATION_ID_HEADER) {
+                    if let Ok(value) = raw_value.to_str() {
+                        let value = value.trim();
+                        if !value.is_empty() {
+                            upstream_request = upstream_request.header(SESSION_ID_HEADER, value);
+                        }
+                    }
+                }
+            }
             upstream_request =
                 upstream_request.header(AUTHORIZATION, format!("Bearer {}", account.bearer_token));
             if let Some(account_id) = account.chatgpt_account_id.as_deref() {

@@ -37,6 +37,7 @@ url.workspace = true
 uuid.workspace = true
 redis.workspace = true
 toml.workspace = true
+zstd.workspace = true
 
 [dev-dependencies]
 assert-json-diff.workspace = true

@@ -30,7 +30,7 @@ fn test_account(base_url: String, token: &str) -> UpstreamAccount {
     }
 }
 
-async fn build_test_app_with_allowed_keys(allowed_keys: Vec<String>) -> Router {
+async fn build_test_app_with_allowed_keys(allowed_keys: Vec<String>) -> (Router, MockServer) {
     support::ensure_test_security_env();
     let upstream = MockServer::start().await;
     Mock::given(method("POST"))
@@ -70,14 +70,15 @@ async fn build_test_app_with_allowed_keys(allowed_keys: Vec<String>) -> Router {
         enable_internal_debug_routes: false,
     };
 
-    build_app_with_event_sink_and_allowed_keys(cfg, Arc::new(NoopEventSink), allowed_keys)
+    let app = build_app_with_event_sink_and_allowed_keys(cfg, Arc::new(NoopEventSink), allowed_keys)
         .await
-        .expect("app should build")
+        .expect("app should build");
+    (app, upstream)
 }
 
 #[tokio::test]
 async fn rejects_request_without_bearer_api_key() {
-    let app = build_test_app_with_allowed_keys(vec!["cp_test_key".to_string()]).await;
+    let (app, _upstream) = build_test_app_with_allowed_keys(vec!["cp_test_key".to_string()]).await;
 
     let response = app
         .oneshot(
@@ -105,7 +106,7 @@ async fn rejects_request_without_bearer_api_key() {
 
 #[tokio::test]
 async fn keeps_client_request_id_in_response_header() {
-    let app = build_test_app_with_allowed_keys(vec!["cp_test_key".to_string()]).await;
+    let (app, _upstream) = build_test_app_with_allowed_keys(vec!["cp_test_key".to_string()]).await;
     let request_id = "req-client-header-001";
 
     let response = app

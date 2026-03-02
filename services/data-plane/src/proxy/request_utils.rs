@@ -124,7 +124,12 @@ fn normalize_input_path(path: &str) -> String {
 }
 
 fn sticky_session_key_from_headers(headers: &HeaderMap) -> Option<String> {
-    for header_name in [SESSION_ID_HEADER, CONVERSATION_ID_HEADER] {
+    for header_name in [
+        SESSION_ID_HEADER,
+        CONVERSATION_ID_HEADER,
+        X_SESSION_ID_HEADER,
+        "x-codex-turn-state",
+    ] {
         if let Some(raw_value) = headers.get(header_name) {
             if let Ok(value) = raw_value.to_str() {
                 let value = value.trim();
@@ -1043,7 +1048,11 @@ fn is_compatibility_passthrough_header(name: &HeaderName) -> bool {
 fn is_compatibility_passthrough_header_name(name: &str) -> bool {
     matches!(
         name,
-        OPENAI_BETA_HEADER | X_OPENAI_SUBAGENT_HEADER | SESSION_ID_HEADER
+        OPENAI_BETA_HEADER
+            | X_OPENAI_SUBAGENT_HEADER
+            | SESSION_ID_HEADER
+            | CONVERSATION_ID_HEADER
+            | X_SESSION_ID_HEADER
     ) || name.starts_with(X_CODEX_HEADER_PREFIX)
 }
 
@@ -1127,7 +1136,7 @@ fn parse_request_policy_context(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string);
-    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+    let Some(value) = parse_request_json_body(headers, body) else {
         return ParsedRequestPolicyContext {
             request_id,
             ..Default::default()
@@ -1144,12 +1153,77 @@ fn parse_request_policy_context(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let estimated_input_tokens = estimate_request_input_tokens(&value);
+    let sticky_key_hint = value
+        .get("prompt_cache_key")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("metadata")
+                .and_then(|meta| meta.get("session_id"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| value.get("previous_response_id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
     ParsedRequestPolicyContext {
         model,
         stream,
         request_id,
         estimated_input_tokens,
+        sticky_key_hint,
     }
+}
+
+const MAX_ZSTD_DECOMPRESSED_BODY_BYTES: usize = 64 * 1024 * 1024;
+
+fn parse_request_json_body(headers: &HeaderMap, body: &bytes::Bytes) -> Option<Value> {
+    if body.is_empty() {
+        return None;
+    }
+
+    if has_zstd_content_encoding(headers) {
+        if let Some(decoded) = decode_zstd_body_limited(body, MAX_ZSTD_DECOMPRESSED_BODY_BYTES) {
+            if let Ok(value) = serde_json::from_slice::<Value>(&decoded) {
+                return Some(value);
+            }
+        }
+    }
+
+    serde_json::from_slice::<Value>(body).ok()
+}
+
+fn has_zstd_content_encoding(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(axum::http::header::CONTENT_ENCODING)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .any(|entry| entry.eq_ignore_ascii_case("zstd"))
+        })
+}
+
+fn decode_zstd_body_limited(body: &bytes::Bytes, max_bytes: usize) -> Option<bytes::Bytes> {
+    use std::io::Read;
+
+    let mut decoder = zstd::stream::read::Decoder::new(std::io::Cursor::new(body.as_ref())).ok()?;
+    let mut output: Vec<u8> = Vec::new();
+    let mut buf = vec![0u8; 16 * 1024];
+
+    loop {
+        let n = decoder.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        if output.len().saturating_add(n) > max_bytes {
+            return None;
+        }
+        output.extend_from_slice(&buf[..n]);
+    }
+
+    Some(bytes::Bytes::from(output))
 }
 
 fn estimate_request_input_tokens(value: &Value) -> Option<i64> {

@@ -37,6 +37,7 @@ url = "2"
 toml = "1"
 sha2 = "0.10"
 hex = "0.4"
+zstd = "0.13"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 bcrypt = "0.18"
 

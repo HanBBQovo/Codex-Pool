@@ -255,6 +255,38 @@ async fn forwards_headers_and_zstd_body_for_v1_responses() {
 }
 
 #[tokio::test]
+async fn maps_x_session_id_to_session_id_when_missing() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .and(header("authorization", "Bearer upstream-token"))
+        .and(header("chatgpt-account-id", "acct_123"))
+        .and(header("x-session-id", "x-session-xyz"))
+        .and(header("session_id", "x-session-xyz"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer tenant-token")
+                .header("x-session-id", "x-session-xyz")
+                .body(Body::from(r#"{"model":"gpt-4.1-mini","stream":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn rejects_oversized_request_body() {
     let upstream = MockServer::start().await;
 
