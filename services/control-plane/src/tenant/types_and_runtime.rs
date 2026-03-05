@@ -67,6 +67,7 @@ struct BillingAuthorizationRecord {
     captured_microcredits: i64,
     status: String,
     expires_at: DateTime<Utc>,
+    meta_json: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +76,121 @@ struct BillingPricingResolved {
     cached_input_price_microcredits: i64,
     output_price_microcredits: i64,
     source: String,
+}
+
+const BILLING_MULTIPLIER_PPM_ONE: i64 = 1_000_000;
+const DEFAULT_BILLING_SESSION_TTL_SEC: u64 = 24 * 60 * 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BillingRequestKind {
+    Any,
+    Response,
+    Compact,
+    Chat,
+    Unknown,
+}
+
+impl BillingRequestKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Response => "response",
+            Self::Compact => "compact",
+            Self::Chat => "chat",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    fn from_optional(raw: Option<&str>) -> Self {
+        match raw.unwrap_or("unknown").trim().to_ascii_lowercase().as_str() {
+            "any" => Self::Any,
+            "response" => Self::Response,
+            "compact" => Self::Compact,
+            "chat" => Self::Chat,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BillingPricingRuleScope {
+    Request,
+    Session,
+}
+
+impl BillingPricingRuleScope {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Session => "session",
+        }
+    }
+
+    fn from_str(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "session" => Self::Session,
+            _ => Self::Request,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BillingPricingBand {
+    Base,
+    LongContext,
+}
+
+impl BillingPricingBand {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Base => "base",
+            Self::LongContext => "long_context",
+        }
+    }
+
+    fn from_optional(raw: Option<&str>) -> Self {
+        match raw.unwrap_or("base").trim().to_ascii_lowercase().as_str() {
+            "long_context" => Self::LongContext,
+            _ => Self::Base,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BillingResolutionPhase {
+    Authorize,
+    Capture,
+}
+
+#[derive(Debug, Clone)]
+struct BillingPricingRuleRecord {
+    id: Uuid,
+    model_pattern: String,
+    request_kind: String,
+    scope: String,
+    threshold_input_tokens: Option<i64>,
+    input_multiplier_ppm: i64,
+    cached_input_multiplier_ppm: i64,
+    output_multiplier_ppm: i64,
+    priority: i32,
+}
+
+#[derive(Debug, Clone)]
+struct BillingSessionRecord {
+    tenant_id: Uuid,
+    session_key: String,
+    model: String,
+    pricing_band: String,
+    entered_band_at: DateTime<Utc>,
+    last_seen_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+struct BillingPricingDecision {
+    pricing: BillingPricingResolved,
+    band: BillingPricingBand,
+    matched_rule_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -353,6 +469,10 @@ pub struct BillingAuthorizeRequest {
     pub api_key_id: Option<Uuid>,
     pub request_id: String,
     pub model: String,
+    #[serde(default)]
+    pub session_key: Option<String>,
+    #[serde(default)]
+    pub request_kind: Option<String>,
     pub reserved_microcredits: i64,
     #[serde(default)]
     pub ttl_sec: Option<u64>,
@@ -379,6 +499,10 @@ pub struct BillingCaptureRequest {
     pub api_key_id: Option<Uuid>,
     pub request_id: String,
     pub model: String,
+    #[serde(default)]
+    pub session_key: Option<String>,
+    #[serde(default)]
+    pub request_kind: Option<String>,
     pub input_tokens: i64,
     #[serde(default)]
     pub cached_input_tokens: i64,

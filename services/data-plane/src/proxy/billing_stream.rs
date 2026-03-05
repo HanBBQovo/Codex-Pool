@@ -46,18 +46,34 @@ async fn build_pending_billing_session(
         )));
     };
     let estimated_input_tokens = context.estimated_input_tokens.unwrap_or(0);
+    let request_id = resolve_request_id(headers, context);
+    let session_key = context
+        .session_key_hint
+        .clone()
+        .unwrap_or_else(|| request_id.clone());
     let reserved_microcredits =
         estimate_authorize_reserve_microcredits(state, model, estimated_input_tokens).await;
 
     Ok(Some(PendingBillingSession {
         tenant_id,
         api_key_id,
-        request_id: resolve_request_id(headers, context),
+        request_id,
         model: model.to_string(),
+        session_key,
+        request_kind: billing_request_kind(path).to_string(),
         is_stream: context.stream,
         estimated_input_tokens,
         reserved_microcredits,
     }))
+}
+
+fn billing_request_kind(path: &str) -> &'static str {
+    match path {
+        "/v1/responses" | "/backend-api/codex/responses" => "response",
+        "/v1/responses/compact" | "/backend-api/codex/responses/compact" => "compact",
+        "/v1/chat/completions" => "chat",
+        _ => "unknown",
+    }
 }
 
 async fn estimate_authorize_reserve_microcredits(
@@ -300,6 +316,8 @@ async fn authorize_billing_session(
             api_key_id: Some(pending.api_key_id),
             request_id: pending.request_id.clone(),
             model: pending.model.clone(),
+            session_key: Some(pending.session_key.clone()),
+            request_kind: Some(pending.request_kind.clone()),
             reserved_microcredits: pending.reserved_microcredits,
             ttl_sec: Some(BILLING_AUTHORIZATION_TTL_SEC),
             is_stream,
@@ -322,6 +340,8 @@ async fn authorize_billing_session(
                 request_started: started,
                 request_id: pending.request_id.clone(),
                 model: pending.model.clone(),
+                session_key: pending.session_key.clone(),
+                request_kind: pending.request_kind.clone(),
                 is_stream,
                 first_token_latency_ms: None,
                 estimated_input_tokens: pending.estimated_input_tokens,
@@ -423,6 +443,8 @@ async fn settle_authorized_billing(
             api_key_id: Some(billing_session.api_key_id),
             request_id: billing_session.request_id.clone(),
             model: billing_session.model.clone(),
+            session_key: Some(billing_session.session_key.clone()),
+            request_kind: Some(billing_session.request_kind.clone()),
             input_tokens: usage_tokens.input_tokens,
             cached_input_tokens: usage_tokens.cached_input_tokens,
             output_tokens: usage_tokens.output_tokens,
@@ -630,11 +652,20 @@ where
         );
     }
     let (mapped_status, code, message) = match status {
-        StatusCode::BAD_REQUEST => (
-            StatusCode::BAD_REQUEST,
-            "billing_rejected",
-            "billing request rejected",
-        ),
+        StatusCode::BAD_REQUEST => envelope
+            .as_ref()
+            .map(|item| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    item.error.code.as_str(),
+                    item.error.message.as_str(),
+                )
+            })
+            .unwrap_or((
+                StatusCode::BAD_REQUEST,
+                "billing_rejected",
+                "billing request rejected",
+            )),
         StatusCode::PAYMENT_REQUIRED => (
             StatusCode::PAYMENT_REQUIRED,
             "insufficient_credits",

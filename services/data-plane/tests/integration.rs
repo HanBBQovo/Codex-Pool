@@ -5,6 +5,8 @@ mod support;
 mod auth_middleware;
 #[path = "auth_validator.rs"]
 mod auth_validator;
+#[path = "billing_compact_pricing.rs"]
+mod billing_compact_pricing;
 #[path = "compat_contract.rs"]
 mod compat_contract;
 #[path = "compatibility.rs"]

@@ -260,7 +260,8 @@ impl TenantAuthService {
                 reserved_microcredits,
                 captured_microcredits,
                 status,
-                expires_at
+                expires_at,
+                meta_json
             FROM tenant_credit_authorizations
             WHERE tenant_id = $1 AND request_id = $2
             FOR UPDATE
@@ -286,6 +287,7 @@ impl TenantAuthService {
             captured_microcredits: row.try_get("captured_microcredits")?,
             status: row.try_get("status")?,
             expires_at: row.try_get("expires_at")?,
+            meta_json: Some(row.try_get("meta_json")?),
         }))
     }
 
@@ -330,6 +332,7 @@ impl TenantAuthService {
             captured_microcredits: row.try_get("captured_microcredits")?,
             status: row.try_get("status")?,
             expires_at: row.try_get("expires_at")?,
+            meta_json: Some(row.try_get("meta_json")?),
         }))
     }
 
@@ -353,7 +356,7 @@ impl TenantAuthService {
         .map(|value| value.unwrap_or(0))
     }
 
-    async fn resolve_model_pricing(&self, model: &str) -> Result<BillingPricingResolved> {
+    async fn resolve_base_model_pricing(&self, model: &str) -> Result<BillingPricingResolved> {
         if model.trim().is_empty() {
             return Err(anyhow!("model must not be empty"));
         }
@@ -371,11 +374,10 @@ impl TenantAuthService {
         .context("failed to query exact model pricing")?
         {
             let input_price_microcredits: i64 = row.try_get("input_price_microcredits")?;
-            let cached_input_price_microcredits =
-                normalize_cached_input_price_microcredits(
-                    input_price_microcredits,
-                    row.try_get("cached_input_price_microcredits")?,
-                );
+            let cached_input_price_microcredits = normalize_cached_input_price_microcredits(
+                input_price_microcredits,
+                row.try_get("cached_input_price_microcredits")?,
+            );
             return Ok(BillingPricingResolved {
                 input_price_microcredits,
                 cached_input_price_microcredits,
@@ -430,8 +432,8 @@ impl TenantAuthService {
                 billing_default_input_price_microcredits(),
                 billing_default_output_price_microcredits(),
             ) {
-                let cached_input = billing_default_cached_input_price_microcredits()
-                    .unwrap_or(input / 10);
+                let cached_input =
+                    billing_default_cached_input_price_microcredits().unwrap_or(input / 10);
                 return Ok(BillingPricingResolved {
                     input_price_microcredits: input,
                     cached_input_price_microcredits: cached_input.max(0),
@@ -442,6 +444,181 @@ impl TenantAuthService {
         }
 
         Err(anyhow!("model pricing is not configured"))
+    }
+
+    async fn resolve_model_pricing(&self, model: &str) -> Result<BillingPricingResolved> {
+        self.resolve_base_model_pricing(model).await
+    }
+
+    async fn resolve_model_pricing_for_request(
+        &self,
+        model: &str,
+        request_kind: BillingRequestKind,
+        persisted_band: Option<BillingPricingBand>,
+        actual_input_tokens: Option<i64>,
+        phase: BillingResolutionPhase,
+    ) -> Result<BillingPricingDecision> {
+        let base = self.resolve_base_model_pricing(model).await?;
+        let rules = self
+            .list_matching_billing_pricing_rules(model, request_kind)
+            .await?;
+        Ok(resolve_effective_pricing_for_band(
+            &base,
+            &rules,
+            model,
+            request_kind,
+            persisted_band,
+            actual_input_tokens,
+            phase,
+        ))
+    }
+
+    async fn list_matching_billing_pricing_rules(
+        &self,
+        model: &str,
+        request_kind: BillingRequestKind,
+    ) -> Result<Vec<BillingPricingRuleRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                model_pattern,
+                request_kind,
+                scope,
+                threshold_input_tokens,
+                input_multiplier_ppm,
+                cached_input_multiplier_ppm,
+                output_multiplier_ppm,
+                priority
+            FROM billing_pricing_rules
+            WHERE enabled = true
+            ORDER BY priority DESC, threshold_input_tokens DESC NULLS LAST, created_at ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("failed to query billing pricing rules")?;
+
+        let mut rules = rows
+            .into_iter()
+            .map(|row| -> Result<BillingPricingRuleRecord> {
+                Ok(BillingPricingRuleRecord {
+                    id: row.try_get("id")?,
+                    model_pattern: row.try_get("model_pattern")?,
+                    request_kind: row.try_get("request_kind")?,
+                    scope: row.try_get("scope")?,
+                    threshold_input_tokens: row.try_get("threshold_input_tokens")?,
+                    input_multiplier_ppm: row.try_get("input_multiplier_ppm")?,
+                    cached_input_multiplier_ppm: row.try_get("cached_input_multiplier_ppm")?,
+                    output_multiplier_ppm: row.try_get("output_multiplier_ppm")?,
+                    priority: row.try_get("priority")?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        rules.retain(|rule| {
+            billing_rule_matches_model(&rule.model_pattern, model)
+                && billing_rule_matches_request_kind(&rule.request_kind, request_kind)
+        });
+        Ok(rules)
+    }
+
+    async fn fetch_billing_session_for_update(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        tenant_id: Uuid,
+        session_key: &str,
+    ) -> Result<Option<BillingSessionRecord>> {
+        let normalized_session_key = session_key.trim();
+        if normalized_session_key.is_empty() {
+            return Ok(None);
+        }
+
+        let row = sqlx::query(
+            r#"
+            SELECT
+                tenant_id,
+                session_key,
+                model,
+                pricing_band,
+                entered_band_at,
+                last_seen_at,
+                expires_at
+            FROM billing_sessions
+            WHERE tenant_id = $1 AND session_key = $2 AND expires_at > $3
+            FOR UPDATE
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(normalized_session_key)
+        .bind(Utc::now())
+        .fetch_optional(tx.as_mut())
+        .await
+        .context("failed to query billing session")?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        Ok(Some(BillingSessionRecord {
+            tenant_id: row.try_get("tenant_id")?,
+            session_key: row.try_get("session_key")?,
+            model: row.try_get("model")?,
+            pricing_band: row.try_get("pricing_band")?,
+            entered_band_at: row.try_get("entered_band_at")?,
+            last_seen_at: row.try_get("last_seen_at")?,
+            expires_at: row.try_get("expires_at")?,
+        }))
+    }
+
+    async fn upsert_billing_session(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        tenant_id: Uuid,
+        session_key: &str,
+        model: &str,
+        band: BillingPricingBand,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let normalized_session_key = session_key.trim();
+        if normalized_session_key.is_empty() {
+            return Ok(());
+        }
+
+        let expires_at = now + chrono::Duration::seconds(DEFAULT_BILLING_SESSION_TTL_SEC as i64);
+        sqlx::query(
+            r#"
+            INSERT INTO billing_sessions (
+                tenant_id,
+                session_key,
+                model,
+                pricing_band,
+                entered_band_at,
+                last_seen_at,
+                expires_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $5, $6)
+            ON CONFLICT (tenant_id, session_key) DO UPDATE
+            SET model = EXCLUDED.model,
+                pricing_band = EXCLUDED.pricing_band,
+                entered_band_at = CASE
+                    WHEN billing_sessions.pricing_band = EXCLUDED.pricing_band
+                    THEN billing_sessions.entered_band_at
+                    ELSE EXCLUDED.entered_band_at
+                END,
+                last_seen_at = EXCLUDED.last_seen_at,
+                expires_at = EXCLUDED.expires_at
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(normalized_session_key)
+        .bind(model)
+        .bind(band.as_str())
+        .bind(now)
+        .bind(expires_at)
+        .execute(tx.as_mut())
+        .await
+        .context("failed to upsert billing session")?;
+        Ok(())
     }
 
     async fn apply_credit_delta_inner(
@@ -797,6 +974,133 @@ fn normalize_cached_input_price_microcredits(input_price: i64, cached_input_pric
     cached_input_price
 }
 
+fn resolve_effective_pricing_for_band(
+    base: &BillingPricingResolved,
+    rules: &[BillingPricingRuleRecord],
+    model: &str,
+    request_kind: BillingRequestKind,
+    persisted_band: Option<BillingPricingBand>,
+    actual_input_tokens: Option<i64>,
+    phase: BillingResolutionPhase,
+) -> BillingPricingDecision {
+    let normalized_input_tokens = actual_input_tokens.map(|value| value.max(0));
+    let matching_rules = rules
+        .iter()
+        .filter(|rule| {
+            billing_rule_matches_model(&rule.model_pattern, model)
+                && billing_rule_matches_request_kind(&rule.request_kind, request_kind)
+        })
+        .collect::<Vec<_>>();
+
+    let band = match persisted_band {
+        Some(BillingPricingBand::LongContext) => BillingPricingBand::LongContext,
+        _ => matching_rules
+            .iter()
+            .find(|rule| {
+                let threshold = rule.threshold_input_tokens.unwrap_or(0).max(0);
+                let threshold_reached = normalized_input_tokens.unwrap_or(0) >= threshold;
+                match BillingPricingRuleScope::from_str(&rule.scope) {
+                    BillingPricingRuleScope::Session => {
+                        phase == BillingResolutionPhase::Capture && threshold_reached
+                    }
+                    BillingPricingRuleScope::Request => threshold_reached,
+                }
+            })
+            .map(|_| BillingPricingBand::LongContext)
+            .unwrap_or(BillingPricingBand::Base),
+    };
+
+    let matched_rule = if band == BillingPricingBand::LongContext {
+        matching_rules.first().copied()
+    } else {
+        None
+    };
+
+    let pricing = if let Some(rule) = matched_rule {
+        BillingPricingResolved {
+            input_price_microcredits: apply_multiplier_ppm(
+                base.input_price_microcredits,
+                rule.input_multiplier_ppm,
+            ),
+            cached_input_price_microcredits: apply_multiplier_ppm(
+                base.cached_input_price_microcredits,
+                rule.cached_input_multiplier_ppm,
+            ),
+            output_price_microcredits: apply_multiplier_ppm(
+                base.output_price_microcredits,
+                rule.output_multiplier_ppm,
+            ),
+            source: format!("{}+rule:{}", base.source, rule.id),
+        }
+    } else {
+        base.clone()
+    };
+
+    BillingPricingDecision {
+        pricing,
+        band,
+        matched_rule_id: matched_rule.map(|rule| rule.id),
+    }
+}
+
+fn billing_rule_matches_model(model_pattern: &str, model: &str) -> bool {
+    let normalized_pattern = model_pattern.trim();
+    if normalized_pattern.is_empty() {
+        return false;
+    }
+    if normalized_pattern == model {
+        return true;
+    }
+    normalized_pattern
+        .strip_suffix('*')
+        .map(|prefix| !prefix.is_empty() && model.starts_with(prefix))
+        .unwrap_or(false)
+}
+
+fn billing_rule_matches_request_kind(
+    rule_request_kind: &str,
+    request_kind: BillingRequestKind,
+) -> bool {
+    let rule_kind = BillingRequestKind::from_optional(Some(rule_request_kind));
+    rule_kind == BillingRequestKind::Any || rule_kind == request_kind
+}
+
+fn apply_multiplier_ppm(price_microcredits: i64, multiplier_ppm: i64) -> i64 {
+    let numerator = (price_microcredits.max(0) as i128)
+        .saturating_mul(multiplier_ppm.max(0) as i128)
+        .saturating_add((BILLING_MULTIPLIER_PPM_ONE / 2) as i128);
+    (numerator / BILLING_MULTIPLIER_PPM_ONE as i128).clamp(0, i64::MAX as i128) as i64
+}
+
+fn authorization_meta_string(meta_json: Option<&serde_json::Value>, key: &str) -> Option<String> {
+    meta_json
+        .and_then(|value| value.get(key))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn authorization_pricing_band(meta_json: Option<&serde_json::Value>) -> Option<BillingPricingBand> {
+    authorization_meta_string(meta_json, "pricing_band")
+        .map(|raw| BillingPricingBand::from_optional(Some(raw.as_str())))
+}
+
+fn authorization_request_kind(meta_json: Option<&serde_json::Value>) -> Option<BillingRequestKind> {
+    let request_kind = BillingRequestKind::from_optional(
+        authorization_meta_string(meta_json, "request_kind").as_deref(),
+    );
+    if request_kind == BillingRequestKind::Unknown {
+        None
+    } else {
+        Some(request_kind)
+    }
+}
+
+fn authorization_session_key(meta_json: Option<&serde_json::Value>) -> Option<String> {
+    authorization_meta_string(meta_json, "session_key")
+}
+
 fn normalize_email(raw: &str) -> Result<String> {
     let normalized = raw.trim().to_ascii_lowercase();
     if normalized.is_empty() || !normalized.contains('@') || normalized.len() > 320 {
@@ -880,6 +1184,82 @@ fn current_ts_sec() -> Result<u64> {
         .duration_since(UNIX_EPOCH)
         .context("system clock before unix epoch")?
         .as_secs())
+}
+
+#[cfg(test)]
+mod billing_pricing_rule_tests {
+    use super::*;
+
+    #[test]
+    fn stays_on_base_band_below_long_context_threshold() {
+        let base = BillingPricingResolved {
+            input_price_microcredits: 2_500_000,
+            cached_input_price_microcredits: 250_000,
+            output_price_microcredits: 15_000_000,
+            source: "exact".to_string(),
+        };
+        let rules = vec![BillingPricingRuleRecord {
+            id: Uuid::new_v4(),
+            model_pattern: "gpt-5.4".to_string(),
+            request_kind: BillingRequestKind::Any.as_str().to_string(),
+            scope: BillingPricingRuleScope::Session.as_str().to_string(),
+            threshold_input_tokens: Some(272_000),
+            input_multiplier_ppm: 2_000_000,
+            cached_input_multiplier_ppm: 1_000_000,
+            output_multiplier_ppm: 1_500_000,
+            priority: 100,
+        }];
+
+        let resolved = resolve_effective_pricing_for_band(
+            &base,
+            &rules,
+            "gpt-5.4",
+            BillingRequestKind::Response,
+            None,
+            Some(100_000),
+            BillingResolutionPhase::Capture,
+        );
+
+        assert_eq!(resolved.band, BillingPricingBand::Base);
+        assert_eq!(resolved.pricing.input_price_microcredits, 2_500_000);
+        assert_eq!(resolved.pricing.output_price_microcredits, 15_000_000);
+    }
+
+    #[test]
+    fn locked_long_context_band_keeps_multipliers_for_later_requests() {
+        let base = BillingPricingResolved {
+            input_price_microcredits: 2_500_000,
+            cached_input_price_microcredits: 250_000,
+            output_price_microcredits: 15_000_000,
+            source: "exact".to_string(),
+        };
+        let rules = vec![BillingPricingRuleRecord {
+            id: Uuid::new_v4(),
+            model_pattern: "gpt-5.4".to_string(),
+            request_kind: BillingRequestKind::Any.as_str().to_string(),
+            scope: BillingPricingRuleScope::Session.as_str().to_string(),
+            threshold_input_tokens: Some(272_000),
+            input_multiplier_ppm: 2_000_000,
+            cached_input_multiplier_ppm: 1_000_000,
+            output_multiplier_ppm: 1_500_000,
+            priority: 100,
+        }];
+
+        let resolved = resolve_effective_pricing_for_band(
+            &base,
+            &rules,
+            "gpt-5.4",
+            BillingRequestKind::Compact,
+            Some(BillingPricingBand::LongContext),
+            Some(32_000),
+            BillingResolutionPhase::Capture,
+        );
+
+        assert_eq!(resolved.band, BillingPricingBand::LongContext);
+        assert_eq!(resolved.pricing.input_price_microcredits, 5_000_000);
+        assert_eq!(resolved.pricing.cached_input_price_microcredits, 250_000);
+        assert_eq!(resolved.pricing.output_price_microcredits, 22_500_000);
+    }
 }
 
 pub fn map_api_key_response_to_tenant_record(

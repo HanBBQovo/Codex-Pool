@@ -434,6 +434,7 @@ impl PostgresStore {
             ("gpt-5-codex", 1_250_000_i64, 125_000_i64, 10_000_000_i64),
             ("gpt-5-codex-mini", 300_000_i64, 30_000_i64, 1_500_000_i64),
             ("gpt-5-codex-nano", 50_000_i64, 5_000_i64, 400_000_i64),
+            ("gpt-5.4", 2_500_000_i64, 250_000_i64, 15_000_000_i64),
         ] {
             sqlx::query(
                 r#"
@@ -461,6 +462,92 @@ impl PostgresStore {
             .await
             .with_context(|| format!("failed to seed default model pricing for {model}"))?;
         }
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS billing_pricing_rules (
+                id UUID PRIMARY KEY,
+                model_pattern TEXT NOT NULL,
+                request_kind TEXT NOT NULL DEFAULT 'any',
+                scope TEXT NOT NULL DEFAULT 'request',
+                threshold_input_tokens BIGINT NULL,
+                input_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                cached_input_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                output_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                priority INTEGER NOT NULL DEFAULT 0,
+                enabled BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create billing_pricing_rules table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_billing_pricing_rules_match
+            ON billing_pricing_rules (enabled, priority DESC, model_pattern)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create billing_pricing_rules match index")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS billing_sessions (
+                tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                session_key TEXT NOT NULL,
+                model TEXT NOT NULL,
+                pricing_band TEXT NOT NULL,
+                entered_band_at TIMESTAMPTZ NOT NULL,
+                last_seen_at TIMESTAMPTZ NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (tenant_id, session_key)
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create billing_sessions table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_billing_sessions_expires_at
+            ON billing_sessions (expires_at)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create billing_sessions expires index")?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO billing_pricing_rules (
+                id,
+                model_pattern,
+                request_kind,
+                scope,
+                threshold_input_tokens,
+                input_multiplier_ppm,
+                cached_input_multiplier_ppm,
+                output_multiplier_ppm,
+                priority,
+                enabled,
+                created_at,
+                updated_at
+            )
+            VALUES ($1, 'gpt-5.4', 'any', 'session', 272000, 2000000, 1000000, 1500000, 100, true, $2, $2)
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(now)
+        .execute(tx.as_mut())
+        .await
+        .context("failed to seed billing pricing rule for gpt-5.4")?;
 
         sqlx::query(
             r#"

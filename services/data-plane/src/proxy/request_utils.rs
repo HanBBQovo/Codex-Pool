@@ -1172,6 +1172,24 @@ fn parse_request_policy_context(
         request_id,
         estimated_input_tokens,
         sticky_key_hint,
+        session_key_hint: sticky_session_key_from_headers(headers)
+            .or_else(|| {
+                value
+                    .get("metadata")
+                    .and_then(|meta| meta.get("session_id"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string)
+            })
+            .or_else(|| {
+                value
+                    .get("previous_response_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string)
+            }),
     }
 }
 

@@ -101,6 +101,7 @@ struct ParsedRequestPolicyContext {
     request_id: Option<String>,
     estimated_input_tokens: Option<i64>,
     sticky_key_hint: Option<String>,
+    session_key_hint: Option<String>,
 }
 
 #[derive(Debug)]
@@ -116,6 +117,8 @@ struct PendingBillingSession {
     api_key_id: Uuid,
     request_id: String,
     model: String,
+    session_key: String,
+    request_kind: String,
     is_stream: bool,
     estimated_input_tokens: i64,
     reserved_microcredits: i64,
@@ -131,6 +134,8 @@ struct BillingSession {
     request_started: Instant,
     request_id: String,
     model: String,
+    session_key: String,
+    request_kind: String,
     is_stream: bool,
     first_token_latency_ms: Option<u64>,
     estimated_input_tokens: i64,
@@ -190,6 +195,8 @@ struct InternalBillingAuthorizePayload {
     api_key_id: Option<Uuid>,
     request_id: String,
     model: String,
+    session_key: Option<String>,
+    request_kind: Option<String>,
     reserved_microcredits: i64,
     ttl_sec: Option<u64>,
     #[serde(default)]
@@ -209,6 +216,8 @@ struct InternalBillingCapturePayload {
     api_key_id: Option<Uuid>,
     request_id: String,
     model: String,
+    session_key: Option<String>,
+    request_kind: Option<String>,
     input_tokens: i64,
     #[serde(default)]
     cached_input_tokens: i64,
@@ -287,6 +296,8 @@ struct InternalBillingErrorEnvelope {
 
 #[derive(Debug, Deserialize)]
 struct InternalBillingErrorBody {
+    #[serde(default)]
+    code: String,
     message: String,
 }
 

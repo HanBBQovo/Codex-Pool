@@ -48,6 +48,13 @@ impl TenantAuthService {
             );
         let now = Utc::now();
         let expires_at = now + chrono::Duration::seconds(ttl_sec as i64);
+        let request_kind = BillingRequestKind::from_optional(req.request_kind.as_deref());
+        let session_key = req
+            .session_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
 
         let mut tx = self
             .pool
@@ -77,6 +84,25 @@ impl TenantAuthService {
             });
         }
 
+        let existing_session = match session_key.as_deref() {
+            Some(value) => {
+                self.fetch_billing_session_for_update(&mut tx, req.tenant_id, value)
+                    .await?
+            }
+            None => None,
+        };
+        let pricing_decision = self
+            .resolve_model_pricing_for_request(
+                model,
+                request_kind,
+                existing_session
+                    .as_ref()
+                    .map(|record| BillingPricingBand::from_optional(Some(record.pricing_band.as_str()))),
+                None,
+                BillingResolutionPhase::Authorize,
+            )
+            .await?;
+
         let authorization_id = Uuid::new_v4();
         let balance_microcredits = self
             .apply_credit_delta_inner(
@@ -94,6 +120,10 @@ impl TenantAuthService {
                         "phase": "authorize",
                         "authorization_id": authorization_id,
                         "request_id": request_id,
+                        "session_key": session_key,
+                        "request_kind": request_kind.as_str(),
+                        "pricing_band": pricing_decision.band.as_str(),
+                        "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
                         "is_stream": req.is_stream,
                     })),
                     now,
@@ -120,12 +150,28 @@ impl TenantAuthService {
         .bind(json!({
             "phase": "authorize",
             "source": "data_plane",
+            "session_key": session_key,
+            "request_kind": request_kind.as_str(),
+            "pricing_band": pricing_decision.band.as_str(),
+            "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
             "is_stream": req.is_stream,
         }))
         .bind(now)
         .execute(tx.as_mut())
         .await
         .context("failed to insert billing authorization")?;
+
+        if let Some(value) = session_key.as_deref() {
+            self.upsert_billing_session(
+                &mut tx,
+                req.tenant_id,
+                value,
+                model,
+                pricing_decision.band,
+                now,
+            )
+            .await?;
+        }
 
         tx.commit()
             .await
@@ -161,13 +207,6 @@ impl TenantAuthService {
         let output_tokens = req.output_tokens.max(0);
         let reasoning_tokens = req.reasoning_tokens.max(0);
         let billable_output_tokens = output_tokens.max(reasoning_tokens);
-        let pricing = self.resolve_model_pricing(model).await?;
-        let charged_microcredits = calculate_charged_microcredits(
-            input_tokens,
-            cached_input_tokens,
-            billable_output_tokens,
-            &pricing,
-        );
 
         let now = Utc::now();
         let mut tx = self
@@ -205,6 +244,45 @@ impl TenantAuthService {
             ));
         }
 
+        let session_key = req
+            .session_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .or_else(|| authorization_session_key(authorization.meta_json.as_ref()));
+        let request_kind = match BillingRequestKind::from_optional(req.request_kind.as_deref()) {
+            BillingRequestKind::Unknown => authorization_request_kind(authorization.meta_json.as_ref())
+                .unwrap_or(BillingRequestKind::Unknown),
+            value => value,
+        };
+        let existing_session = match session_key.as_deref() {
+            Some(value) => {
+                self.fetch_billing_session_for_update(&mut tx, req.tenant_id, value)
+                    .await?
+            }
+            None => None,
+        };
+        let pricing_decision = self
+            .resolve_model_pricing_for_request(
+                model,
+                request_kind,
+                existing_session
+                    .as_ref()
+                    .map(|record| BillingPricingBand::from_optional(Some(record.pricing_band.as_str())))
+                    .or_else(|| authorization_pricing_band(authorization.meta_json.as_ref())),
+                Some(input_tokens),
+                BillingResolutionPhase::Capture,
+            )
+            .await?;
+        let pricing = pricing_decision.pricing.clone();
+        let charged_microcredits = calculate_charged_microcredits(
+            input_tokens,
+            cached_input_tokens,
+            billable_output_tokens,
+            &pricing,
+        );
+
         let extra_charge_microcredits = charged_microcredits
             .saturating_sub(authorization.reserved_microcredits)
             .max(0);
@@ -223,6 +301,10 @@ impl TenantAuthService {
                     meta_json: Some(json!({
                         "phase": "capture",
                         "authorization_id": authorization.id,
+                        "session_key": session_key,
+                        "request_kind": request_kind.as_str(),
+                        "pricing_band": pricing_decision.band.as_str(),
+                        "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
                         "reserved_microcredits": authorization.reserved_microcredits,
                         "charged_microcredits": charged_microcredits,
                         "extra_charge_microcredits": extra_charge_microcredits,
@@ -248,7 +330,8 @@ impl TenantAuthService {
                 model = COALESCE(model, $3),
                 captured_microcredits = $4,
                 status = 'captured',
-                updated_at = $5
+                meta_json = COALESCE(meta_json, '{}'::jsonb) || $5::jsonb,
+                updated_at = $6
             WHERE id = $1
             "#,
         )
@@ -256,10 +339,33 @@ impl TenantAuthService {
         .bind(req.api_key_id.or(authorization.api_key_id))
         .bind(authorization.model.as_deref().unwrap_or(model))
         .bind(charged_microcredits)
+        .bind(json!({
+            "phase": "capture",
+            "session_key": session_key,
+            "request_kind": request_kind.as_str(),
+            "pricing_band": pricing_decision.band.as_str(),
+            "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
+            "pricing_source": pricing.source,
+            "charged_microcredits": charged_microcredits,
+            "captured_at": now,
+            "is_stream": req.is_stream,
+        }))
         .bind(now)
         .execute(tx.as_mut())
         .await
         .context("failed to update billing authorization capture status")?;
+
+        if let Some(value) = session_key.as_deref() {
+            self.upsert_billing_session(
+                &mut tx,
+                req.tenant_id,
+                value,
+                model,
+                pricing_decision.band,
+                now,
+            )
+            .await?;
+        }
 
         tx.commit()
             .await
@@ -451,6 +557,9 @@ impl TenantAuthService {
                         api_key_id: req.api_key_id.or(authorization.api_key_id),
                         request_id: request_id.to_string(),
                         model: model.to_string(),
+                        session_key: authorization_session_key(authorization.meta_json.as_ref()),
+                        request_kind: authorization_request_kind(authorization.meta_json.as_ref())
+                            .map(|value| value.as_str().to_string()),
                         input_tokens,
                         cached_input_tokens: cached_input_tokens.unwrap_or(0),
                         output_tokens,
@@ -530,7 +639,8 @@ impl TenantAuthService {
                 reserved_microcredits,
                 captured_microcredits,
                 status,
-                expires_at
+                expires_at,
+                meta_json
             FROM tenant_credit_authorizations
             WHERE
                 (status = 'authorized' AND expires_at <= $1)
@@ -559,6 +669,7 @@ impl TenantAuthService {
                 captured_microcredits: row.try_get("captured_microcredits")?,
                 status: row.try_get("status")?,
                 expires_at: row.try_get("expires_at")?,
+                meta_json: Some(row.try_get("meta_json")?),
             };
             stats.scanned = stats.scanned.saturating_add(1);
 
@@ -639,7 +750,6 @@ impl TenantAuthService {
         reasoning_tokens: i64,
         api_key_id: Option<Uuid>,
     ) -> Result<bool> {
-        let pricing = self.resolve_model_pricing(model).await?;
         let normalized_input_tokens = input_tokens.max(0);
         let normalized_cached_input_tokens = cached_input_tokens.max(0).min(normalized_input_tokens);
         let billable_input_tokens =
@@ -647,12 +757,6 @@ impl TenantAuthService {
         let normalized_reasoning_tokens = reasoning_tokens.max(0);
         let normalized_output_tokens = output_tokens.max(0);
         let billable_output_tokens = normalized_output_tokens.max(normalized_reasoning_tokens);
-        let expected_captured_microcredits = calculate_charged_microcredits(
-            normalized_input_tokens,
-            normalized_cached_input_tokens,
-            billable_output_tokens,
-            &pricing,
-        );
 
         let now = Utc::now();
         let mut tx = self
@@ -669,6 +773,25 @@ impl TenantAuthService {
                 .context("failed to commit reconcile adjust noop transaction")?;
             return Ok(false);
         };
+
+        let request_kind = authorization_request_kind(authorization.meta_json.as_ref())
+            .unwrap_or(BillingRequestKind::Unknown);
+        let pricing_decision = self
+            .resolve_model_pricing_for_request(
+                model,
+                request_kind,
+                authorization_pricing_band(authorization.meta_json.as_ref()),
+                Some(normalized_input_tokens),
+                BillingResolutionPhase::Capture,
+            )
+            .await?;
+        let pricing = pricing_decision.pricing.clone();
+        let expected_captured_microcredits = calculate_charged_microcredits(
+            normalized_input_tokens,
+            normalized_cached_input_tokens,
+            billable_output_tokens,
+            &pricing,
+        );
 
         if authorization.captured_microcredits == expected_captured_microcredits {
             tx.commit()
@@ -701,6 +824,9 @@ impl TenantAuthService {
                             "reason": "request_log_capture_mismatch",
                             "request_id": request_id,
                             "authorization_id": authorization.id,
+                            "request_kind": request_kind.as_str(),
+                            "pricing_band": pricing_decision.band.as_str(),
+                            "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
                             "previous_captured_microcredits": authorization.captured_microcredits,
                             "expected_captured_microcredits": expected_captured_microcredits,
                             "delta_microcredits": delta_microcredits,
@@ -734,8 +860,12 @@ impl TenantAuthService {
             "phase": "reconcile_adjust",
             "reason": "request_log_capture_mismatch",
             "request_id": request_id,
+            "request_kind": request_kind.as_str(),
+            "pricing_band": pricing_decision.band.as_str(),
+            "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
             "previous_captured_microcredits": authorization.captured_microcredits,
             "expected_captured_microcredits": expected_captured_microcredits,
+            "pricing_source": pricing.source,
             "reconciled_at": now,
         }))
         .bind(now)
