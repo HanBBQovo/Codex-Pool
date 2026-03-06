@@ -32,7 +32,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { LoadingOverlay } from '@/components/ui/loading-overlay'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
-import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { POOL_SECTION_CLASS_NAME } from '@/lib/pool-styles'
 import { cn } from '@/lib/utils'
@@ -666,26 +665,8 @@ export default function Models() {
                           : '-'}
                       </div>
                     </div>
-                    {currentOfficial?.pricing_notes ? (
-                      <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground">
-                        {currentOfficial?.pricing_notes}
-                      </div>
-                    ) : null}
                   </div>
                 </div>
-
-                {currentOfficial?.raw_text ? (
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-medium">
-                      {t('models.detail.rawText', { defaultValue: 'Official text snapshot' })}
-                    </h4>
-                    <Textarea
-                      readOnly
-                      value={currentOfficial?.raw_text}
-                      className="min-h-[180px] font-mono text-xs"
-                    />
-                  </div>
-                ) : null}
               </section>
 
               <section className={POOL_SECTION_CLASS_NAME}>
