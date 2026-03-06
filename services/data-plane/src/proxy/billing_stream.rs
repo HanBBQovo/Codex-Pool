@@ -52,7 +52,8 @@ async fn build_pending_billing_session(
         .clone()
         .unwrap_or_else(|| request_id.clone());
     let reserved_microcredits =
-        estimate_authorize_reserve_microcredits(state, model, estimated_input_tokens).await;
+        estimate_authorize_reserve_microcredits(state, api_key_id, model, estimated_input_tokens)
+            .await;
 
     Ok(Some(PendingBillingSession {
         tenant_id,
@@ -78,6 +79,7 @@ fn billing_request_kind(path: &str) -> &'static str {
 
 async fn estimate_authorize_reserve_microcredits(
     state: &AppState,
+    api_key_id: Uuid,
     model: &str,
     estimated_input_tokens: i64,
 ) -> i64 {
@@ -85,7 +87,7 @@ async fn estimate_authorize_reserve_microcredits(
         return mark_fallback_preauth_reserve(state, state.stream_billing_reserve_microcredits);
     }
 
-    if let Some(pricing) = resolve_model_pricing_for_preauth(state, model).await {
+    if let Some(pricing) = resolve_model_pricing_for_preauth(state, api_key_id, model).await {
         if let Some(reserve) = estimate_reserve_with_model_pricing(
             state,
             estimated_input_tokens,
@@ -110,9 +112,10 @@ async fn estimate_authorize_reserve_microcredits(
 
 async fn resolve_model_pricing_for_preauth(
     state: &AppState,
+    api_key_id: Uuid,
     model: &str,
 ) -> Option<InternalBillingPricingResponse> {
-    let model_key = model.trim().to_ascii_lowercase();
+    let model_key = format!("{}:{}", api_key_id, model.trim().to_ascii_lowercase());
     if model_key.is_empty() {
         return None;
     }
@@ -130,7 +133,7 @@ async fn resolve_model_pricing_for_preauth(
         }
     }
 
-    let fetched = fetch_model_pricing_from_control_plane(state, model).await?;
+    let fetched = fetch_model_pricing_from_control_plane(state, api_key_id, model).await?;
     if let Ok(mut cache) = state.billing_pricing_cache.write() {
         cache.insert(
             model_key,
@@ -148,6 +151,7 @@ async fn resolve_model_pricing_for_preauth(
 
 async fn fetch_model_pricing_from_control_plane(
     state: &AppState,
+    api_key_id: Uuid,
     model: &str,
 ) -> Option<InternalBillingPricingResponse> {
     let base_url = state.control_plane_base_url.as_deref()?;
@@ -161,6 +165,7 @@ async fn fetch_model_pricing_from_control_plane(
         .bearer_auth(state.control_plane_internal_auth_token.as_ref())
         .json(&InternalBillingPricingPayload {
             model: model.to_string(),
+            api_key_id: Some(api_key_id),
         })
         .timeout(Duration::from_secs(INTERNAL_BILLING_PRICING_TIMEOUT_SEC))
         .send()

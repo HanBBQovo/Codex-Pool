@@ -1253,6 +1253,19 @@ async fn list_tenant_api_keys(
         .map_err(map_tenant_error)
 }
 
+async fn list_tenant_api_key_groups(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::tenant::ApiKeyGroupItem>>, (StatusCode, Json<ErrorEnvelope>)> {
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    let _principal = require_tenant_principal(&state, &headers).await?;
+    tenant_auth
+        .tenant_list_api_key_groups()
+        .await
+        .map(Json)
+        .map_err(map_tenant_error)
+}
+
 async fn create_tenant_api_key(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1280,6 +1293,8 @@ async fn create_tenant_api_key(
                 "name": response.record.name.clone(),
                 "ip_allowlist_count": response.record.ip_allowlist.len(),
                 "model_allowlist_count": response.record.model_allowlist.len(),
+                "group_id": response.record.group_id,
+                "group_name": response.record.group.name.clone(),
             }),
             result_status: "ok".to_string(),
         },
@@ -1316,6 +1331,8 @@ async fn patch_tenant_api_key(
                 "enabled": response.enabled,
                 "ip_allowlist_count": response.ip_allowlist.len(),
                 "model_allowlist_count": response.model_allowlist.len(),
+                "group_id": response.group_id,
+                "group_name": response.group.name.clone(),
             }),
             result_status: "ok".to_string(),
         },

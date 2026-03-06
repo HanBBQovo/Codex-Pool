@@ -238,6 +238,8 @@ struct InternalBillingCaptureResponse {
 #[derive(Debug, Serialize)]
 struct InternalBillingPricingPayload {
     model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_key_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

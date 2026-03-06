@@ -1348,6 +1348,14 @@ fn enforce_principal_request_policy(
         return Ok(());
     };
 
+    if principal.api_key_group_invalid {
+        return Err(Box::new(json_error(
+            StatusCode::FORBIDDEN,
+            "api_key_group_invalid",
+            "api key group is unavailable; update the api key group assignment",
+        )));
+    }
+
     if !principal
         .tenant_status
         .as_deref()

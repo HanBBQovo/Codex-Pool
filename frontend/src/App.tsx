@@ -32,6 +32,7 @@ const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const Accounts = lazy(() => import('@/pages/Accounts'))
 const ImportJobs = lazy(() => import('@/pages/ImportJobs'))
 const OAuthImport = lazy(() => import('@/pages/OAuthImport'))
+const Groups = lazy(() => import('@/pages/Groups'))
 const Models = lazy(() => import('@/pages/Models'))
 const Usage = lazy(() => import('@/pages/Usage'))
 const Billing = lazy(() => import('@/pages/Billing'))
@@ -202,6 +203,7 @@ function AdminApp() {
                   <Route path="/accounts" element={<Suspense fallback={<RouteSkeleton />}><Accounts /></Suspense>} />
                   <Route path="/imports" element={<Suspense fallback={<RouteSkeleton />}><ImportJobs /></Suspense>} />
                   <Route path="/oauth-import" element={<Suspense fallback={<RouteSkeleton />}><OAuthImport /></Suspense>} />
+                  <Route path="/groups" element={<Suspense fallback={<RouteSkeleton />}><Groups /></Suspense>} />
                   <Route path="/models" element={<Suspense fallback={<RouteSkeleton />}><Models /></Suspense>} />
                   <Route path="/usage" element={<Suspense fallback={<RouteSkeleton />}><Usage /></Suspense>} />
                   <Route path="/billing" element={<Suspense fallback={<RouteSkeleton />}><Billing /></Suspense>} />

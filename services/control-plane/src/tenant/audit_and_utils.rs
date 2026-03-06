@@ -7,7 +7,14 @@ impl TenantAuthService {
         if model.is_empty() {
             return Err(anyhow!("model must not be empty"));
         }
-        let resolved = self.resolve_model_pricing(model).await?;
+        let base = self.resolve_model_pricing(model).await?;
+        let resolved = if let Some(api_key_id) = req.api_key_id {
+            self.resolve_api_key_group_pricing(api_key_id, model, &base)
+                .await?
+                .final_pricing
+        } else {
+            base
+        };
         Ok(BillingPricingResponse {
             model: model.to_string(),
             input_price_microcredits: resolved.input_price_microcredits,
@@ -435,6 +442,7 @@ impl TenantAuthService {
     async fn resolve_model_pricing_for_request(
         &self,
         model: &str,
+        api_key_id: Option<Uuid>,
         request_kind: BillingRequestKind,
         persisted_band: Option<BillingPricingBand>,
         actual_input_tokens: Option<i64>,
@@ -444,7 +452,7 @@ impl TenantAuthService {
         let rules = self
             .list_matching_billing_pricing_rules(model, request_kind)
             .await?;
-        Ok(resolve_effective_pricing_for_band(
+        let mut resolved = resolve_effective_pricing_for_band(
             &base,
             &rules,
             model,
@@ -452,7 +460,14 @@ impl TenantAuthService {
             persisted_band,
             actual_input_tokens,
             phase,
-        ))
+        );
+        if let Some(api_key_id) = api_key_id {
+            resolved.pricing = self
+                .resolve_api_key_group_pricing(api_key_id, model, &resolved.pricing)
+                .await?
+                .final_pricing;
+        }
+        Ok(resolved)
     }
 
     async fn list_matching_billing_pricing_rules(
@@ -1039,6 +1054,66 @@ fn apply_multiplier_ppm(price_microcredits: i64, multiplier_ppm: i64) -> i64 {
     (numerator / BILLING_MULTIPLIER_PPM_ONE as i128).clamp(0, i64::MAX as i128) as i64
 }
 
+fn policy_has_absolute_pricing(policy: Option<&ApiKeyGroupModelPolicyRecord>) -> bool {
+    policy.is_some_and(|item| {
+        item.input_price_microcredits.is_some()
+            && item.cached_input_price_microcredits.is_some()
+            && item.output_price_microcredits.is_some()
+    })
+}
+
+fn apply_api_key_group_model_pricing(
+    base: &BillingPricingResolved,
+    group: &ApiKeyGroupRecord,
+    policy: Option<&ApiKeyGroupModelPolicyRecord>,
+) -> ApiKeyGroupResolvedPricing {
+    let formula = BillingPricingResolved {
+        input_price_microcredits: apply_multiplier_ppm(
+            apply_multiplier_ppm(base.input_price_microcredits, group.input_multiplier_ppm),
+            policy
+                .map(|item| item.input_multiplier_ppm)
+                .unwrap_or(BILLING_MULTIPLIER_PPM_ONE),
+        ),
+        cached_input_price_microcredits: apply_multiplier_ppm(
+            apply_multiplier_ppm(
+                base.cached_input_price_microcredits,
+                group.cached_input_multiplier_ppm,
+            ),
+            policy
+                .map(|item| item.cached_input_multiplier_ppm)
+                .unwrap_or(BILLING_MULTIPLIER_PPM_ONE),
+        ),
+        output_price_microcredits: apply_multiplier_ppm(
+            apply_multiplier_ppm(base.output_price_microcredits, group.output_multiplier_ppm),
+            policy
+                .map(|item| item.output_multiplier_ppm)
+                .unwrap_or(BILLING_MULTIPLIER_PPM_ONE),
+        ),
+        source: format!("{}+group_formula:{}", base.source, group.id),
+    };
+
+    if let Some(item) = policy.filter(|_| policy_has_absolute_pricing(policy)) {
+        return ApiKeyGroupResolvedPricing {
+            formula,
+            final_pricing: BillingPricingResolved {
+                input_price_microcredits: item.input_price_microcredits.unwrap_or(0),
+                cached_input_price_microcredits: item
+                    .cached_input_price_microcredits
+                    .unwrap_or(0),
+                output_price_microcredits: item.output_price_microcredits.unwrap_or(0),
+                source: format!("{}+group_absolute:{}", base.source, item.id),
+            },
+            uses_absolute_pricing: true,
+        };
+    }
+
+    ApiKeyGroupResolvedPricing {
+        formula: formula.clone(),
+        final_pricing: formula,
+        uses_absolute_pricing: false,
+    }
+}
+
 fn authorization_meta_string(meta_json: Option<&serde_json::Value>, key: &str) -> Option<String> {
     meta_json
         .and_then(|value| value.get(key))
@@ -1126,6 +1201,18 @@ fn parse_tenant_api_key_row(row: sqlx_postgres::PgRow) -> Result<TenantApiKeyRec
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let group_deleted = row
+        .try_get::<Option<DateTime<Utc>>, _>("group_deleted_at")?
+        .is_some();
+    let group = ApiKeyGroupBindingItem {
+        id: row.try_get("group_id")?,
+        name: row.try_get("group_name")?,
+        is_default: row.try_get("group_is_default")?,
+        enabled: row.try_get("group_enabled")?,
+        allow_all_models: row.try_get("group_allow_all_models")?,
+        deleted: group_deleted,
+        description: row.try_get::<Option<String>, _>("group_description")?,
+    };
     Ok(TenantApiKeyRecord {
         id: row.try_get("id")?,
         tenant_id: row.try_get("tenant_id")?,
@@ -1135,6 +1222,8 @@ fn parse_tenant_api_key_row(row: sqlx_postgres::PgRow) -> Result<TenantApiKeyRec
         created_at: row.try_get("created_at")?,
         ip_allowlist,
         model_allowlist,
+        group_id: group.id,
+        group,
     })
 }
 
@@ -1157,6 +1246,7 @@ pub fn map_api_key_response_to_tenant_record(
     response: CreateApiKeyResponse,
     ip_allowlist: Vec<String>,
     model_allowlist: Vec<String>,
+    group: ApiKeyGroupBindingItem,
 ) -> TenantCreateApiKeyResponse {
     let record = response.record;
     TenantCreateApiKeyResponse {
@@ -1169,6 +1259,8 @@ pub fn map_api_key_response_to_tenant_record(
             created_at: record.created_at,
             ip_allowlist,
             model_allowlist,
+            group_id: group.id,
+            group,
         },
         plaintext_key: response.plaintext_key,
     }
@@ -1178,6 +1270,7 @@ pub fn map_api_key_to_tenant_record(
     api_key: ApiKey,
     ip_allowlist: Vec<String>,
     model_allowlist: Vec<String>,
+    group: ApiKeyGroupBindingItem,
 ) -> TenantApiKeyRecord {
     TenantApiKeyRecord {
         id: api_key.id,
@@ -1188,6 +1281,8 @@ pub fn map_api_key_to_tenant_record(
         created_at: api_key.created_at,
         ip_allowlist,
         model_allowlist,
+        group_id: group.id,
+        group,
     }
 }
 
@@ -1195,6 +1290,7 @@ pub fn map_api_key_to_tenant_record(
 #[cfg(test)]
 mod billing_pricing_rule_tests {
     use super::*;
+    use chrono::Utc;
 
     #[test]
     fn stays_on_base_band_below_long_context_threshold() {
@@ -1263,5 +1359,101 @@ mod billing_pricing_rule_tests {
         assert_eq!(resolved.pricing.input_price_microcredits, 5_000_000);
         assert_eq!(resolved.pricing.cached_input_price_microcredits, 250_000);
         assert_eq!(resolved.pricing.output_price_microcredits, 22_500_000);
+    }
+
+    #[test]
+    fn api_key_group_formula_pricing_applies_group_and_model_multipliers() {
+        let base = BillingPricingResolved {
+            input_price_microcredits: 2_000_000,
+            cached_input_price_microcredits: 200_000,
+            output_price_microcredits: 8_000_000,
+            source: "manual_override".to_string(),
+        };
+        let group = ApiKeyGroupRecord {
+            id: Uuid::new_v4(),
+            name: "starter".to_string(),
+            description: None,
+            is_default: false,
+            enabled: true,
+            allow_all_models: false,
+            input_multiplier_ppm: 1_500_000,
+            cached_input_multiplier_ppm: 2_000_000,
+            output_multiplier_ppm: 1_250_000,
+            deleted_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let policy = ApiKeyGroupModelPolicyRecord {
+            id: Uuid::new_v4(),
+            _group_id: group.id,
+            model_id: "gpt-5.4".to_string(),
+            enabled: true,
+            input_multiplier_ppm: 2_000_000,
+            cached_input_multiplier_ppm: 500_000,
+            output_multiplier_ppm: 3_000_000,
+            input_price_microcredits: None,
+            cached_input_price_microcredits: None,
+            output_price_microcredits: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let resolved = apply_api_key_group_model_pricing(&base, &group, Some(&policy));
+
+        assert!(!resolved.uses_absolute_pricing);
+        assert_eq!(resolved.formula.input_price_microcredits, 6_000_000);
+        assert_eq!(resolved.formula.cached_input_price_microcredits, 200_000);
+        assert_eq!(resolved.formula.output_price_microcredits, 30_000_000);
+        assert_eq!(resolved.final_pricing.input_price_microcredits, 6_000_000);
+        assert_eq!(resolved.final_pricing.cached_input_price_microcredits, 200_000);
+        assert_eq!(resolved.final_pricing.output_price_microcredits, 30_000_000);
+    }
+
+    #[test]
+    fn api_key_group_absolute_pricing_overrides_formula_pricing() {
+        let base = BillingPricingResolved {
+            input_price_microcredits: 1_000_000,
+            cached_input_price_microcredits: 100_000,
+            output_price_microcredits: 4_000_000,
+            source: "official_sync".to_string(),
+        };
+        let group = ApiKeyGroupRecord {
+            id: Uuid::new_v4(),
+            name: "pro".to_string(),
+            description: None,
+            is_default: false,
+            enabled: true,
+            allow_all_models: false,
+            input_multiplier_ppm: 2_000_000,
+            cached_input_multiplier_ppm: 2_000_000,
+            output_multiplier_ppm: 2_000_000,
+            deleted_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let policy = ApiKeyGroupModelPolicyRecord {
+            id: Uuid::new_v4(),
+            _group_id: group.id,
+            model_id: "gpt-5.4".to_string(),
+            enabled: true,
+            input_multiplier_ppm: 1_000_000,
+            cached_input_multiplier_ppm: 1_000_000,
+            output_multiplier_ppm: 1_000_000,
+            input_price_microcredits: Some(9_000_000),
+            cached_input_price_microcredits: Some(900_000),
+            output_price_microcredits: Some(36_000_000),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let resolved = apply_api_key_group_model_pricing(&base, &group, Some(&policy));
+
+        assert!(resolved.uses_absolute_pricing);
+        assert_eq!(resolved.formula.input_price_microcredits, 2_000_000);
+        assert_eq!(resolved.formula.cached_input_price_microcredits, 200_000);
+        assert_eq!(resolved.formula.output_price_microcredits, 8_000_000);
+        assert_eq!(resolved.final_pricing.input_price_microcredits, 9_000_000);
+        assert_eq!(resolved.final_pricing.cached_input_price_microcredits, 900_000);
+        assert_eq!(resolved.final_pricing.output_price_microcredits, 36_000_000);
     }
 }

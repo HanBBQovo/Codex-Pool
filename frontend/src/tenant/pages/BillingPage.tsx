@@ -8,7 +8,9 @@ import { useSearchParams } from 'react-router-dom'
 
 import { billingApi } from '@/api/billing'
 import { localizeApiErrorDisplay, localizeHttpStatusDisplay } from '@/api/errorI18n'
+import { groupsApi } from '@/api/groups'
 import { tenantCreditsApi, type TenantCreditLedgerItem } from '@/api/tenantCredits'
+import { tenantKeysApi } from '@/api/tenantKeys'
 import { notify } from '@/lib/notification'
 import { formatTokenCount } from '@/lib/token-format'
 import { Badge } from '@/components/ui/badge'
@@ -523,6 +525,7 @@ export function TenantBillingPage() {
   const [granularity, setGranularity] = useState<BillingGranularity>(() =>
     parseGranularity(searchParams.get('granularity')),
   )
+  const [billingApiKeyId, setBillingApiKeyId] = useState<string>('all')
   const [showRawLedgerEvents, setShowRawLedgerEvents] = useState(false)
 
   const { data: summary } = useQuery({
@@ -534,6 +537,18 @@ export function TenantBillingPage() {
   const { data: ledgerResponse } = useQuery({
     queryKey: ['tenantBillingLedger'],
     queryFn: () => billingApi.tenantLedger(200),
+    staleTime: 60_000,
+  })
+
+  const { data: keys = [] } = useQuery({
+    queryKey: ['tenantKeys', 'billing'],
+    queryFn: () => tenantKeysApi.list(),
+    staleTime: 60_000,
+  })
+
+  const { data: groups = [] } = useQuery({
+    queryKey: ['tenantApiKeyGroups', 'billing'],
+    queryFn: () => groupsApi.tenantList(),
     staleTime: 60_000,
   })
 
@@ -603,6 +618,16 @@ export function TenantBillingPage() {
     }
     return Array.from(buckets.values()).sort((left, right) => left.period.localeCompare(right.period))
   }, [granularity, rows])
+
+  const selectedBillingApiKey = useMemo(
+    () => (billingApiKeyId === 'all' ? null : keys.find((item) => item.id === billingApiKeyId) ?? null),
+    [billingApiKeyId, keys],
+  )
+
+  const selectedBillingGroup = useMemo(
+    () => (selectedBillingApiKey ? groups.find((item) => item.id === selectedBillingApiKey.group_id) ?? null : null),
+    [groups, selectedBillingApiKey],
+  )
 
   const columns = useMemo<ColumnDef<TenantCreditLedgerItem>[]>(() => {
     const resolvedColumns: ColumnDef<TenantCreditLedgerItem>[] = [
@@ -880,6 +905,95 @@ export function TenantBillingPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="space-y-2">
+          <CardTitle>{t('tenantBilling.groupPricing.title', { defaultValue: 'API key group pricing' })}</CardTitle>
+          <CardDescription>
+            {t('tenantBilling.groupPricing.description', { defaultValue: 'Review which pricing group each API key uses, and inspect effective model prices for a selected key.' })}
+          </CardDescription>
+          <div className="max-w-[260px]">
+            <Select value={billingApiKeyId} onValueChange={setBillingApiKeyId}>
+              <SelectTrigger aria-label={t('tenantBilling.groupPricing.apiKeyAriaLabel', { defaultValue: 'API key selector' })}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('tenantBilling.groupPricing.allKeys', { defaultValue: 'All API keys' })}</SelectItem>
+                {keys.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>{`${item.name} (${item.key_prefix})`}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {selectedBillingApiKey && selectedBillingGroup ? (
+            <div className="space-y-3">
+              <div className="rounded-md border px-4 py-3 text-sm">
+                <div className="font-medium">{selectedBillingApiKey.name} · {selectedBillingGroup.name}</div>
+                <div className="mt-1 text-muted-foreground">
+                  {selectedBillingApiKey.group.deleted
+                    ? t('tenantBilling.groupPricing.invalidGroup', { defaultValue: 'This API key is bound to a deleted group. Requests will fail until you change the group.' })
+                    : t('tenantBilling.groupPricing.groupSummary', {
+                        defaultValue: 'Configured models: {{count}} · allow-all: {{allowAll}}',
+                        count: selectedBillingGroup.model_count,
+                        allowAll: selectedBillingGroup.allow_all_models ? t('common.yes', { defaultValue: 'Yes' }) : t('common.no', { defaultValue: 'No' }),
+                      })}
+                </div>
+              </div>
+              <div className="max-h-[280px] overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">{t('tenantBilling.groupPricing.columns.model', { defaultValue: 'Model' })}</th>
+                      <th className="px-3 py-2">{t('tenantBilling.groupPricing.columns.finalPrice', { defaultValue: 'Final price' })}</th>
+                      <th className="px-3 py-2">{t('tenantBilling.groupPricing.columns.formulaPrice', { defaultValue: 'Formula price' })}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedBillingGroup.models.slice(0, 16).map((item) => (
+                      <tr key={item.model} className="border-t align-top">
+                        <td className="px-3 py-2 font-mono text-xs">{item.model}</td>
+                        <td className="px-3 py-2 text-xs">{`in ${formatMicrocredits(item.final_input_price_microcredits ?? undefined)} · cached ${formatMicrocredits(item.final_cached_input_price_microcredits ?? undefined)} · out ${formatMicrocredits(item.final_output_price_microcredits ?? undefined)}`}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {item.uses_absolute_pricing ? (
+                            <span className="line-through">{`in ${formatMicrocredits(item.formula_input_price_microcredits ?? undefined)} · cached ${formatMicrocredits(item.formula_cached_input_price_microcredits ?? undefined)} · out ${formatMicrocredits(item.formula_output_price_microcredits ?? undefined)}`}</span>
+                          ) : (`in ${formatMicrocredits(item.formula_input_price_microcredits ?? undefined)} · cached ${formatMicrocredits(item.formula_cached_input_price_microcredits ?? undefined)} · out ${formatMicrocredits(item.formula_output_price_microcredits ?? undefined)}`)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="max-h-[280px] overflow-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2">{t('tenantBilling.groupPricing.columns.apiKey', { defaultValue: 'API key' })}</th>
+                    <th className="px-3 py-2">{t('tenantBilling.groupPricing.columns.group', { defaultValue: 'Group' })}</th>
+                    <th className="px-3 py-2">{t('tenantBilling.groupPricing.columns.state', { defaultValue: 'State' })}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {keys.map((item) => (
+                    <tr key={item.id} className="border-t">
+                      <td className="px-3 py-2">{item.name}</td>
+                      <td className="px-3 py-2">{item.group.name}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {item.group.deleted
+                          ? t('tenantBilling.groupPricing.state.invalid', { defaultValue: 'Invalid (deleted group)' })
+                          : t('tenantBilling.groupPricing.state.active', { defaultValue: 'Active' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

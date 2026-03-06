@@ -269,6 +269,42 @@ export function TenantDashboardPage() {
     },
   ]
 
+  const groupOverviewItems = useMemo(() => {
+    if (selectedApiKeyId) {
+      const key = keys.find((item) => item.id === selectedApiKeyId)
+      return key
+        ? [
+            {
+              id: key.id,
+              label: `${key.name} (${key.key_prefix})`,
+              groupName: key.group.name,
+              invalid: key.group.deleted,
+            },
+          ]
+        : []
+    }
+    const buckets = new Map<string, { label: string; count: number; invalid: boolean }>()
+    for (const key of keys) {
+      const current = buckets.get(key.group_id) ?? {
+        label: key.group.name,
+        count: 0,
+        invalid: key.group.deleted,
+      }
+      current.count += 1
+      current.invalid = current.invalid || key.group.deleted
+      buckets.set(key.group_id, current)
+    }
+    return Array.from(buckets.entries()).map(([id, item]) => ({
+      id,
+      label: item.label,
+      groupName: t('tenantDashboard.groupOverview.keysBound', {
+        defaultValue: '{{count}} API keys bound',
+        count: item.count,
+      }),
+      invalid: item.invalid,
+    }))
+  }, [keys, selectedApiKeyId, t])
+
   return (
     <div className="relative flex-1 overflow-hidden">
       <div className="pointer-events-none absolute inset-0" aria-hidden>
@@ -385,6 +421,42 @@ export function TenantDashboardPage() {
             </Card>
           </AnimatedContent>
         </div>
+
+        <AnimatedContent distance={12} duration={0.24} className="h-full">
+          <Card className="border border-white/40 bg-white/70 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+            <CardHeader className="space-y-1">
+              <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                {t('tenantDashboard.groupOverview.title', { defaultValue: 'API key group overview' })}
+              </p>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                {selectedApiKeyId
+                  ? t('tenantDashboard.groupOverview.singleDescription', { defaultValue: 'Current API key group binding and validity state.' })
+                  : t('tenantDashboard.groupOverview.allDescription', { defaultValue: 'How your current API keys are distributed across pricing groups.' })}
+              </p>
+            </CardHeader>
+            <CardBody className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {groupOverviewItems.length === 0 ? (
+                <div className="rounded-xl border border-dashed px-4 py-5 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                  {t('tenantDashboard.groupOverview.empty', { defaultValue: 'No API key groups to show yet.' })}
+                </div>
+              ) : (
+                groupOverviewItems.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-slate-200/70 bg-white/60 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-950/30">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium text-slate-900 dark:text-slate-100">{item.label}</p>
+                      <Chip color={item.invalid ? 'danger' : 'success'} variant="flat">
+                        {item.invalid
+                          ? t('tenantDashboard.groupOverview.invalid', { defaultValue: 'Invalid' })
+                          : t('tenantDashboard.groupOverview.valid', { defaultValue: 'Valid' })}
+                      </Chip>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{item.groupName}</p>
+                  </div>
+                ))
+              )}
+            </CardBody>
+          </Card>
+        </AnimatedContent>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {kpiCards.map((item) => (

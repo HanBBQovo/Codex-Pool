@@ -94,6 +94,7 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
+                req.api_key_id,
                 request_kind,
                 existing_session
                     .as_ref()
@@ -266,6 +267,7 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
+                req.api_key_id,
                 request_kind,
                 existing_session
                     .as_ref()
@@ -779,6 +781,7 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
+                authorization.api_key_id,
                 request_kind,
                 authorization_pricing_band(authorization.meta_json.as_ref()),
                 Some(normalized_input_tokens),

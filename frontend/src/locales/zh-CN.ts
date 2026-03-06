@@ -332,6 +332,8 @@ export default {
         confirm: "确认",
         delete: "删除",
         edit: "编辑",
+        expand: "展开",
+        collapse: "收起",
         expandSidebar: "展开侧边栏",
         loading: "加载中…",
         logout: "退出登录",
@@ -1151,6 +1153,7 @@ export default {
     },
     nav: {
         accounts: "账号池",
+        apiKeyGroups: "分组管理",
         apiKeys: "API 密钥",
         billing: "计费",
         config: "全局配置",
@@ -1352,11 +1355,13 @@ export default {
     },
     tenantApiKeys: {
         actions: {
+            changeGroup: "更改分组",
             disable: "禁用",
             enable: "启用"
         },
         columns: {
             actions: "操作",
+            group: "分组",
             ipAllowlist: "IP 白名单",
             modelAllowlist: "模型白名单",
             name: "名称",
@@ -1365,6 +1370,7 @@ export default {
         },
         create: {
             description: "为当前租户创建 API 密钥并配置访问限制。",
+            groupLabel: "API Key 分组",
             ipAllowlistAriaLabel: "IP 白名单",
             ipAllowlistPlaceholder: "可选：逗号分隔 IP 白名单",
             modelAllowlistAriaLabel: "模型白名单",
@@ -1384,11 +1390,30 @@ export default {
             createFailed: "创建 API 密钥失败",
             createSuccess: "API 密钥创建成功",
             plaintextShownOnce: "明文密钥仅显示一次，请立即保存。",
-            retryLater: "稍后重试"
+            retryLater: "稍后重试",
+            updateGroupFailed: "更新 API Key 分组失败"
+        },
+        group: {
+            allowAllModels: "允许全部目录模型",
+            invalidHint: "该分组已删除，请在发起请求前重新选择分组。",
+            modelCount: "已配置 {{count}} 个模型"
+        },
+        preview: {
+            allowAllModels: "该分组可使用全部目录模型。",
+            columns: {
+                finalPrice: "最终价格",
+                formulaPrice: "公式价格",
+                model: "模型"
+            },
+            description: "当前分组：{{name}} · 输入 {{input}} · 缓存 {{cached}} · 输出 {{output}}",
+            empty: "暂无可用分组。",
+            modelCount: "该分组已配置 {{count}} 个模型。",
+            title: "当前分组预览"
         },
         status: {
             disabled: "禁用",
-            enabled: "启用"
+            enabled: "启用",
+            groupInvalid: "分组失效"
         },
         subtitle: "管理当前租户的 API 密钥及访问策略。"
     },
@@ -1519,6 +1544,26 @@ export default {
             month: "按月",
             monthShort: "月"
         },
+        groupPricing: {
+            allKeys: "全部 API Key",
+            apiKeyAriaLabel: "API Key 选择器",
+            columns: {
+                apiKey: "API Key",
+                finalPrice: "最终价格",
+                formulaPrice: "公式价格",
+                group: "分组",
+                model: "模型",
+                state: "状态"
+            },
+            description: "查看每个 API Key 当前使用的计价分组，并按单个 API Key 检查有效模型价格。",
+            groupSummary: "已配置模型：{{count}} · 全量放开：{{allowAll}}",
+            invalidGroup: "该 API Key 绑定到了已删除分组，在你改分组前请求都会失败。",
+            state: {
+                active: "有效",
+                invalid: "失效（分组已删除）"
+            },
+            title: "API Key 分组定价"
+        },
         ledger: {
             columns: {
                 balanceAfter: "变动后余额",
@@ -1607,6 +1652,86 @@ export default {
             },
             title: "消耗趋势"
         }
+    },
+    groupsPage: {
+        actions: {
+            create: "新建分组",
+            deleteGroup: "删除分组",
+            deletePolicy: "删除策略",
+            saveGroup: "保存分组",
+            savePolicy: "保存模型策略"
+        },
+        columns: {
+            actions: "操作",
+            apiKeysCount: "API Key {{count}} 个",
+            modelsCount: "模型 {{count}} 个",
+            multipliers: "倍率",
+            name: "分组",
+            status: "状态",
+            usage: "使用情况"
+        },
+        editor: {
+            createTitle: "新建分组",
+            description: "配置分组倍率以及模型级价格覆盖。",
+            editTitle: "编辑分组"
+        },
+        empty: "暂无分组",
+        form: {
+            allowAllModels: "允许全部目录模型",
+            cachedInputMultiplier: "缓存输入倍率（ppm）",
+            default: "默认分组",
+            description: "描述",
+            enabled: "启用",
+            inputMultiplier: "输入倍率（ppm）",
+            name: "分组名称",
+            outputMultiplier: "输出倍率（ppm）"
+        },
+        messages: {
+            groupDeleted: "分组已删除。",
+            groupDeleteFailed: "删除分组失败。",
+            groupSaved: "分组已保存：{{name}}",
+            groupSaveFailed: "保存分组失败。",
+            policyDeleted: "模型策略已删除。",
+            policyDeleteFailed: "删除模型策略失败。",
+            policySaved: "模型策略已保存。",
+            policySaveFailed: "保存模型策略失败。"
+        },
+        policy: {
+            cachedInputAbsolutePrice: "缓存输入绝对价格",
+            cachedInputMultiplier: "缓存输入倍率（ppm）",
+            description: "从统一模型目录中选择模型，然后配置倍率或绝对价格。",
+            enabled: "启用策略",
+            inputAbsolutePrice: "输入绝对价格",
+            inputMultiplier: "输入倍率（ppm）",
+            model: "模型",
+            outputAbsolutePrice: "输出绝对价格",
+            outputMultiplier: "输出倍率（ppm）",
+            title: "模型策略"
+        },
+        preview: {
+            columns: {
+                finalPrice: "最终价格",
+                formulaPrice: "公式价格",
+                mode: "模式",
+                model: "模型"
+            },
+            description: "展示当前分组下对租户可见的最终价格。",
+            moreHidden: "还有 {{count}} 个模型已折叠",
+            mode: {
+                absolute: "绝对价覆盖",
+                formula: "倍率公式"
+            },
+            title: "有效模型预览"
+        },
+        searchPlaceholder: "按名称、描述或状态搜索分组",
+        status: {
+            default: "默认",
+            deleted: "已删除",
+            disabled: "已禁用",
+            enabled: "已启用"
+        },
+        subtitle: "管理 API Key 分组、模型白名单、倍率和分组级绝对定价。",
+        title: "分组管理"
     },
     tenantDashboard: {
         actions: {
@@ -1709,6 +1834,15 @@ export default {
             share: "占比 {{percent}}%",
             title: "Top API 密钥",
             unknownKey: "未命名密钥"
+        },
+        groupOverview: {
+            allDescription: "查看当前 API Key 在各个计价分组中的分布情况。",
+            empty: "暂无可展示的 API Key 分组。",
+            invalid: "失效",
+            keysBound: "绑定了 {{count}} 个 API Key",
+            singleDescription: "查看当前 API Key 的分组绑定与有效性状态。",
+            title: "API Key 分组概览",
+            valid: "有效"
         },
         title: "租户仪表板",
         trend: {

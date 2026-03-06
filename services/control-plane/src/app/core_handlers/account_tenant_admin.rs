@@ -374,6 +374,164 @@ async fn delete_admin_model_pricing(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn list_admin_api_key_groups(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<crate::tenant::ApiKeyGroupAdminListResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    tenant_auth
+        .admin_list_api_key_groups()
+        .await
+        .map(Json)
+        .map_err(map_tenant_error)
+}
+
+async fn upsert_admin_api_key_group(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<crate::tenant::ApiKeyGroupUpsertRequest>,
+) -> Result<Json<crate::tenant::ApiKeyGroupItem>, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    let request_name = req.name.clone();
+    let response = tenant_auth
+        .admin_upsert_api_key_group(req)
+        .await
+        .map_err(map_tenant_error)?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.api_key_group.upsert".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("api_key_group".to_string()),
+            target_id: Some(response.id.to_string()),
+            payload_json: json!({
+                "name": request_name,
+                "is_default": response.is_default,
+                "enabled": response.enabled,
+                "allow_all_models": response.allow_all_models,
+                "input_multiplier_ppm": response.input_multiplier_ppm,
+                "cached_input_multiplier_ppm": response.cached_input_multiplier_ppm,
+                "output_multiplier_ppm": response.output_multiplier_ppm,
+            }),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(Json(response))
+}
+
+async fn delete_admin_api_key_group(
+    Path(group_id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    tenant_auth
+        .admin_delete_api_key_group(group_id)
+        .await
+        .map_err(map_tenant_error)?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.api_key_group.delete".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("api_key_group".to_string()),
+            target_id: Some(group_id.to_string()),
+            payload_json: json!({}),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn upsert_admin_api_key_group_model_policy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<crate::tenant::ApiKeyGroupModelPolicyUpsertRequest>,
+) -> Result<Json<crate::tenant::ApiKeyGroupModelPolicyItem>, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    let request_group_id = req.group_id;
+    let request_model = req.model.clone();
+    let response = tenant_auth
+        .admin_upsert_api_key_group_model_policy(req)
+        .await
+        .map_err(map_tenant_error)?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.api_key_group_model_policy.upsert".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("api_key_group_model_policy".to_string()),
+            target_id: Some(response.id.to_string()),
+            payload_json: json!({
+                "group_id": request_group_id,
+                "model": request_model,
+                "enabled": response.enabled,
+                "input_multiplier_ppm": response.input_multiplier_ppm,
+                "cached_input_multiplier_ppm": response.cached_input_multiplier_ppm,
+                "output_multiplier_ppm": response.output_multiplier_ppm,
+                "input_price_microcredits": response.input_price_microcredits,
+                "cached_input_price_microcredits": response.cached_input_price_microcredits,
+                "output_price_microcredits": response.output_price_microcredits,
+            }),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(Json(response))
+}
+
+async fn delete_admin_api_key_group_model_policy(
+    Path(policy_id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    tenant_auth
+        .admin_delete_api_key_group_model_policy(policy_id)
+        .await
+        .map_err(map_tenant_error)?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.api_key_group_model_policy.delete".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("api_key_group_model_policy".to_string()),
+            target_id: Some(policy_id.to_string()),
+            payload_json: json!({}),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[allow(dead_code)]
 async fn list_admin_billing_pricing_rules(
     State(state): State<AppState>,

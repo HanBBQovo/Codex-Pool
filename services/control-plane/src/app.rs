@@ -1032,6 +1032,22 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             "/api/v1/admin/model-pricing/{pricing_id}",
             delete(delete_admin_model_pricing),
         )
+        .route(
+            "/api/v1/admin/api-key-groups",
+            get(list_admin_api_key_groups).post(upsert_admin_api_key_group),
+        )
+        .route(
+            "/api/v1/admin/api-key-groups/{group_id}",
+            delete(delete_admin_api_key_group),
+        )
+        .route(
+            "/api/v1/admin/api-key-group-model-policies",
+            post(upsert_admin_api_key_group_model_policy),
+        )
+        .route(
+            "/api/v1/admin/api-key-group-model-policies/{policy_id}",
+            delete(delete_admin_api_key_group_model_policy),
+        )
 
         .route(
             "/api/v1/admin/impersonations",
@@ -1060,6 +1076,10 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         .route(
             "/api/v1/tenant/keys",
             get(list_tenant_api_keys).post(create_tenant_api_key),
+        )
+        .route(
+            "/api/v1/tenant/api-key-groups",
+            get(list_tenant_api_key_groups),
         )
         .route(
             "/api/v1/tenant/keys/{key_id}",

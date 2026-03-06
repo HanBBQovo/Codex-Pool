@@ -100,6 +100,9 @@ impl InMemoryStore {
         Some(ValidatedPrincipal {
             tenant_id: key.tenant_id,
             api_key_id: key.id,
+            api_key_group_id: Uuid::nil(),
+            api_key_group_name: "default".to_string(),
+            api_key_group_invalid: false,
             enabled: key.enabled,
             key_ip_allowlist: Vec::new(),
             key_model_allowlist: Vec::new(),

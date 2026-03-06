@@ -2,9 +2,25 @@ impl TenantAuthService {
     pub async fn list_tenant_api_keys(&self, tenant_id: Uuid) -> Result<Vec<TenantApiKeyRecord>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, tenant_id, name, key_prefix, enabled, created_at, ip_allowlist, model_allowlist
-            FROM api_keys
-            WHERE tenant_id = $1
+            SELECT
+                k.id,
+                k.tenant_id,
+                k.name,
+                k.key_prefix,
+                k.enabled,
+                k.created_at,
+                k.ip_allowlist,
+                k.model_allowlist,
+                g.id AS group_id,
+                g.name AS group_name,
+                g.description AS group_description,
+                g.is_default AS group_is_default,
+                g.enabled AS group_enabled,
+                g.allow_all_models AS group_allow_all_models,
+                g.deleted_at AS group_deleted_at
+            FROM api_keys k
+            INNER JOIN api_key_groups g ON g.id = k.group_id
+            WHERE k.tenant_id = $1
             ORDER BY created_at ASC
             "#,
         )
@@ -25,6 +41,16 @@ impl TenantAuthService {
         if name.is_empty() {
             return Err(anyhow!("name must not be empty"));
         }
+        let group_id = if let Some(group_id) = req.group_id {
+            let group = self
+                .fetch_api_key_group_record(group_id)
+                .await?
+                .ok_or_else(|| anyhow!("api key group not found"))?;
+            ensure_api_key_group_is_usable(&group)?;
+            group.id
+        } else {
+            self.fetch_default_api_key_group_record().await?.id
+        };
         let ip_allowlist = normalize_str_list(req.ip_allowlist);
         let model_allowlist = normalize_str_list(req.model_allowlist);
         let plaintext_key = format!("cp_{}", Uuid::new_v4().simple());
@@ -37,17 +63,18 @@ impl TenantAuthService {
             .begin()
             .await
             .context("failed to start tenant api key transaction")?;
-        let row = sqlx::query(
+        let _inserted = sqlx::query(
             r#"
             INSERT INTO api_keys (
-                id, tenant_id, name, key_prefix, key_hash, enabled, created_at, ip_allowlist, model_allowlist
+                id, tenant_id, group_id, name, key_prefix, key_hash, enabled, created_at, ip_allowlist, model_allowlist
             )
-            VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8)
-            RETURNING id, tenant_id, name, key_prefix, enabled, created_at, ip_allowlist, model_allowlist
+            VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9)
+            RETURNING id
             "#,
         )
         .bind(id)
         .bind(tenant_id)
+        .bind(group_id)
         .bind(name)
         .bind(key_prefix)
         .bind(&key_hash)
@@ -63,6 +90,33 @@ impl TenantAuthService {
             .execute(tx.as_mut())
             .await
             .context("failed to insert tenant api key token")?;
+        let row = sqlx::query(
+            r#"
+            SELECT
+                k.id,
+                k.tenant_id,
+                k.name,
+                k.key_prefix,
+                k.enabled,
+                k.created_at,
+                k.ip_allowlist,
+                k.model_allowlist,
+                g.id AS group_id,
+                g.name AS group_name,
+                g.description AS group_description,
+                g.is_default AS group_is_default,
+                g.enabled AS group_enabled,
+                g.allow_all_models AS group_allow_all_models,
+                g.deleted_at AS group_deleted_at
+            FROM api_keys k
+            INNER JOIN api_key_groups g ON g.id = k.group_id
+            WHERE k.id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_one(tx.as_mut())
+        .await
+        .context("failed to reload tenant api key with group")?;
         tx.commit()
             .await
             .context("failed to commit tenant api key transaction")?;
@@ -81,15 +135,26 @@ impl TenantAuthService {
     ) -> Result<TenantApiKeyRecord> {
         let ip_allowlist = req.ip_allowlist.map(normalize_str_list);
         let model_allowlist = req.model_allowlist.map(normalize_str_list);
-        let row = sqlx::query(
+        let group_id = if let Some(group_id) = req.group_id {
+            let group = self
+                .fetch_api_key_group_record(group_id)
+                .await?
+                .ok_or_else(|| anyhow!("api key group not found"))?;
+            ensure_api_key_group_is_usable(&group)?;
+            Some(group.id)
+        } else {
+            None
+        };
+        let _updated = sqlx::query(
             r#"
             UPDATE api_keys
             SET
                 enabled = COALESCE($3, enabled),
                 ip_allowlist = COALESCE($4, ip_allowlist),
-                model_allowlist = COALESCE($5, model_allowlist)
+                model_allowlist = COALESCE($5, model_allowlist),
+                group_id = COALESCE($6, group_id)
             WHERE id = $1 AND tenant_id = $2
-            RETURNING id, tenant_id, name, key_prefix, enabled, created_at, ip_allowlist, model_allowlist
+            RETURNING id
             "#,
         )
         .bind(key_id)
@@ -97,10 +162,39 @@ impl TenantAuthService {
         .bind(req.enabled)
         .bind(ip_allowlist.map(|v| json!(v)))
         .bind(model_allowlist.map(|v| json!(v)))
+        .bind(group_id)
         .fetch_optional(&self.pool)
         .await
         .context("failed to patch tenant api key")?
         .ok_or_else(|| anyhow!("api key not found"))?;
+        let row = sqlx::query(
+            r#"
+            SELECT
+                k.id,
+                k.tenant_id,
+                k.name,
+                k.key_prefix,
+                k.enabled,
+                k.created_at,
+                k.ip_allowlist,
+                k.model_allowlist,
+                g.id AS group_id,
+                g.name AS group_name,
+                g.description AS group_description,
+                g.is_default AS group_is_default,
+                g.enabled AS group_enabled,
+                g.allow_all_models AS group_allow_all_models,
+                g.deleted_at AS group_deleted_at
+            FROM api_keys k
+            INNER JOIN api_key_groups g ON g.id = k.group_id
+            WHERE k.id = $1 AND k.tenant_id = $2
+            "#,
+        )
+        .bind(key_id)
+        .bind(tenant_id)
+        .fetch_one(&self.pool)
+        .await
+        .context("failed to reload patched tenant api key with group")?;
         parse_tenant_api_key_row(row)
     }
 

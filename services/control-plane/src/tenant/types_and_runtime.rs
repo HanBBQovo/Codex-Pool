@@ -78,6 +78,45 @@ struct BillingPricingResolved {
     source: String,
 }
 
+#[derive(Debug, Clone)]
+struct ApiKeyGroupRecord {
+    id: Uuid,
+    name: String,
+    description: Option<String>,
+    is_default: bool,
+    enabled: bool,
+    allow_all_models: bool,
+    input_multiplier_ppm: i64,
+    cached_input_multiplier_ppm: i64,
+    output_multiplier_ppm: i64,
+    deleted_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+struct ApiKeyGroupModelPolicyRecord {
+    id: Uuid,
+    _group_id: Uuid,
+    model_id: String,
+    enabled: bool,
+    input_multiplier_ppm: i64,
+    cached_input_multiplier_ppm: i64,
+    output_multiplier_ppm: i64,
+    input_price_microcredits: Option<i64>,
+    cached_input_price_microcredits: Option<i64>,
+    output_price_microcredits: Option<i64>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+struct ApiKeyGroupResolvedPricing {
+    formula: BillingPricingResolved,
+    final_pricing: BillingPricingResolved,
+    uses_absolute_pricing: bool,
+}
+
 const BILLING_MULTIPLIER_PPM_ONE: i64 = 1_000_000;
 const DEFAULT_BILLING_SESSION_TTL_SEC: u64 = 24 * 60 * 60;
 
@@ -279,6 +318,8 @@ pub struct TenantCreateApiKeyRequest {
     pub ip_allowlist: Vec<String>,
     #[serde(default)]
     pub model_allowlist: Vec<String>,
+    #[serde(default)]
+    pub group_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -286,6 +327,19 @@ pub struct TenantPatchApiKeyRequest {
     pub enabled: Option<bool>,
     pub ip_allowlist: Option<Vec<String>>,
     pub model_allowlist: Option<Vec<String>>,
+    pub group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyGroupBindingItem {
+    pub id: Uuid,
+    pub name: String,
+    pub is_default: bool,
+    pub enabled: bool,
+    pub allow_all_models: bool,
+    pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -298,6 +352,138 @@ pub struct TenantApiKeyRecord {
     pub created_at: DateTime<Utc>,
     pub ip_allowlist: Vec<String>,
     pub model_allowlist: Vec<String>,
+    pub group_id: Uuid,
+    pub group: ApiKeyGroupBindingItem,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyGroupModelPolicyItem {
+    pub id: Uuid,
+    pub model: String,
+    pub enabled: bool,
+    pub input_multiplier_ppm: i64,
+    pub cached_input_multiplier_ppm: i64,
+    pub output_multiplier_ppm: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_price_microcredits: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyGroupModelPreviewItem {
+    pub model: String,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_cached_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_output_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula_cached_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula_output_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_cached_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_output_price_microcredits: Option<i64>,
+    pub uses_absolute_pricing: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy: Option<ApiKeyGroupModelPolicyItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyGroupCatalogItem {
+    pub model: String,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_cached_input_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_output_price_microcredits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_price_source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyGroupItem {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub is_default: bool,
+    pub enabled: bool,
+    pub allow_all_models: bool,
+    pub input_multiplier_ppm: i64,
+    pub cached_input_multiplier_ppm: i64,
+    pub output_multiplier_ppm: i64,
+    pub api_key_count: i64,
+    pub model_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub policies: Vec<ApiKeyGroupModelPolicyItem>,
+    pub models: Vec<ApiKeyGroupModelPreviewItem>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyGroupAdminListResponse {
+    pub groups: Vec<ApiKeyGroupItem>,
+    pub catalog: Vec<ApiKeyGroupCatalogItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiKeyGroupUpsertRequest {
+    #[serde(default)]
+    pub id: Option<Uuid>,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default = "default_enabled_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub is_default: bool,
+    #[serde(default)]
+    pub allow_all_models: bool,
+    pub input_multiplier_ppm: i64,
+    pub cached_input_multiplier_ppm: i64,
+    pub output_multiplier_ppm: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiKeyGroupModelPolicyUpsertRequest {
+    pub group_id: Uuid,
+    pub model: String,
+    #[serde(default = "default_enabled_true")]
+    pub enabled: bool,
+    pub input_multiplier_ppm: i64,
+    pub cached_input_multiplier_ppm: i64,
+    pub output_multiplier_ppm: i64,
+    #[serde(default)]
+    pub input_price_microcredits: Option<i64>,
+    #[serde(default)]
+    pub cached_input_price_microcredits: Option<i64>,
+    #[serde(default)]
+    pub output_price_microcredits: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -593,6 +779,8 @@ pub struct BillingCaptureResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BillingPricingRequest {
     pub model: String,
+    #[serde(default)]
+    pub api_key_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -642,6 +642,137 @@ impl PostgresStore {
 
         sqlx::query(
             r#"
+            CREATE TABLE IF NOT EXISTS api_key_groups (
+                id UUID PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NULL,
+                is_default BOOLEAN NOT NULL DEFAULT false,
+                enabled BOOLEAN NOT NULL DEFAULT true,
+                allow_all_models BOOLEAN NOT NULL DEFAULT false,
+                input_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                cached_input_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                output_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                deleted_at TIMESTAMPTZ NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create api_key_groups table")?;
+
+        sqlx::query(
+            r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key_groups_default_unique
+            ON api_key_groups ((is_default))
+            WHERE is_default = true AND deleted_at IS NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create api_key_groups default unique index")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS api_key_group_model_policies (
+                id UUID PRIMARY KEY,
+                group_id UUID NOT NULL REFERENCES api_key_groups(id) ON DELETE CASCADE,
+                model_id TEXT NOT NULL,
+                enabled BOOLEAN NOT NULL DEFAULT true,
+                input_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                cached_input_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                output_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
+                input_price_microcredits BIGINT NULL,
+                cached_input_price_microcredits BIGINT NULL,
+                output_price_microcredits BIGINT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                UNIQUE (group_id, model_id)
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create api_key_group_model_policies table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_api_key_group_model_policies_group_model
+            ON api_key_group_model_policies (group_id, model_id)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create api_key_group_model_policies index")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE api_keys
+            ADD COLUMN IF NOT EXISTS group_id UUID NULL REFERENCES api_key_groups(id) ON DELETE RESTRICT
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add api_keys.group_id column")?;
+
+        let default_group_id: Uuid = if let Some(existing_id) = sqlx::query_scalar(
+            r#"
+            SELECT id
+            FROM api_key_groups
+            WHERE is_default = true AND deleted_at IS NULL
+            ORDER BY updated_at DESC
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(tx.as_mut())
+        .await
+        .context("failed to query default api key group id")?
+        {
+            existing_id
+        } else {
+            let now = Utc::now();
+            let created_id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO api_key_groups (
+                    id,
+                    name,
+                    description,
+                    is_default,
+                    enabled,
+                    allow_all_models,
+                    input_multiplier_ppm,
+                    cached_input_multiplier_ppm,
+                    output_multiplier_ppm,
+                    created_at,
+                    updated_at
+                )
+                VALUES ($1, 'Default', 'System default API key group', true, true, true, 1000000, 1000000, 1000000, $2, $2)
+                "#,
+            )
+            .bind(created_id)
+            .bind(now)
+            .execute(tx.as_mut())
+            .await
+            .context("failed to insert default api key group")?;
+            created_id
+        };
+
+        sqlx::query(
+            r#"
+            UPDATE api_keys
+            SET group_id = $1
+            WHERE group_id IS NULL
+            "#,
+        )
+        .bind(default_group_id)
+        .execute(tx.as_mut())
+        .await
+        .context("failed to backfill api_keys.group_id")?;
+
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS admin_impersonation_sessions (
                 id UUID PRIMARY KEY,
                 admin_user_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,

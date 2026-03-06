@@ -332,6 +332,8 @@ export default {
         confirm: "Confirm",
         delete: "Delete",
         edit: "Edit",
+        expand: "Expand",
+        collapse: "Collapse",
         expandSidebar: "Expand sidebar",
         loading: "Loading…",
         logout: "Sign Out",
@@ -1151,6 +1153,7 @@ export default {
     },
     nav: {
         accounts: "Accounts Pool",
+        apiKeyGroups: "Group Management",
         apiKeys: "API Keys",
         billing: "Billing",
         config: "Configuration",
@@ -1352,11 +1355,13 @@ export default {
     },
     tenantApiKeys: {
         actions: {
+            changeGroup: "Change Group",
             disable: "Disable",
             enable: "Enable"
         },
         columns: {
             actions: "Actions",
+            group: "Group",
             ipAllowlist: "IP Allowlist",
             modelAllowlist: "Model Allowlist",
             name: "Name",
@@ -1364,7 +1369,8 @@ export default {
             status: "Status"
         },
         create: {
-            description: "Create an API key for the current tenant and configure access limits.",
+            description: "Create an API key for the current tenant, configure IP allowlists, and choose a pricing group.",
+            groupLabel: "API key group",
             ipAllowlistAriaLabel: "IP allowlist",
             ipAllowlistPlaceholder: "Optional: comma-separated IP allowlist",
             modelAllowlistAriaLabel: "Model allowlist",
@@ -1375,22 +1381,41 @@ export default {
             title: "Create API Key"
         },
         list: {
-            description: "Manage API keys for the current tenant.",
+            description: "Manage API keys, update their group assignment, and review status.",
             empty: "No API keys yet.",
-            searchPlaceholder: "Search API keys by name or prefix",
+            searchPlaceholder: "Search by name, prefix, group or status",
             title: "API Key List"
         },
         messages: {
             createFailed: "Failed to create API key",
             createSuccess: "API key created successfully",
             plaintextShownOnce: "The plaintext key is shown only once. Save it now.",
-            retryLater: "Please retry later"
+            retryLater: "Please retry later",
+            updateGroupFailed: "Failed to update API key group"
+        },
+        group: {
+            allowAllModels: "All catalog models enabled",
+            invalidHint: "This group was deleted. Choose a new group before making requests.",
+            modelCount: "{{count}} configured models"
+        },
+        preview: {
+            allowAllModels: "All catalog models are available in this group.",
+            columns: {
+                finalPrice: "Final price",
+                formulaPrice: "Formula price",
+                model: "Model"
+            },
+            description: "Current group: {{name}} · in {{input}} · cached {{cached}} · out {{output}}",
+            empty: "No group available yet.",
+            modelCount: "{{count}} models are configured in this group.",
+            title: "Selected group preview"
         },
         status: {
             disabled: "Disabled",
-            enabled: "Enabled"
+            enabled: "Enabled",
+            groupInvalid: "Group invalid"
         },
-        subtitle: "Manage API keys and access rules for the current tenant."
+        subtitle: "Manage API keys and bind each key to a pricing and model group."
     },
     tenantApp: {
         appName: "Codex Pool Tenant",
@@ -1519,6 +1544,26 @@ export default {
             month: "Month",
             monthShort: "M"
         },
+        groupPricing: {
+            allKeys: "All API keys",
+            apiKeyAriaLabel: "API key selector",
+            columns: {
+                apiKey: "API key",
+                finalPrice: "Final price",
+                formulaPrice: "Formula price",
+                group: "Group",
+                model: "Model",
+                state: "State"
+            },
+            description: "Review which pricing group each API key uses, and inspect effective model prices for a selected key.",
+            groupSummary: "Configured models: {{count}} · allow-all: {{allowAll}}",
+            invalidGroup: "This API key is bound to a deleted group. Requests will fail until you change the group.",
+            state: {
+                active: "Active",
+                invalid: "Invalid (deleted group)"
+            },
+            title: "API key group pricing"
+        },
         ledger: {
             columns: {
                 balanceAfter: "Balance After",
@@ -1608,6 +1653,86 @@ export default {
             title: "Consumption Trend"
         }
     },
+    groupsPage: {
+        actions: {
+            create: "Create group",
+            deleteGroup: "Delete group",
+            deletePolicy: "Delete policy",
+            saveGroup: "Save group",
+            savePolicy: "Save model policy"
+        },
+        columns: {
+            actions: "Actions",
+            apiKeysCount: "API Keys {{count}}",
+            modelsCount: "Models {{count}}",
+            multipliers: "Multipliers",
+            name: "Group",
+            status: "Status",
+            usage: "Usage"
+        },
+        editor: {
+            createTitle: "Create group",
+            description: "Configure group-wide multipliers and per-model pricing overrides.",
+            editTitle: "Edit group"
+        },
+        empty: "No groups yet",
+        form: {
+            allowAllModels: "Allow all catalog models",
+            cachedInputMultiplier: "Cached input multiplier (ppm)",
+            default: "Default group",
+            description: "Description",
+            enabled: "Enabled",
+            inputMultiplier: "Input multiplier (ppm)",
+            name: "Group name",
+            outputMultiplier: "Output multiplier (ppm)"
+        },
+        messages: {
+            groupDeleted: "Group deleted.",
+            groupDeleteFailed: "Failed to delete group.",
+            groupSaved: "Group saved: {{name}}",
+            groupSaveFailed: "Failed to save group.",
+            policyDeleted: "Model policy deleted.",
+            policyDeleteFailed: "Failed to delete model policy.",
+            policySaved: "Model policy saved.",
+            policySaveFailed: "Failed to save model policy."
+        },
+        policy: {
+            cachedInputAbsolutePrice: "Cached input absolute price",
+            cachedInputMultiplier: "Cached input multiplier (ppm)",
+            description: "Select a model from the unified catalog, then configure multipliers or absolute pricing.",
+            enabled: "Policy enabled",
+            inputAbsolutePrice: "Input absolute price",
+            inputMultiplier: "Input multiplier (ppm)",
+            model: "Model",
+            outputAbsolutePrice: "Output absolute price",
+            outputMultiplier: "Output multiplier (ppm)",
+            title: "Model policy"
+        },
+        preview: {
+            columns: {
+                finalPrice: "Final price",
+                formulaPrice: "Formula price",
+                mode: "Mode",
+                model: "Model"
+            },
+            description: "Shows the final displayed price for the selected group.",
+            moreHidden: "{{count}} more models are collapsed",
+            mode: {
+                absolute: "Absolute override",
+                formula: "Multiplier formula"
+            },
+            title: "Effective model preview"
+        },
+        searchPlaceholder: "Search groups by name, description or status",
+        status: {
+            default: "Default",
+            deleted: "Deleted",
+            disabled: "Disabled",
+            enabled: "Enabled"
+        },
+        subtitle: "Manage API key groups, model allowlists, multipliers, and group-level absolute prices.",
+        title: "Group Management"
+    },
     tenantDashboard: {
         actions: {
             manageApiKeys: "Manage API keys",
@@ -1666,6 +1791,15 @@ export default {
                 last7Days: "Last 7 days"
             },
             rangeAriaLabel: "Time range"
+        },
+        groupOverview: {
+            allDescription: "How your current API keys are distributed across pricing groups.",
+            empty: "No API key groups to show yet.",
+            invalid: "Invalid",
+            keysBound: "{{count}} API keys bound",
+            singleDescription: "Current API key group binding and validity state.",
+            title: "API key group overview",
+            valid: "Valid"
         },
         hero: {
             badge: "Tenant Workspace Overview",

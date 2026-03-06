@@ -41,6 +41,13 @@ const routeSeoConfigs: RouteSeoConfig[] = [
         descriptionDefault: 'Sign in with Codex OAuth and import the account directly into the pool.',
     },
     {
+        pattern: /^\/groups\/?$/,
+        titleKey: 'groupsPage.title',
+        titleDefault: 'Group Management',
+        descriptionKey: 'groupsPage.subtitle',
+        descriptionDefault: 'Manage API key groups, model allowlists, multipliers, and group-level absolute prices.',
+    },
+    {
         pattern: /^\/models\/?$/,
         titleKey: 'models.title',
         titleDefault: 'Models',

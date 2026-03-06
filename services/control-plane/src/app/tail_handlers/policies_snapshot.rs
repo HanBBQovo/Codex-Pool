@@ -164,6 +164,11 @@ async fn validate_api_key(
         tenant_id: principal.tenant_id,
         api_key_id: principal.api_key_id,
         enabled: principal.enabled,
+        group: codex_pool_core::api::ApiKeyGroupStatus {
+            id: principal.api_key_group_id,
+            name: principal.api_key_group_name,
+            invalid: principal.api_key_group_invalid,
+        },
         policy: codex_pool_core::api::ApiKeyPolicy {
             ip_allowlist: principal.key_ip_allowlist,
             model_allowlist: principal.key_model_allowlist,

@@ -76,6 +76,9 @@ fn resolve_oauth_import_mode(
 pub struct ValidatedPrincipal {
     pub tenant_id: Uuid,
     pub api_key_id: Uuid,
+    pub api_key_group_id: Uuid,
+    pub api_key_group_name: String,
+    pub api_key_group_invalid: bool,
     pub enabled: bool,
     pub key_ip_allowlist: Vec<String>,
     pub key_model_allowlist: Vec<String>,

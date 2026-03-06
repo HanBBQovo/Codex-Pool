@@ -84,6 +84,21 @@ fn map_internal_billing_error(err: anyhow::Error) -> (StatusCode, Json<ErrorEnve
             Json(ErrorEnvelope::new("billing_model_missing", "billing model missing")),
         );
     }
+    if lowered.contains("api key group is unavailable") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorEnvelope::new(
+                "api_key_group_invalid",
+                "api key group is unavailable",
+            )),
+        );
+    }
+    if lowered.contains("model is not allowed for api key group") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorEnvelope::new("model_not_allowed", "requested model is not allowed")),
+        );
+    }
     if lowered.contains("authorization not found") {
         return (
             StatusCode::NOT_FOUND,

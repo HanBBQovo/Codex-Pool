@@ -332,6 +332,8 @@ export default {
         confirm: "確認",
         delete: "刪除",
         edit: "編輯",
+        expand: "展開",
+        collapse: "收起",
         expandSidebar: "展開側邊欄",
         loading: "讀取中…",
         logout: "登出",
@@ -1151,6 +1153,7 @@ export default {
     },
     nav: {
         accounts: "帳號池",
+        apiKeyGroups: "分組管理",
         apiKeys: "API 金鑰",
         billing: "計費",
         config: "全域設定",
@@ -1352,11 +1355,13 @@ export default {
     },
     tenantApiKeys: {
         actions: {
+            changeGroup: "變更分組",
             disable: "停用",
             enable: "啟用"
         },
         columns: {
             actions: "操作",
+            group: "分組",
             ipAllowlist: "IP 白名單",
             modelAllowlist: "模型白名單",
             name: "名稱",
@@ -1365,6 +1370,7 @@ export default {
         },
         create: {
             description: "為目前租戶建立 API 金鑰並設定存取限制。",
+            groupLabel: "API Key 分組",
             ipAllowlistAriaLabel: "IP 白名單",
             ipAllowlistPlaceholder: "選填：以逗號分隔 IP 白名單",
             modelAllowlistAriaLabel: "模型白名單",
@@ -1384,11 +1390,30 @@ export default {
             createFailed: "建立 API 金鑰失敗",
             createSuccess: "API 金鑰建立成功",
             plaintextShownOnce: "明文金鑰僅顯示一次，請立即儲存。",
-            retryLater: "稍後重試"
+            retryLater: "稍後重試",
+            updateGroupFailed: "更新 API Key 分組失敗"
+        },
+        group: {
+            allowAllModels: "允許全部目錄模型",
+            invalidHint: "此分組已刪除，請在發出請求前重新選擇分組。",
+            modelCount: "已設定 {{count}} 個模型"
+        },
+        preview: {
+            allowAllModels: "此分組可使用全部目錄模型。",
+            columns: {
+                finalPrice: "最終價格",
+                formulaPrice: "公式價格",
+                model: "模型"
+            },
+            description: "目前分組：{{name}} · 輸入 {{input}} · 快取 {{cached}} · 輸出 {{output}}",
+            empty: "目前沒有可用分組。",
+            modelCount: "此分組已設定 {{count}} 個模型。",
+            title: "目前分組預覽"
         },
         status: {
             disabled: "停用",
-            enabled: "啟用"
+            enabled: "啟用",
+            groupInvalid: "分組失效"
         },
         subtitle: "管理目前租戶的 API 金鑰與存取策略。"
     },
@@ -1519,6 +1544,26 @@ export default {
             month: "按月",
             monthShort: "月"
         },
+        groupPricing: {
+            allKeys: "全部 API Key",
+            apiKeyAriaLabel: "API Key 選擇器",
+            columns: {
+                apiKey: "API Key",
+                finalPrice: "最終價格",
+                formulaPrice: "公式價格",
+                group: "分組",
+                model: "模型",
+                state: "狀態"
+            },
+            description: "查看每個 API Key 目前使用的計價分組，並依單一 API Key 檢查有效模型價格。",
+            groupSummary: "已設定模型：{{count}} · 全量開放：{{allowAll}}",
+            invalidGroup: "此 API Key 綁定到了已刪除分組，在你變更分組前請求都會失敗。",
+            state: {
+                active: "有效",
+                invalid: "失效（分組已刪除）"
+            },
+            title: "API Key 分組定價"
+        },
         ledger: {
             columns: {
                 balanceAfter: "變動後餘額",
@@ -1608,6 +1653,86 @@ export default {
             title: "消耗趨勢"
         }
     },
+    groupsPage: {
+        actions: {
+            create: "新增分組",
+            deleteGroup: "刪除分組",
+            deletePolicy: "刪除策略",
+            saveGroup: "儲存分組",
+            savePolicy: "儲存模型策略"
+        },
+        columns: {
+            actions: "操作",
+            apiKeysCount: "API Key {{count}} 個",
+            modelsCount: "模型 {{count}} 個",
+            multipliers: "倍率",
+            name: "分組",
+            status: "狀態",
+            usage: "使用情況"
+        },
+        editor: {
+            createTitle: "新增分組",
+            description: "設定分組倍率與模型級價格覆寫。",
+            editTitle: "編輯分組"
+        },
+        empty: "暫無分組",
+        form: {
+            allowAllModels: "允許全部目錄模型",
+            cachedInputMultiplier: "快取輸入倍率（ppm）",
+            default: "預設分組",
+            description: "描述",
+            enabled: "啟用",
+            inputMultiplier: "輸入倍率（ppm）",
+            name: "分組名稱",
+            outputMultiplier: "輸出倍率（ppm）"
+        },
+        messages: {
+            groupDeleted: "分組已刪除。",
+            groupDeleteFailed: "刪除分組失敗。",
+            groupSaved: "分組已儲存：{{name}}",
+            groupSaveFailed: "儲存分組失敗。",
+            policyDeleted: "模型策略已刪除。",
+            policyDeleteFailed: "刪除模型策略失敗。",
+            policySaved: "模型策略已儲存。",
+            policySaveFailed: "儲存模型策略失敗。"
+        },
+        policy: {
+            cachedInputAbsolutePrice: "快取輸入絕對價格",
+            cachedInputMultiplier: "快取輸入倍率（ppm）",
+            description: "從統一模型目錄中選擇模型，然後設定倍率或絕對價格。",
+            enabled: "啟用策略",
+            inputAbsolutePrice: "輸入絕對價格",
+            inputMultiplier: "輸入倍率（ppm）",
+            model: "模型",
+            outputAbsolutePrice: "輸出絕對價格",
+            outputMultiplier: "輸出倍率（ppm）",
+            title: "模型策略"
+        },
+        preview: {
+            columns: {
+                finalPrice: "最終價格",
+                formulaPrice: "公式價格",
+                mode: "模式",
+                model: "模型"
+            },
+            description: "展示目前分組下對租戶可見的最終價格。",
+            moreHidden: "還有 {{count}} 個模型已折疊",
+            mode: {
+                absolute: "絕對價覆寫",
+                formula: "倍率公式"
+            },
+            title: "有效模型預覽"
+        },
+        searchPlaceholder: "依名稱、描述或狀態搜尋分組",
+        status: {
+            default: "預設",
+            deleted: "已刪除",
+            disabled: "已停用",
+            enabled: "已啟用"
+        },
+        subtitle: "管理 API Key 分組、模型白名單、倍率與分組級絕對定價。",
+        title: "分組管理"
+    },
     tenantDashboard: {
         actions: {
             manageApiKeys: "管理 API 金鑰",
@@ -1666,6 +1791,15 @@ export default {
                 last7Days: "過去 7 天"
             },
             rangeAriaLabel: "時間範圍"
+        },
+        groupOverview: {
+            allDescription: "查看目前 API Key 在各個計價分組中的分布情況。",
+            empty: "暫無可展示的 API Key 分組。",
+            invalid: "失效",
+            keysBound: "綁定了 {{count}} 個 API Key",
+            singleDescription: "查看目前 API Key 的分組綁定與有效性狀態。",
+            title: "API Key 分組概覽",
+            valid: "有效"
         },
         hero: {
             badge: "租戶工作區總覽",

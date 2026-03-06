@@ -176,13 +176,18 @@ impl PostgresStore {
                 k.id AS api_key_id,
                 k.enabled,
                 k.ip_allowlist,
-                k.model_allowlist,
+                g.id AS group_id,
+                g.name AS group_name,
+                g.enabled AS group_enabled,
+                g.allow_all_models AS group_allow_all_models,
+                g.deleted_at AS group_deleted_at,
                 ten.status AS tenant_status,
                 ten.expires_at AS tenant_expires_at,
                 c.balance_microcredits,
                 tok.token AS stored_token
             FROM api_key_tokens tok
             INNER JOIN api_keys k ON k.id = tok.api_key_id
+            INNER JOIN api_key_groups g ON g.id = k.group_id
             INNER JOIN tenants ten ON ten.id = k.tenant_id
             LEFT JOIN tenant_credit_accounts c ON c.tenant_id = k.tenant_id
             WHERE tok.token = ANY($1)
@@ -221,22 +226,67 @@ impl PostgresStore {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let model_allowlist = row
-            .try_get::<serde_json::Value, _>("model_allowlist")?
-            .as_array()
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| item.as_str().map(str::to_string))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let api_key_group_id: Uuid = row.try_get("group_id")?;
+        let api_key_group_name: String = row.try_get("group_name")?;
+        let api_key_group_invalid = row
+            .try_get::<Option<DateTime<Utc>>, _>("group_deleted_at")?
+            .is_some()
+            || !row.try_get::<bool, _>("group_enabled")?;
+        let group_allow_all_models: bool = row.try_get("group_allow_all_models")?;
+        let key_model_allowlist = if api_key_group_invalid {
+            Vec::new()
+        } else if group_allow_all_models {
+            let rows = sqlx::query(
+                r#"
+                WITH catalog_models AS (
+                    SELECT model_id FROM openai_models_catalog
+                    UNION
+                    SELECT model_id FROM admin_model_entities
+                ),
+                denied_models AS (
+                    SELECT model_id
+                    FROM api_key_group_model_policies
+                    WHERE group_id = $1 AND enabled = false
+                )
+                SELECT model_id
+                FROM catalog_models
+                WHERE model_id NOT IN (SELECT model_id FROM denied_models)
+                ORDER BY model_id ASC
+                "#,
+            )
+            .bind(api_key_group_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("failed to query allow-all group model allowlist")?;
+            rows.into_iter()
+                .map(|item| item.try_get::<String, _>("model_id"))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            let rows = sqlx::query(
+                r#"
+                SELECT model_id
+                FROM api_key_group_model_policies
+                WHERE group_id = $1 AND enabled = true
+                ORDER BY model_id ASC
+                "#,
+            )
+            .bind(api_key_group_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("failed to query api key group model allowlist")?;
+            rows.into_iter()
+                .map(|item| item.try_get::<String, _>("model_id"))
+                .collect::<Result<Vec<_>, _>>()?
+        };
         Ok(Some(ValidatedPrincipal {
             tenant_id: row.try_get("tenant_id")?,
             api_key_id,
+            api_key_group_id,
+            api_key_group_name,
+            api_key_group_invalid,
             enabled: row.try_get("enabled")?,
             key_ip_allowlist: ip_allowlist,
-            key_model_allowlist: model_allowlist,
+            key_model_allowlist,
             tenant_status: row.try_get::<Option<String>, _>("tenant_status")?,
             tenant_expires_at: row.try_get::<Option<DateTime<Utc>>, _>("tenant_expires_at")?,
             balance_microcredits: row.try_get::<Option<i64>, _>("balance_microcredits")?,

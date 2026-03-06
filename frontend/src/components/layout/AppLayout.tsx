@@ -5,6 +5,7 @@ import {
     UserCog,
     HardDriveDownload,
     ShieldCheck,
+    Layers3,
     Box,
     Activity,
     ReceiptText,
@@ -171,6 +172,7 @@ export function AppLayout({
         {
             label: t('nav.groups.operations'),
             items: [
+                { path: '/groups', icon: Layers3, label: t('nav.apiKeyGroups') },
                 { path: '/oauth-import', icon: ShieldCheck, label: t('nav.oauthImport') },
                 { path: '/imports', icon: HardDriveDownload, label: t('nav.importJobs') },
             ]

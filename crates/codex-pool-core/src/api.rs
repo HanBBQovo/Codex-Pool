@@ -203,6 +203,7 @@ pub struct ValidateApiKeyResponse {
     pub tenant_id: Uuid,
     pub api_key_id: Uuid,
     pub enabled: bool,
+    pub group: ApiKeyGroupStatus,
     #[serde(default)]
     pub policy: ApiKeyPolicy,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -212,6 +213,14 @@ pub struct ValidateApiKeyResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub balance_microcredits: Option<i64>,
     pub cache_ttl_sec: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyGroupStatus {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub invalid: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
