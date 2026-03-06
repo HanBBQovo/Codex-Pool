@@ -549,6 +549,71 @@ impl PostgresStore {
         .await
         .context("failed to seed billing pricing rule for gpt-5.4")?;
 
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS openai_models_catalog (
+                model_id TEXT PRIMARY KEY,
+                owned_by TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NULL,
+                context_window_tokens BIGINT NULL,
+                max_output_tokens BIGINT NULL,
+                knowledge_cutoff TEXT NULL,
+                reasoning_token_support BOOLEAN NULL,
+                input_price_microcredits BIGINT NULL,
+                cached_input_price_microcredits BIGINT NULL,
+                output_price_microcredits BIGINT NULL,
+                pricing_notes TEXT NULL,
+                input_modalities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                output_modalities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                endpoints_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                source_url TEXT NOT NULL,
+                raw_text TEXT NULL,
+                synced_at TIMESTAMPTZ NOT NULL
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create openai_models_catalog table")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS model_pricing_overrides (
+                id UUID PRIMARY KEY,
+                model TEXT NOT NULL UNIQUE,
+                input_price_microcredits BIGINT NOT NULL,
+                cached_input_price_microcredits BIGINT NOT NULL,
+                output_price_microcredits BIGINT NOT NULL,
+                enabled BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create model_pricing_overrides table")?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM admin_model_entities
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to clear admin_model_entities during simplification bootstrap")?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM billing_pricing_rules
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to clear billing_pricing_rules during simplification bootstrap")?;
+
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS admin_model_entities (

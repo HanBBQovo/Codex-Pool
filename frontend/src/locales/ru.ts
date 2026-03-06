@@ -51,6 +51,7 @@ export default {
         },
         details: {
             description: "Описание",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "Название лимитов",
             noOauthStatus: "Нет статуса OAuth",
             oauthNotApplicable: "Оаутентификация не применима",
@@ -955,6 +956,9 @@ export default {
         actions: {
             copyModelId: "Копировать имя модели",
             createModel: "Создать модель",
+            syncOpenAiCatalog: "Sync OpenAI catalog",
+            probeAvailability: "Probe availability",
+            openDetails: "Details",
             deleteModel: "Удалить модель",
             deletePricing: "Удалить цены",
             deleteBillingRule: "Delete rule",
@@ -991,6 +995,9 @@ export default {
             actions: "Подробности",
             availability: "Доступность",
             cachedInputPrice: "Кэшированная входная цена",
+            context: "Context / Max output",
+            modalities: "Modalities",
+            syncedAt: "Synced",
             catalog: "Статус в каталоге",
             checkedAt: "Последняя проверка",
             id: "Имя модели",
@@ -1002,10 +1009,12 @@ export default {
         description: "Здесь можно просматривать доступность моделей и управлять профилями моделей и ценами.",
         dialog: {
             description: "Измените профиль и цены в этом диалоговом окне. Сохраненные цены будут немедленно записаны обратно в список пула моделей.",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             tabListAriaLabel: "Вкладки профиля модели",
             titleWithId: "Профиль модели · {{modelId}}"
         },
         empty: "Модели не найдены.",
+        emptySyncRequired: "No official catalog yet. Sync OpenAI catalog first.",
         emptyActions: {
             goAccounts: "Перейти к аккаунтам",
             importAccount: "Импортировать аккаунты"
@@ -1013,6 +1022,7 @@ export default {
         errors: {
             deleteModelEntityFailed: "Не удалось удалить объект модели.",
             deleteModelPricingFailed: "Не удалось удалить цены на модели.",
+            openAiCatalogSyncFailed: "Failed to sync OpenAI catalog.",
             deleteBillingRuleFailed: "Failed to delete tiered pricing rule.",
             modelIdRequired: "Идентификатор модели не может быть пустым.",
             probeFailed: "Проверка модели не удалась.",
@@ -1049,6 +1059,7 @@ export default {
             modelPricingDeleted: "Запись о ценах на модели удалена.",
             billingRuleDeleted: "Tiered pricing rule deleted.",
             modelPricingSaved: "Сохранена цена модели: {{model}}.",
+            openAiCatalogSynced: "OpenAI catalog synced: {{count}} models updated.",
             billingRuleSaved: "Tiered pricing rule saved: {{model}}",
             modelProfileSaved: "Профиль модели сохранен: {{model}}",
             probeCompleted: "Исследование модели завершено. Последний пул моделей синхронизирован."
@@ -1063,7 +1074,16 @@ export default {
             notConfigured: "Не настроено",
             outputPrice: "Выходная цена",
             perMillionTokensMicrocredits: "За 1М токенов, в микрокредитах",
-            sectionTitle: "Цены на модели"
+            sectionTitle: "Цены на модели",
+            effectiveSectionTitle: "Effective pricing",
+            manualOverride: "Manual override",
+            officialBase: "Official base",
+            overrideSectionTitle: "Manual price override",
+            sourceLabels: {
+                officialSync: "OpenAI official",
+                manualOverride: "Manual override",
+                unknown: "Unknown"
+            },
         },
         rules: {
             cachedInputMultiplierPpm: "Cached input multiplier (ppm)",
@@ -1094,6 +1114,10 @@ export default {
         },
         probeSourceUnknown: "неизвестный аккаунт",
         probeSummary: "Кэш проверки: {{stale}}, проверено {{checkedAt}}, TTL {{ttlHours}} ч, источник {{source}}",
+        syncHint: {
+            notSynced: "OpenAI catalog has not been synced yet.",
+            syncedAt: "Catalog synced {{time}}"
+        },
         profile: {
             sectionTitle: "Профиль модели"
         },
@@ -1109,7 +1133,20 @@ export default {
             notFound: "Модель не найдена. Возможно, она удалена или скрыта фильтром.",
             httpStatus: "HTTP статус",
             error: "Ошибка",
-            noError: "Нет деталей ошибки"
+            noError: "Нет деталей ошибки",
+            officialTitle: "Official metadata",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
+            contextWindow: "Context window",
+            maxOutputTokens: "Max output tokens",
+            knowledgeCutoff: "Knowledge cutoff",
+            reasoningTokenSupport: "Reasoning token support",
+            sourceUrl: "Source URL",
+            openOfficialPage: "Open official page",
+            capabilitiesTitle: "Capabilities",
+            inputModalities: "Input modalities",
+            outputModalities: "Output modalities",
+            endpoints: "Endpoints",
+            rawText: "Official text snapshot",
         }
     },
     nav: {

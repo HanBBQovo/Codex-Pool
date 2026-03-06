@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,7 +28,7 @@ use codex_pool_core::api::{
     UsageQueryResponse, UsageSummaryQueryResponse, ValidateApiKeyRequest, ValidateApiKeyResponse,
     ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
 };
-use codex_pool_core::model::{ApiKey, UpstreamAccount, UpstreamMode};
+use codex_pool_core::model::{ApiKey, UpstreamAccount};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -59,26 +58,6 @@ const MODEL_PROBE_CACHE_TTL_SEC: i64 = 3600;
 const MODEL_PROBE_DEFAULT_INTERVAL_SEC: u64 = 3600;
 const MODEL_PROBE_REQUEST_TIMEOUT_SEC: u64 = 20;
 const MODEL_PROBE_INTERVAL_ENV: &str = "CONTROL_PLANE_MODEL_PROBE_INTERVAL_SEC";
-const MODEL_PROBE_EXTRA_MODELS_ENV: &str = "CONTROL_PLANE_MODEL_PROBE_EXTRA_MODELS";
-const MODEL_CATALOG_CACHE_TTL_SEC_ENV: &str = "CONTROL_PLANE_MODEL_CATALOG_CACHE_TTL_SEC";
-const DEFAULT_MODEL_CATALOG_CACHE_TTL_SEC: i64 = 300;
-const MIN_MODEL_CATALOG_CACHE_TTL_SEC: i64 = 30;
-const MAX_MODEL_CATALOG_CACHE_TTL_SEC: i64 = 3600;
-const MODEL_CATALOG_FETCH_CONCURRENCY_ENV: &str = "CONTROL_PLANE_MODEL_CATALOG_FETCH_CONCURRENCY";
-const DEFAULT_MODEL_CATALOG_FETCH_CONCURRENCY: usize = 10;
-const MIN_MODEL_CATALOG_FETCH_CONCURRENCY: usize = 1;
-const MAX_MODEL_CATALOG_FETCH_CONCURRENCY: usize = 64;
-const MODEL_CATALOG_FETCH_ATTEMPT_LIMIT_ENV: &str =
-    "CONTROL_PLANE_MODEL_CATALOG_FETCH_ATTEMPT_LIMIT";
-const DEFAULT_MODEL_CATALOG_FETCH_ATTEMPT_LIMIT: usize = 40;
-const MIN_MODEL_CATALOG_FETCH_ATTEMPT_LIMIT: usize = 1;
-const MAX_MODEL_CATALOG_FETCH_ATTEMPT_LIMIT: usize = 512;
-const MODEL_CATALOG_REQUEST_TIMEOUT_SEC_ENV: &str =
-    "CONTROL_PLANE_MODEL_CATALOG_REQUEST_TIMEOUT_SEC";
-const DEFAULT_MODEL_CATALOG_REQUEST_TIMEOUT_SEC: u64 = 5;
-const MIN_MODEL_CATALOG_REQUEST_TIMEOUT_SEC: u64 = 1;
-const MAX_MODEL_CATALOG_REQUEST_TIMEOUT_SEC: u64 = 30;
-const DEFAULT_MODEL_PROBE_EXTRA_MODELS: &[&str] = &["gpt-5.3-codex", "gpt-5.3-codex-spark"];
 const INTERNAL_AUTH_TOKEN_ENV: &str = "CONTROL_PLANE_INTERNAL_AUTH_TOKEN";
 const OAUTH_IMPORT_MULTIPART_MAX_MB_ENV: &str = "CONTROL_PLANE_OAUTH_IMPORT_MULTIPART_MAX_MB";
 const DEFAULT_OAUTH_IMPORT_MULTIPART_MAX_MB: usize = 256;
@@ -276,17 +255,42 @@ enum AdminModelAvailabilityStatus {
     Unavailable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+struct AdminModelPricingView {
+    input_price_microcredits: Option<i64>,
+    cached_input_price_microcredits: Option<i64>,
+    output_price_microcredits: Option<i64>,
+    source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AdminModelOfficialInfo {
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_window_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    knowledge_cutoff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_token_support: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pricing_notes: Option<String>,
+    input_modalities: Vec<String>,
+    output_modalities: Vec<String>,
+    endpoints: Vec<String>,
+    source_url: String,
+    synced_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct AdminModelItem {
     id: String,
-    object: String,
-    created: i64,
     owned_by: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    entity_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    visibility: Option<String>,
-    in_catalog: bool,
     availability_status: AdminModelAvailabilityStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     availability_checked_at: Option<DateTime<Utc>>,
@@ -294,21 +298,28 @@ struct AdminModelItem {
     availability_http_status: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     availability_error: Option<String>,
+    official: AdminModelOfficialInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    override_pricing: Option<crate::tenant::ModelPricingItem>,
+    effective_pricing: AdminModelPricingView,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 struct AdminModelsMeta {
     probe_cache_ttl_sec: i64,
     probe_cache_stale: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     probe_cache_updated_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    source_account_label: Option<String>,
+    probe_source_account_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_synced_at: Option<DateTime<Utc>>,
+    catalog_sync_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     catalog_last_error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 struct AdminModelsResponse {
     object: String,
     data: Vec<AdminModelItem>,
@@ -330,19 +341,6 @@ struct ModelProbeCache {
     entries: HashMap<String, ModelProbeCacheEntry>,
 }
 
-#[derive(Debug, Clone)]
-struct ModelsCatalogContext {
-    account: UpstreamAccount,
-    account_label: String,
-    items: Vec<AdminModelItem>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct ModelCatalogCache {
-    updated_at: Option<DateTime<Utc>>,
-    source_account_label: Option<String>,
-    context: Option<ModelsCatalogContext>,
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -526,6 +524,7 @@ async fn stop_codex_oauth_callback_listener_if_idle(state: &AppState) {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct AppState {
     pub store: Arc<dyn ControlPlaneStore>,
@@ -539,15 +538,8 @@ pub struct AppState {
     runtime_config: Arc<std::sync::RwLock<RuntimeConfigSnapshot>>,
     admin_logs: Arc<std::sync::RwLock<VecDeque<AdminLogEntry>>>,
     admin_proxies: Arc<std::sync::RwLock<Vec<AdminProxyItem>>>,
-    model_catalog_cache: Arc<std::sync::RwLock<ModelCatalogCache>>,
-    model_catalog_cache_ttl_sec: i64,
-    model_catalog_fetch_concurrency: usize,
-    model_catalog_fetch_attempt_limit: usize,
-    model_catalog_request_timeout_sec: u64,
     model_catalog_last_error: Arc<std::sync::RwLock<Option<String>>>,
-    model_catalog_retry_inflight: Arc<AtomicBool>,
     model_probe_cache: Arc<std::sync::RwLock<ModelProbeCache>>,
-    model_probe_extra_models: Arc<Vec<String>>,
     oauth_login_sessions: Arc<std::sync::RwLock<HashMap<String, CodexOAuthLoginSessionRecord>>>,
     codex_oauth_callback_listen_mode: CodexOAuthCallbackListenMode,
     codex_oauth_callback_listen_addr: Option<SocketAddr>,
@@ -644,72 +636,8 @@ fn parse_model_probe_interval_sec() -> u64 {
         .unwrap_or(MODEL_PROBE_DEFAULT_INTERVAL_SEC)
 }
 
-fn parse_model_catalog_cache_ttl_sec() -> i64 {
-    std::env::var(MODEL_CATALOG_CACHE_TTL_SEC_ENV)
-        .ok()
-        .and_then(|raw| raw.parse::<i64>().ok())
-        .unwrap_or(DEFAULT_MODEL_CATALOG_CACHE_TTL_SEC)
-        .clamp(
-            MIN_MODEL_CATALOG_CACHE_TTL_SEC,
-            MAX_MODEL_CATALOG_CACHE_TTL_SEC,
-        )
-}
-
-fn parse_model_catalog_fetch_concurrency() -> usize {
-    std::env::var(MODEL_CATALOG_FETCH_CONCURRENCY_ENV)
-        .ok()
-        .and_then(|raw| raw.parse::<usize>().ok())
-        .unwrap_or(DEFAULT_MODEL_CATALOG_FETCH_CONCURRENCY)
-        .clamp(
-            MIN_MODEL_CATALOG_FETCH_CONCURRENCY,
-            MAX_MODEL_CATALOG_FETCH_CONCURRENCY,
-        )
-}
-
-fn parse_model_catalog_fetch_attempt_limit() -> usize {
-    std::env::var(MODEL_CATALOG_FETCH_ATTEMPT_LIMIT_ENV)
-        .ok()
-        .and_then(|raw| raw.parse::<usize>().ok())
-        .unwrap_or(DEFAULT_MODEL_CATALOG_FETCH_ATTEMPT_LIMIT)
-        .clamp(
-            MIN_MODEL_CATALOG_FETCH_ATTEMPT_LIMIT,
-            MAX_MODEL_CATALOG_FETCH_ATTEMPT_LIMIT,
-        )
-}
-
-fn parse_model_catalog_request_timeout_sec() -> u64 {
-    std::env::var(MODEL_CATALOG_REQUEST_TIMEOUT_SEC_ENV)
-        .ok()
-        .and_then(|raw| raw.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_MODEL_CATALOG_REQUEST_TIMEOUT_SEC)
-        .clamp(
-            MIN_MODEL_CATALOG_REQUEST_TIMEOUT_SEC,
-            MAX_MODEL_CATALOG_REQUEST_TIMEOUT_SEC,
-        )
-}
-
 fn default_probe_force() -> bool {
     true
-}
-
-fn parse_model_probe_extra_models() -> Vec<String> {
-    let from_env = std::env::var(MODEL_PROBE_EXTRA_MODELS_ENV).ok();
-    let source = from_env.as_deref().unwrap_or("");
-    let mut models: Vec<String> = source
-        .split(',')
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-        .map(ToString::to_string)
-        .collect();
-    if models.is_empty() {
-        models = DEFAULT_MODEL_PROBE_EXTRA_MODELS
-            .iter()
-            .map(|item| (*item).to_string())
-            .collect();
-    }
-    models.sort();
-    models.dedup();
-    models
 }
 
 fn oauth_import_multipart_max_bytes() -> usize {
@@ -918,11 +846,6 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
     let runtime_config = build_runtime_config_from_env(auth_validate_cache_ttl_sec);
     let admin_proxies = build_admin_proxies_from_env(&runtime_config);
     let model_probe_interval_sec = parse_model_probe_interval_sec();
-    let model_catalog_cache_ttl_sec = parse_model_catalog_cache_ttl_sec();
-    let model_catalog_fetch_concurrency = parse_model_catalog_fetch_concurrency();
-    let model_catalog_fetch_attempt_limit = parse_model_catalog_fetch_attempt_limit();
-    let model_catalog_request_timeout_sec = parse_model_catalog_request_timeout_sec();
-    let model_probe_extra_models = parse_model_probe_extra_models();
     let oauth_import_max_body_bytes = oauth_import_multipart_max_bytes();
     let codex_oauth_callback_listen_mode = codex_oauth_callback_listen_mode_from_env();
     let codex_oauth_callback_listen_addr = codex_oauth_callback_listen_addr_from_env();
@@ -946,15 +869,8 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         runtime_config: Arc::new(std::sync::RwLock::new(runtime_config)),
         admin_logs: Arc::new(std::sync::RwLock::new(VecDeque::new())),
         admin_proxies: Arc::new(std::sync::RwLock::new(admin_proxies)),
-        model_catalog_cache: Arc::new(std::sync::RwLock::new(ModelCatalogCache::default())),
-        model_catalog_cache_ttl_sec,
-        model_catalog_fetch_concurrency,
-        model_catalog_fetch_attempt_limit,
-        model_catalog_request_timeout_sec,
         model_catalog_last_error: Arc::new(std::sync::RwLock::new(None)),
-        model_catalog_retry_inflight: Arc::new(AtomicBool::new(false)),
         model_probe_cache: Arc::new(std::sync::RwLock::new(ModelProbeCache::default())),
-        model_probe_extra_models: Arc::new(model_probe_extra_models),
         oauth_login_sessions: Arc::new(std::sync::RwLock::new(HashMap::new())),
         codex_oauth_callback_listen_mode,
         codex_oauth_callback_listen_addr,
@@ -1052,6 +968,10 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         .route("/api/v1/admin/proxies", get(list_admin_proxies))
         .route("/api/v1/admin/proxies/test", post(test_admin_proxies))
         .route("/api/v1/admin/models", get(list_admin_models))
+        .route(
+            "/api/v1/admin/models/sync-openai",
+            post(sync_openai_admin_models_catalog),
+        )
         .route("/api/v1/admin/models/probe", post(probe_admin_models))
         .route(
             "/api/v1/admin/keys",
@@ -1112,22 +1032,7 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             "/api/v1/admin/model-pricing/{pricing_id}",
             delete(delete_admin_model_pricing),
         )
-        .route(
-            "/api/v1/admin/billing-pricing-rules",
-            get(list_admin_billing_pricing_rules).post(upsert_admin_billing_pricing_rule),
-        )
-        .route(
-            "/api/v1/admin/billing-pricing-rules/{rule_id}",
-            delete(delete_admin_billing_pricing_rule),
-        )
-        .route(
-            "/api/v1/admin/model-entities",
-            get(list_admin_model_entities).post(upsert_admin_model_entity),
-        )
-        .route(
-            "/api/v1/admin/model-entities/{entity_id}",
-            delete(delete_admin_model_entity),
-        )
+
         .route(
             "/api/v1/admin/impersonations",
             post(create_admin_impersonation),

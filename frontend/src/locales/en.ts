@@ -51,6 +51,7 @@ export default {
         },
         details: {
             description: "View account profile, OAuth status, limits, and raw payloads.",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "Rate Limits",
             noOauthStatus: "No OAuth status data yet.",
             oauthNotApplicable: "OAuth details are not available for this account type.",
@@ -955,6 +956,9 @@ export default {
         actions: {
             copyModelId: "Copy model name",
             createModel: "Create model",
+            syncOpenAiCatalog: "Sync OpenAI catalog",
+            probeAvailability: "Probe availability",
+            openDetails: "Details",
             deleteModel: "Delete model",
             deletePricing: "Delete pricing",
             deleteBillingRule: "Delete rule",
@@ -991,6 +995,9 @@ export default {
             actions: "Details",
             availability: "Availability",
             cachedInputPrice: "Cached Input Price",
+            context: "Context / Max output",
+            modalities: "Modalities",
+            syncedAt: "Synced",
             catalog: "Catalog",
             checkedAt: "Last Checked",
             id: "Model Name",
@@ -1002,10 +1009,12 @@ export default {
         description: "View model availability and manage model profiles and pricing here.",
         dialog: {
             description: "Edit profile and pricing in this dialog. Saved pricing will be written back to the model pool list immediately.",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             tabListAriaLabel: "Model profile tabs",
             titleWithId: "Model profile · {{modelId}}"
         },
         empty: "No models mapped or exposed yet.",
+        emptySyncRequired: "No official catalog yet. Sync OpenAI catalog first.",
         emptyActions: {
             goAccounts: "Go to Accounts",
             importAccount: "Import Accounts"
@@ -1013,6 +1022,7 @@ export default {
         errors: {
             deleteModelEntityFailed: "Failed to delete model entity.",
             deleteModelPricingFailed: "Failed to delete model pricing.",
+            openAiCatalogSyncFailed: "Failed to sync OpenAI catalog.",
             deleteBillingRuleFailed: "Failed to delete tiered pricing rule.",
             modelIdRequired: "Model ID cannot be empty.",
             probeFailed: "Model probing failed.",
@@ -1049,6 +1059,7 @@ export default {
             modelPricingDeleted: "Model pricing record deleted.",
             billingRuleDeleted: "Tiered pricing rule deleted.",
             modelPricingSaved: "Model pricing saved: {{model}}",
+            openAiCatalogSynced: "OpenAI catalog synced: {{count}} models updated.",
             billingRuleSaved: "Tiered pricing rule saved: {{model}}",
             modelProfileSaved: "Model profile saved: {{model}}",
             probeCompleted: "Model probing completed. The latest model pool has been synced."
@@ -1063,7 +1074,16 @@ export default {
             notConfigured: "Not configured",
             outputPrice: "Output price",
             perMillionTokensMicrocredits: "Per 1M tokens, in microcredits",
-            sectionTitle: "Model pricing"
+            sectionTitle: "Model pricing",
+            effectiveSectionTitle: "Effective pricing",
+            manualOverride: "Manual override",
+            officialBase: "Official base",
+            overrideSectionTitle: "Manual price override",
+            sourceLabels: {
+                officialSync: "OpenAI official",
+                manualOverride: "Manual override",
+                unknown: "Unknown"
+            },
         },
         rules: {
             cachedInputMultiplierPpm: "Cached input multiplier (ppm)",
@@ -1094,6 +1114,10 @@ export default {
         },
         probeSourceUnknown: "unknown account",
         probeSummary: "Probe cache: {{stale}}, checked {{checkedAt}}, ttl {{ttlHours}}h, source {{source}}",
+        syncHint: {
+            notSynced: "OpenAI catalog has not been synced yet.",
+            syncedAt: "Catalog synced {{time}}"
+        },
         profile: {
             sectionTitle: "Model profile"
         },
@@ -1109,7 +1133,20 @@ export default {
             notFound: "Model not found. It may have been removed or filtered out.",
             httpStatus: "HTTP Status",
             error: "Error",
-            noError: "No error detail"
+            noError: "No error detail",
+            officialTitle: "Official metadata",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
+            contextWindow: "Context window",
+            maxOutputTokens: "Max output tokens",
+            knowledgeCutoff: "Knowledge cutoff",
+            reasoningTokenSupport: "Reasoning token support",
+            sourceUrl: "Source URL",
+            openOfficialPage: "Open official page",
+            capabilitiesTitle: "Capabilities",
+            inputModalities: "Input modalities",
+            outputModalities: "Output modalities",
+            endpoints: "Endpoints",
+            rawText: "Official text snapshot",
         }
     },
     nav: {

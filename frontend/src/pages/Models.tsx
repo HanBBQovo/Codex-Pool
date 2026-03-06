@@ -6,26 +6,21 @@ import {
   ActivitySquare,
   CircleAlert,
   Copy,
-  Cpu,
-  PlusCircle,
+  ExternalLink,
   RotateCw,
   SquarePen,
   Trash2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
 
 import {
   modelsApi,
-  type BillingPricingRuleItem,
-  type ModelEntityItem,
-  type ModelPricingItem,
+  type AdminModelOfficialInfo,
   type ModelSchema,
 } from '@/api/models'
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { AccessibleTabList } from '@/components/ui/accessible-tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
@@ -36,184 +31,111 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { LoadingOverlay } from '@/components/ui/loading-overlay'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { POOL_SECTION_CLASS_NAME } from '@/lib/pool-styles'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/time'
 
-type ProviderFilter = 'all' | string
-
-type ModelEditorTab = 'profile' | 'pricing'
-
-interface ModelPoolRow extends ModelSchema {
-  source: 'upstream' | 'entity_only' | 'pricing_only'
-  entity?: ModelEntityItem
-  pricing?: ModelPricingItem
-}
-
-
-interface BillingPricingRuleFormState {
-  id: string | null
-  request_kind: string
-  scope: string
-  threshold_input_tokens: string
-  input_multiplier_ppm: string
-  cached_input_multiplier_ppm: string
-  output_multiplier_ppm: string
-  priority: string
-  enabled: boolean
-}
-
-function defaultBillingPricingRuleForm(): BillingPricingRuleFormState {
-  return {
-    id: null,
-    request_kind: 'any',
-    scope: 'session',
-    threshold_input_tokens: '',
-    input_multiplier_ppm: '1000000',
-    cached_input_multiplier_ppm: '1000000',
-    output_multiplier_ppm: '1000000',
-    priority: '0',
-    enabled: true,
-  }
-}
-
-function billingRuleFormFromItem(item: BillingPricingRuleItem): BillingPricingRuleFormState {
-  const requestKind =
-    item.request_kind === 'response' ||
-    item.request_kind === 'compact' ||
-    item.request_kind === 'chat'
-      ? item.request_kind
-      : 'any'
-  const scope = item.scope === 'session' ? 'session' : 'request'
-  return {
-    id: item.id,
-    request_kind: requestKind,
-    scope,
-    threshold_input_tokens:
-      typeof item.threshold_input_tokens === 'number' ? String(item.threshold_input_tokens) : '',
-    input_multiplier_ppm: String(item.input_multiplier_ppm),
-    cached_input_multiplier_ppm: String(item.cached_input_multiplier_ppm),
-    output_multiplier_ppm: String(item.output_multiplier_ppm),
-    priority: String(item.priority),
-    enabled: item.enabled,
-  }
-}
-
-function billingRuleRequestKindLabel(
-  requestKind: string,
-  t: ReturnType<typeof useTranslation>['t'],
-) {
-  if (requestKind === 'response') {
-    return t('models.rules.requestKinds.response', { defaultValue: 'Responses' })
-  }
-  if (requestKind === 'compact') {
-    return t('models.rules.requestKinds.compact', { defaultValue: 'Compact' })
-  }
-  if (requestKind === 'chat') {
-    return t('models.rules.requestKinds.chat', { defaultValue: 'Chat' })
-  }
-  if (requestKind === 'any') {
-    return t('models.rules.requestKinds.any', { defaultValue: 'Any' })
-  }
-  return t('models.rules.requestKinds.unknown', { defaultValue: 'Unknown' })
-}
-
-function billingRuleScopeLabel(scope: string, t: ReturnType<typeof useTranslation>['t']) {
-  if (scope === 'session') {
-    return t('models.rules.scopes.session', { defaultValue: 'Session' })
-  }
-  if (scope === 'request') {
-    return t('models.rules.scopes.request', { defaultValue: 'Request' })
-  }
-  return t('models.rules.scopes.unknown', { defaultValue: 'Unknown' })
-}
-
-function formatMicrocredits(value: number) {
+function formatMicrocredits(value?: number | null) {
+  if (typeof value !== 'number') return '-'
   return (value / 1_000_000).toFixed(4)
 }
 
-function defaultCachedInputMicrocredits(inputPriceMicrocredits: number) {
-  return Math.max(0, Math.floor(inputPriceMicrocredits / 10))
+function pricingSourceLabel(
+  source: string,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (source === 'manual_override') {
+    return t('models.pricing.sourceLabels.manualOverride', { defaultValue: 'Manual override' })
+  }
+  if (source === 'official_sync') {
+    return t('models.pricing.sourceLabels.officialSync', { defaultValue: 'OpenAI official' })
+  }
+  return t('models.pricing.sourceLabels.unknown', { defaultValue: 'Unknown' })
 }
 
-function matchesModelSearch(model: ModelPoolRow, keyword: string) {
-  return [
-    model.id,
-    model.owned_by,
-    model.visibility ?? '',
-    model.availability_status,
-    model.availability_error ?? '',
-    model.in_catalog ? 'catalog' : 'unlisted',
-    model.source,
-    model.pricing?.model ?? '',
-    String(model.pricing?.input_price_microcredits ?? ''),
-    String(model.pricing?.cached_input_price_microcredits ?? ''),
-    String(model.pricing?.output_price_microcredits ?? ''),
-  ].some((item) => item.toLowerCase().includes(keyword))
-}
-
-function modelCatalogBadgeVariant(model: ModelPoolRow): 'success' | 'warning' | 'info' {
-  if (model.source === 'pricing_only' || model.source === 'entity_only') {
-    return 'info'
-  }
-  if (!model.in_catalog) {
-    return 'info'
-  }
-  if ((model.visibility ?? '').toLowerCase() === 'hide') {
-    return 'warning'
-  }
-  return 'success'
-}
-
-function modelCatalogLabel(model: ModelPoolRow, t: ReturnType<typeof useTranslation>['t']) {
-  if (model.source === 'pricing_only' || model.source === 'entity_only') {
-    return t('models.catalog.customOnly', { defaultValue: 'Custom model' })
-  }
-  if (!model.in_catalog) {
-    return t('models.catalog.unlisted')
-  }
-  if ((model.visibility ?? '').toLowerCase() === 'hide') {
-    return t('models.catalog.hidden')
-  }
-  return t('models.catalog.listed')
-}
-
-function modelAvailabilityBadgeVariant(
-  status: ModelSchema['availability_status'],
-): 'success' | 'destructive' | 'secondary' {
-  if (status === 'available') {
-    return 'success'
-  }
-  if (status === 'unavailable') {
-    return 'destructive'
-  }
+function pricingSourceVariant(source: string): 'success' | 'info' | 'secondary' {
+  if (source === 'manual_override') return 'success'
+  if (source === 'official_sync') return 'info'
   return 'secondary'
 }
 
-function modelAvailabilityLabel(
+
+function effectivePricingOrFallback(model: Pick<ModelSchema, 'effective_pricing' | 'official'> | null | undefined) {
+  if (model?.effective_pricing) {
+    return model.effective_pricing
+  }
+  return {
+    source: 'official_sync',
+    input_price_microcredits: model?.official?.input_price_microcredits ?? null,
+    cached_input_price_microcredits: model?.official?.cached_input_price_microcredits ?? null,
+    output_price_microcredits: model?.official?.output_price_microcredits ?? null,
+  }
+}
+
+function contextText(official?: AdminModelOfficialInfo | null) {
+  const context = typeof official?.context_window_tokens === 'number'
+    ? official.context_window_tokens.toLocaleString()
+    : '-'
+  const maxOutput = typeof official?.max_output_tokens === 'number'
+    ? official.max_output_tokens.toLocaleString()
+    : '-'
+  return `${context} / ${maxOutput}`
+}
+
+function modalitiesText(official?: AdminModelOfficialInfo | null) {
+  const input =
+    official?.input_modalities && official.input_modalities.length > 0
+      ? official.input_modalities.join(', ')
+      : '-'
+  const output =
+    official?.output_modalities && official.output_modalities.length > 0
+      ? official.output_modalities.join(', ')
+      : '-'
+  return `in: ${input} · out: ${output}`
+}
+
+function matchesModelSearch(model: ModelSchema, keyword: string) {
+  return [
+    model.id,
+    model.owned_by,
+    model.official?.title ?? '',
+    model.official?.description ?? '',
+    model.official?.knowledge_cutoff ?? '',
+    model.official?.input_modalities?.join(',') ?? '',
+    model.official?.output_modalities?.join(',') ?? '',
+    model.official?.endpoints?.join(',') ?? '',
+    effectivePricingOrFallback(model).source,
+    String(effectivePricingOrFallback(model).input_price_microcredits ?? ''),
+    String(effectivePricingOrFallback(model).cached_input_price_microcredits ?? ''),
+    String(effectivePricingOrFallback(model).output_price_microcredits ?? ''),
+  ]
+    .join(' ')
+    .toLowerCase()
+    .includes(keyword)
+}
+
+function availabilityBadgeVariant(
+  status: ModelSchema['availability_status'],
+): 'success' | 'destructive' | 'secondary' {
+  if (status === 'available') return 'success'
+  if (status === 'unavailable') return 'destructive'
+  return 'secondary'
+}
+
+function availabilityLabel(
   status: ModelSchema['availability_status'],
   t: ReturnType<typeof useTranslation>['t'],
 ) {
-  if (status === 'available') {
-    return t('models.availability.available')
-  }
-  if (status === 'unavailable') {
-    return t('models.availability.unavailable')
-  }
+  if (status === 'available') return t('models.availability.available')
+  if (status === 'unavailable') return t('models.availability.unavailable')
   return t('models.availability.unknown')
 }
 
-function modelAvailabilityIssueText(
-  model: ModelPoolRow,
+function availabilityIssueText(
+  model: ModelSchema,
   t: ReturnType<typeof useTranslation>['t'],
 ) {
   const parts: string[] = []
@@ -230,45 +152,20 @@ function modelAvailabilityIssueText(
   return parts.join(' · ')
 }
 
-function modelSourceLabel(
-  source: ModelPoolRow['source'],
-  t: ReturnType<typeof useTranslation>['t'],
-) {
-  if (source === 'entity_only') {
-    return t('models.form.sourceValues.entityOnly', { defaultValue: 'Entity only' })
-  }
-  if (source === 'pricing_only') {
-    return t('models.form.sourceValues.pricingOnly', { defaultValue: 'Pricing only' })
-  }
-  return t('models.form.sourceValues.upstream', { defaultValue: 'Upstream' })
-}
-
 export default function Models() {
   const { t, i18n } = useTranslation()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>('all')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-
   const [editorOpen, setEditorOpen] = useState(false)
-  const [editorTab, setEditorTab] = useState<ModelEditorTab>('profile')
-  const [editingModel, setEditingModel] = useState<ModelPoolRow | null>(null)
-  const [modelForm, setModelForm] = useState({
-    model: '',
-    provider: 'custom',
-    visibility: 'list',
-  })
+  const [editingModel, setEditingModel] = useState<ModelSchema | null>(null)
   const [pricingForm, setPricingForm] = useState({
     input_price_microcredits: '0',
     cached_input_price_microcredits: '0',
     output_price_microcredits: '0',
     enabled: true,
   })
-  const [billingRuleForm, setBillingRuleForm] = useState<BillingPricingRuleFormState>(
-    defaultBillingPricingRuleForm(),
-  )
 
   const resolveErrorLabel = useCallback(
     (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
@@ -278,44 +175,43 @@ export default function Models() {
   const { data: modelsPayload, isLoading, isFetching } = useQuery({
     queryKey: ['models'],
     queryFn: modelsApi.listModels,
-    staleTime: 180000,
-    refetchInterval: 180000,
-  })
-
-  const pricingQuery = useQuery({
-    queryKey: ['adminModelPricing'],
-    queryFn: modelsApi.listModelPricing,
     staleTime: 60000,
   })
 
-  const billingRulesQuery = useQuery({
-    queryKey: ['adminBillingPricingRules'],
-    queryFn: modelsApi.listBillingPricingRules,
-    staleTime: 60000,
+  const syncCatalogMutation = useMutation({
+    mutationFn: () => modelsApi.syncOpenAiCatalog(),
+    onSuccess: (payload) => {
+      setError(null)
+      setNotice(
+        t('models.notice.openAiCatalogSynced', {
+          defaultValue: 'OpenAI catalog synced: {{count}} models updated.',
+          count: payload.created_or_updated,
+        }),
+      )
+      queryClient.invalidateQueries({ queryKey: ['models'] })
+    },
+    onError: (err) => {
+      setError(
+        resolveErrorLabel(
+          err,
+          t('models.errors.openAiCatalogSyncFailed', {
+            defaultValue: 'Failed to sync OpenAI catalog.',
+          }),
+        ),
+      )
+    },
   })
-
-  const modelEntitiesQuery = useQuery({
-    queryKey: ['adminModelEntities'],
-    queryFn: modelsApi.listModelEntities,
-    staleTime: 60000,
-  })
-
-  const isSyncingPools =
-    isFetching ||
-    pricingQuery.isFetching ||
-    billingRulesQuery.isFetching ||
-    modelEntitiesQuery.isFetching
 
   const probeMutation = useMutation({
     mutationFn: () => modelsApi.probeModels({ force: true }),
-    onSuccess: (payload) => {
-      queryClient.setQueryData(['models'], payload)
+    onSuccess: () => {
+      setError(null)
       setNotice(
         t('models.notice.probeCompleted', {
-          defaultValue: 'Model probing completed. The latest model pool has been synced.',
+          defaultValue: 'Model probing completed. Availability has been refreshed.',
         }),
       )
-      setError(null)
+      queryClient.invalidateQueries({ queryKey: ['models'] })
     },
     onError: (err) => {
       setError(
@@ -325,75 +221,12 @@ export default function Models() {
         ),
       )
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['models'] })
-    },
-  })
-
-  const upsertModelEntityMutation = useMutation({
-    mutationFn: async () =>
-      modelsApi.upsertModelEntity({
-        model: modelForm.model.trim(),
-        provider: modelForm.provider.trim() || undefined,
-        visibility: modelForm.visibility.trim() || undefined,
-      }),
-    onSuccess: (item) => {
-      setError(null)
-      setNotice(
-        t('models.notice.modelProfileSaved', {
-          defaultValue: 'Model profile saved: {{model}}',
-          model: item.model,
-        }),
-      )
-      queryClient.invalidateQueries({ queryKey: ['adminModelEntities'] })
-      queryClient.invalidateQueries({ queryKey: ['models'] })
-      setEditingModel((current) => {
-        if (!current) {
-          return current
-        }
-        return {
-          ...current,
-          id: item.model,
-          owned_by: item.provider,
-          entity_id: item.id,
-          visibility: item.visibility ?? current.visibility,
-        }
-      })
-    },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.saveModelProfileFailed', { defaultValue: 'Failed to save model profile.' }),
-        ),
-      )
-    },
-  })
-
-  const deleteModelEntityMutation = useMutation({
-    mutationFn: async (entityId: string) => modelsApi.deleteModelEntity(entityId),
-    onSuccess: () => {
-      setError(null)
-      setNotice(t('models.notice.modelEntityDeleted', { defaultValue: 'Model entity deleted.' }))
-      queryClient.invalidateQueries({ queryKey: ['adminModelEntities'] })
-      queryClient.invalidateQueries({ queryKey: ['models'] })
-      setEditorOpen(false)
-      setEditingModel(null)
-    },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.deleteModelEntityFailed', { defaultValue: 'Failed to delete model entity.' }),
-        ),
-      )
-    },
   })
 
   const upsertPricingMutation = useMutation({
     mutationFn: async () =>
       modelsApi.upsertModelPricing({
-        model: modelForm.model.trim(),
+        model: editingModel?.id ?? '',
         input_price_microcredits: Number(pricingForm.input_price_microcredits),
         cached_input_price_microcredits: Number(pricingForm.cached_input_price_microcredits),
         output_price_microcredits: Number(pricingForm.output_price_microcredits),
@@ -407,7 +240,6 @@ export default function Models() {
           model: item.model,
         }),
       )
-      queryClient.invalidateQueries({ queryKey: ['adminModelPricing'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
     },
     onError: (err) => {
@@ -425,7 +257,6 @@ export default function Models() {
     onSuccess: () => {
       setError(null)
       setNotice(t('models.notice.modelPricingDeleted', { defaultValue: 'Model pricing record deleted.' }))
-      queryClient.invalidateQueries({ queryKey: ['adminModelPricing'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
     },
     onError: (err) => {
@@ -438,219 +269,34 @@ export default function Models() {
     },
   })
 
-
-  const upsertBillingRuleMutation = useMutation({
-    mutationFn: async () =>
-      modelsApi.upsertBillingPricingRule({
-        id: billingRuleForm.id ?? undefined,
-        model_pattern: modelForm.model.trim(),
-        request_kind: billingRuleForm.request_kind.trim() || 'any',
-        scope: billingRuleForm.scope.trim() || 'request',
-        threshold_input_tokens: billingRuleForm.threshold_input_tokens.trim()
-          ? Number(billingRuleForm.threshold_input_tokens)
-          : null,
-        input_multiplier_ppm: Number(billingRuleForm.input_multiplier_ppm),
-        cached_input_multiplier_ppm: Number(billingRuleForm.cached_input_multiplier_ppm),
-        output_multiplier_ppm: Number(billingRuleForm.output_multiplier_ppm),
-        priority: Number(billingRuleForm.priority),
-        enabled: billingRuleForm.enabled,
-      }),
-    onSuccess: (item) => {
-      setError(null)
-      setNotice(
-        t('models.notice.billingRuleSaved', {
-          defaultValue: 'Tiered pricing rule saved: {{model}}',
-          model: item.model_pattern,
-        }),
-      )
-      queryClient.invalidateQueries({ queryKey: ['adminBillingPricingRules'] })
-      setBillingRuleForm(billingRuleFormFromItem(item))
-    },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.saveBillingRuleFailed', {
-            defaultValue: 'Failed to save tiered pricing rule.',
-          }),
-        ),
-      )
-    },
-  })
-
-  const deleteBillingRuleMutation = useMutation({
-    mutationFn: async (ruleId: string) => modelsApi.deleteBillingPricingRule(ruleId),
-    onSuccess: () => {
-      setError(null)
-      setNotice(
-        t('models.notice.billingRuleDeleted', {
-          defaultValue: 'Tiered pricing rule deleted.',
-        }),
-      )
-      queryClient.invalidateQueries({ queryKey: ['adminBillingPricingRules'] })
-      setBillingRuleForm(defaultBillingPricingRuleForm())
-    },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.deleteBillingRuleFailed', {
-            defaultValue: 'Failed to delete tiered pricing rule.',
-          }),
-        ),
-      )
-    },
-  })
-
   const models = useMemo(() => modelsPayload?.data ?? [], [modelsPayload])
   const modelsMeta = modelsPayload?.meta
-  const pricingRows = useMemo(() => pricingQuery.data ?? [], [pricingQuery.data])
-  const billingRuleRows = useMemo(() => billingRulesQuery.data ?? [], [billingRulesQuery.data])
-  const modelEntities = useMemo(() => modelEntitiesQuery.data ?? [], [modelEntitiesQuery.data])
+  const isBusy =
+    isLoading ||
+    isFetching ||
+    syncCatalogMutation.isPending ||
+    probeMutation.isPending
 
-  const pricingByModel = useMemo(() => {
-    const map = new Map<string, ModelPricingItem>()
-    for (const pricing of pricingRows) {
-      map.set(pricing.model, pricing)
-    }
-    return map
-  }, [pricingRows])
-
-  const entityByModel = useMemo(() => {
-    const map = new Map<string, ModelEntityItem>()
-    for (const entity of modelEntities) {
-      map.set(entity.model, entity)
-    }
-    return map
-  }, [modelEntities])
-
-  const modelRows = useMemo<ModelPoolRow[]>(() => {
-    const rowMap = new Map<string, ModelPoolRow>()
-    for (const item of models) {
-      const linkedEntity = entityByModel.get(item.id)
-      rowMap.set(item.id, {
-        ...item,
-        owned_by: linkedEntity?.provider ?? item.owned_by,
-        entity_id: linkedEntity?.id ?? item.entity_id ?? null,
-        visibility: linkedEntity?.visibility ?? item.visibility,
-        source: 'upstream',
-        entity: linkedEntity,
-        pricing: pricingByModel.get(item.id),
-      })
-    }
-
-    for (const entity of modelEntities) {
-      const existing = rowMap.get(entity.model)
-      if (existing) {
-        rowMap.set(entity.model, {
-          ...existing,
-          owned_by: entity.provider || existing.owned_by,
-          entity_id: entity.id,
-          visibility: entity.visibility ?? existing.visibility,
-          in_catalog: true,
-          entity,
-        })
-        continue
-      }
-      rowMap.set(entity.model, {
-        id: entity.model,
-        object: 'model',
-        created: 0,
-        owned_by: entity.provider || 'custom',
-        entity_id: entity.id,
-        visibility: entity.visibility ?? 'custom',
-        in_catalog: true,
-        availability_status: 'unknown',
-        availability_checked_at: null,
-        availability_http_status: null,
-        availability_error: null,
-        source: 'entity_only',
-        entity,
-        pricing: pricingByModel.get(entity.model),
-      })
-    }
-
-    for (const pricing of pricingRows) {
-      const existing = rowMap.get(pricing.model)
-      if (existing) {
-        rowMap.set(pricing.model, { ...existing, pricing })
-        continue
-      }
-      rowMap.set(pricing.model, {
-        id: pricing.model,
-        object: 'model',
-        created: 0,
-        owned_by: 'custom',
-        entity_id: null,
-        visibility: 'custom',
-        in_catalog: true,
-        availability_status: 'unknown',
-        availability_checked_at: null,
-        availability_http_status: null,
-        availability_error: null,
-        source: 'pricing_only',
-        pricing,
-      })
-    }
-
-    const rows = Array.from(rowMap.values())
-    rows.sort((a, b) => a.id.localeCompare(b.id))
-    return rows
-  }, [entityByModel, modelEntities, models, pricingByModel, pricingRows])
-
-  const isProbing = probeMutation.isPending
-
-  const providerOptions = useMemo(() => {
-    const unique = Array.from(new Set(modelRows.map((item) => item.owned_by).filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b),
-    )
-    return unique
-  }, [modelRows])
-
-  const filteredData = useMemo(() => {
-    if (providerFilter === 'all') {
-      return modelRows
-    }
-    return modelRows.filter((item) => item.owned_by === providerFilter)
-  }, [modelRows, providerFilter])
-
-  const openEditor = useCallback((row: ModelPoolRow) => {
-    const inputPrice = row.pricing?.input_price_microcredits ?? 0
-    const firstRule = billingRuleRows.find((rule) => rule.model_pattern === row.id) ?? null
-    setEditingModel(row)
-    setModelForm({
-      model: row.id,
-      provider: row.entity?.provider ?? row.owned_by ?? 'custom',
-      visibility: row.entity?.visibility ?? row.visibility ?? 'list',
-    })
+  const openEditor = useCallback((model: ModelSchema) => {
+    setEditingModel(model)
     setPricingForm({
-      input_price_microcredits: String(inputPrice),
-      cached_input_price_microcredits: String(
-        row.pricing?.cached_input_price_microcredits ?? defaultCachedInputMicrocredits(inputPrice),
+      input_price_microcredits: String(
+        model.override_pricing?.input_price_microcredits ??
+          effectivePricingOrFallback(model).input_price_microcredits ??
+          0,
       ),
-      output_price_microcredits: String(row.pricing?.output_price_microcredits ?? 0),
-      enabled: row.pricing?.enabled ?? true,
+      cached_input_price_microcredits: String(
+        model.override_pricing?.cached_input_price_microcredits ??
+          effectivePricingOrFallback(model).cached_input_price_microcredits ??
+          0,
+      ),
+      output_price_microcredits: String(
+        model.override_pricing?.output_price_microcredits ??
+          effectivePricingOrFallback(model).output_price_microcredits ??
+          0,
+      ),
+      enabled: model.override_pricing?.enabled ?? true,
     })
-    setBillingRuleForm(firstRule ? billingRuleFormFromItem(firstRule) : defaultBillingPricingRuleForm())
-    setEditorTab('profile')
-    setEditorOpen(true)
-  }, [billingRuleRows])
-
-  const openCreateModel = useCallback(() => {
-    setEditingModel(null)
-    setModelForm({
-      model: '',
-      provider: 'custom',
-      visibility: 'list',
-    })
-    setPricingForm({
-      input_price_microcredits: '0',
-      cached_input_price_microcredits: '0',
-      output_price_microcredits: '0',
-      enabled: true,
-    })
-    setBillingRuleForm(defaultBillingPricingRuleForm())
-    setEditorTab('profile')
     setEditorOpen(true)
   }, [])
 
@@ -670,7 +316,7 @@ export default function Models() {
     }
   }, [])
 
-  const columns = useMemo<ColumnDef<ModelPoolRow>[]>(
+  const columns = useMemo<ColumnDef<ModelSchema>[]>(
     () => [
       {
         accessorKey: 'id',
@@ -698,27 +344,16 @@ export default function Models() {
         ),
       },
       {
-        id: 'catalog',
-        accessorFn: (row) => (row.in_catalog ? row.visibility ?? 'list' : 'unlisted'),
-        header: t('models.columns.catalog'),
-        cell: ({ row }) => (
-          <Badge variant={modelCatalogBadgeVariant(row.original)}>
-            {modelCatalogLabel(row.original, t)}
-          </Badge>
-        ),
-      },
-      {
         id: 'availability',
-        accessorFn: (row) => row.availability_status,
         header: t('models.columns.availability'),
+        accessorFn: (row) => row.availability_status,
         cell: ({ row }) => {
-          const status = row.original.availability_status
-          const hasIssue = status === 'unavailable' || Boolean(row.original.availability_error)
-          const issueText = modelAvailabilityIssueText(row.original, t)
+          const hasIssue = row.original.availability_status === 'unavailable' || Boolean(row.original.availability_error)
+          const issueText = availabilityIssueText(row.original, t)
           return (
             <div className="flex items-center gap-1.5">
-              <Badge variant={modelAvailabilityBadgeVariant(status)}>
-                {modelAvailabilityLabel(status, t)}
+              <Badge variant={availabilityBadgeVariant(row.original.availability_status)}>
+                {availabilityLabel(row.original.availability_status, t)}
               </Badge>
               {hasIssue ? (
                 <Tooltip>
@@ -731,11 +366,7 @@ export default function Models() {
                       <CircleAlert className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent
-                    side="top"
-                    align="start"
-                    className="max-h-40 max-w-[380px] overflow-auto whitespace-pre-wrap break-words leading-relaxed"
-                  >
+                  <TooltipContent className="max-w-[360px] whitespace-pre-wrap break-words">
                     {issueText}
                   </TooltipContent>
                 </Tooltip>
@@ -745,113 +376,61 @@ export default function Models() {
         },
       },
       {
-        accessorKey: 'owned_by',
-        header: t('models.columns.provider'),
-        cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.owned_by}</span>,
-      },
-      {
-        id: 'inputPrice',
-        accessorFn: (row) => row.pricing?.input_price_microcredits ?? -1,
-        header: t('models.columns.inputPrice', { defaultValue: 'Input Price' }),
-        cell: ({ row }) => {
-          const value = row.original.pricing?.input_price_microcredits
-          if (value === undefined) {
-            return (
-              <span className="text-xs text-muted-foreground">
-                {t('models.pricing.notConfigured', { defaultValue: 'Not configured' })}
-              </span>
-            )
-          }
-          return (
-            <div className="space-y-0.5">
-              <div className="font-mono text-xs">{value}</div>
-              <div className="text-[11px] text-muted-foreground">
-                {formatMicrocredits(value)}{' '}
-                {t('models.pricing.creditsPerMillionTokens', { defaultValue: 'credits / 1M tokens' })}
-              </div>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'cachedInputPrice',
-        accessorFn: (row) => row.pricing?.cached_input_price_microcredits ?? -1,
-        header: t('models.columns.cachedInputPrice', { defaultValue: 'Cached Input Price' }),
-        cell: ({ row }) => {
-          const value = row.original.pricing?.cached_input_price_microcredits
-          if (value === undefined) {
-            return (
-              <span className="text-xs text-muted-foreground">
-                {t('models.pricing.notConfigured', { defaultValue: 'Not configured' })}
-              </span>
-            )
-          }
-          return (
-            <div className="space-y-0.5">
-              <div className="font-mono text-xs">{value}</div>
-              <div className="text-[11px] text-muted-foreground">
-                {formatMicrocredits(value)}{' '}
-                {t('models.pricing.creditsPerMillionTokens', { defaultValue: 'credits / 1M tokens' })}
-              </div>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'outputPrice',
-        accessorFn: (row) => row.pricing?.output_price_microcredits ?? -1,
-        header: t('models.columns.outputPrice', { defaultValue: 'Output Price' }),
-        cell: ({ row }) => {
-          const value = row.original.pricing?.output_price_microcredits
-          if (value === undefined) {
-            return (
-              <span className="text-xs text-muted-foreground">
-                {t('models.pricing.notConfigured', { defaultValue: 'Not configured' })}
-              </span>
-            )
-          }
-          return (
-            <div className="space-y-0.5">
-              <div className="font-mono text-xs">{value}</div>
-              <div className="text-[11px] text-muted-foreground">
-                {formatMicrocredits(value)}{' '}
-                {t('models.pricing.creditsPerMillionTokens', { defaultValue: 'credits / 1M tokens' })}
-              </div>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'priceStatus',
-        accessorFn: (row) => row.pricing?.enabled ?? false,
-        header: t('models.columns.pricingStatus', { defaultValue: 'Pricing Status' }),
-        cell: ({ row }) => {
-          const pricing = row.original.pricing
-          if (!pricing) {
-            return (
-              <Badge variant="secondary">
-                {t('models.pricing.notConfigured', { defaultValue: 'Not configured' })}
-              </Badge>
-            )
-          }
-          return (
-            <Badge variant={pricing.enabled ? 'success' : 'warning'}>
-              {pricing.enabled
-                ? t('models.pricing.enabled', { defaultValue: 'Enabled' })
-                : t('models.pricing.disabled', { defaultValue: 'Disabled' })}
-            </Badge>
-          )
-        },
-      },
-      {
-        id: 'checkedAt',
-        accessorFn: (row) => row.availability_checked_at ?? '',
-        header: t('models.columns.checkedAt'),
+        id: 'context',
+        header: t('models.columns.context', { defaultValue: 'Context / Max output' }),
+        accessorFn: (row) => contextText(row.official),
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
-            {row.original.availability_checked_at
-              ? formatRelativeTime(new Date(row.original.availability_checked_at).getTime(), i18n.resolvedLanguage, true)
-              : t('models.availability.neverChecked')}
+          <span className="font-mono text-xs text-muted-foreground">
+            {contextText(row.original.official ?? null)}
+          </span>
+        ),
+      },
+      {
+        id: 'pricing',
+        header: t('models.columns.pricingStatus'),
+        accessorFn: (row) =>
+          [
+            effectivePricingOrFallback(row).source,
+            effectivePricingOrFallback(row).input_price_microcredits,
+            effectivePricingOrFallback(row).cached_input_price_microcredits,
+            effectivePricingOrFallback(row).output_price_microcredits,
+          ].join(' '),
+        cell: ({ row }) => (
+          <div className="space-y-1 text-xs">
+            <Badge variant={pricingSourceVariant(effectivePricingOrFallback(row.original).source)}>
+              {pricingSourceLabel(effectivePricingOrFallback(row.original).source, t)}
+            </Badge>
+            <div className="font-mono text-muted-foreground">
+              in {formatMicrocredits(effectivePricingOrFallback(row.original).input_price_microcredits)} · cached{' '}
+              {formatMicrocredits(effectivePricingOrFallback(row.original).cached_input_price_microcredits)} · out{' '}
+              {formatMicrocredits(effectivePricingOrFallback(row.original).output_price_microcredits)}
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'modalities',
+        header: t('models.columns.modalities', { defaultValue: 'Modalities' }),
+        accessorFn: (row) => modalitiesText(row.official ?? null),
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {modalitiesText(row.original.official ?? null)}
+          </span>
+        ),
+      },
+      {
+        id: 'syncedAt',
+        header: t('models.columns.syncedAt', { defaultValue: 'Synced' }),
+        accessorFn: (row) => row.official?.synced_at ?? '',
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {row.original.official?.synced_at
+              ? formatRelativeTime(
+                  new Date(row.original.official.synced_at).getTime(),
+                  i18n.resolvedLanguage,
+                  true,
+                )
+              : '-'}
           </span>
         ),
       },
@@ -861,7 +440,7 @@ export default function Models() {
         header: t('models.columns.actions', { defaultValue: 'Actions' }),
         cell: ({ row }) => (
           <Button variant="ghost" size="sm" className="group" onClick={() => openEditor(row.original)}>
-            {t('models.actions.editModel', { defaultValue: 'Edit model' })}
+            {t('models.actions.openDetails', { defaultValue: 'Details' })}
             <SquarePen className="ml-1 h-3.5 w-3.5" />
           </Button>
         ),
@@ -870,35 +449,22 @@ export default function Models() {
     [copyText, i18n.resolvedLanguage, openEditor, t],
   )
 
-  const probeSummaryText = useMemo(() => {
-    if (!modelsMeta) {
-      return null
-    }
-    const ttlHours = Math.max(1, Math.round(modelsMeta.probe_cache_ttl_sec / 3600))
-    const checkedAt = modelsMeta.probe_cache_updated_at
-      ? formatRelativeTime(new Date(modelsMeta.probe_cache_updated_at).getTime(), i18n.resolvedLanguage, true)
-      : t('models.availability.neverChecked')
-    return t('models.probeSummary', {
-      checkedAt,
-      ttlHours,
-      source: modelsMeta.source_account_label ?? t('models.probeSourceUnknown'),
-      stale: modelsMeta.probe_cache_stale ? t('models.cache.stale') : t('models.cache.fresh'),
-    })
-  }, [i18n.resolvedLanguage, modelsMeta, t])
-
-  const catalogErrorText = modelsMeta?.catalog_last_error ?? null
+  const catalogSyncText = !modelsMeta?.catalog_synced_at
+    ? t('models.syncHint.notSynced', {
+        defaultValue: 'OpenAI catalog has not been synced yet.',
+      })
+    : t('models.syncHint.syncedAt', {
+        defaultValue: 'Catalog synced {{time}}',
+        time: formatRelativeTime(
+          new Date(modelsMeta.catalog_synced_at).getTime(),
+          i18n.resolvedLanguage,
+          true,
+        ),
+      })
 
   const currentModel = editingModel
-  const currentBillingRules = useMemo(
-    () =>
-      billingRuleRows.filter(
-        (rule) => rule.model_pattern === (modelForm.model.trim() || currentModel?.id || ''),
-      ),
-    [billingRuleRows, currentModel?.id, modelForm.model],
-  )
-
-  const canDeleteCurrentModelEntity = Boolean(currentModel?.entity_id)
-  const canDeleteCurrentPricing = Boolean(currentModel?.pricing?.id)
+  const currentOfficial = currentModel?.official
+  const canDeleteOverride = Boolean(currentModel?.override_pricing?.id)
 
   return (
     <motion.div
@@ -910,46 +476,34 @@ export default function Models() {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">
-            {t('models.title', { defaultValue: 'Model pool' })}
+            {t('models.title', { defaultValue: 'Models' })}
           </h2>
           <p className="mt-1 text-muted-foreground">
             {t('models.description', {
-              defaultValue: 'View model availability and manage model profiles and pricing here.',
+              defaultValue: 'Browse the OpenAI official catalog, verify model availability, and manage manual pricing overrides.',
             })}
           </p>
-          {probeSummaryText ? (
-            <p className="mt-1 text-xs text-muted-foreground">{probeSummaryText}</p>
-          ) : null}
-          {catalogErrorText ? (
-            <p className="mt-1 break-all text-xs text-warning-foreground">{catalogErrorText}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{catalogSyncText}</p>
+          {modelsMeta?.catalog_last_error ? (
+            <p className="mt-1 break-all text-xs text-warning-foreground">{modelsMeta.catalog_last_error}</p>
           ) : null}
         </div>
 
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
-            onClick={() => probeMutation.mutate()}
-            disabled={isProbing || isFetching}
+            onClick={() => syncCatalogMutation.mutate()}
+            disabled={syncCatalogMutation.isPending}
           >
-            <ActivitySquare className={cn('mr-2 h-4 w-4', isProbing && 'animate-pulse')} />
-            {t('models.actions.probeNow')}
+            <RotateCw className={cn('mr-2 h-4 w-4', syncCatalogMutation.isPending && 'animate-spin')} />
+            {t('models.actions.syncOpenAiCatalog', { defaultValue: 'Sync OpenAI catalog' })}
           </Button>
           <Button
             variant="outline"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ['models'] })
-              queryClient.invalidateQueries({ queryKey: ['adminModelPricing'] })
-              queryClient.invalidateQueries({ queryKey: ['adminBillingPricingRules'] })
-              queryClient.invalidateQueries({ queryKey: ['adminModelEntities'] })
-            }}
-            disabled={isSyncingPools || isProbing}
+            onClick={() => probeMutation.mutate()}
+            disabled={probeMutation.isPending || modelsMeta?.catalog_sync_required}
           >
-            <RotateCw className={cn('mr-2 h-4 w-4', isSyncingPools && 'animate-spin')} />
-            {t('models.actions.sync')}
-          </Button>
-          <Button onClick={openCreateModel}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            {t('models.actions.createModel', { defaultValue: 'Create model' })}
+            <ActivitySquare className={cn('mr-2 h-4 w-4', probeMutation.isPending && 'animate-pulse')} />
+            {t('models.actions.probeAvailability', { defaultValue: 'Probe availability' })}
           </Button>
         </div>
       </div>
@@ -959,53 +513,33 @@ export default function Models() {
 
       <div className="relative min-h-0 flex-1">
         <LoadingOverlay
-          show={
-            isLoading ||
-            pricingQuery.isLoading ||
-            billingRulesQuery.isLoading ||
-            modelEntitiesQuery.isLoading
-          }
+          show={isBusy}
           title={t('models.syncing')}
           description={t('models.loadingHint', {
-            defaultValue: 'Checking catalog and availability status. The latest model list will appear automatically.',
+            defaultValue: 'Refreshing official catalog and model availability…',
           })}
         />
 
         <TooltipProvider>
           <StandardDataTable
             columns={columns}
-            data={filteredData}
+            data={models}
             searchPlaceholder={t('models.actions.search')}
             searchFn={matchesModelSearch}
-            emptyText={t('models.empty')}
-            filters={(
-              <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="w-[220px]" aria-label={t('models.filters.providerLabel')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('models.filters.allProviders')}</SelectItem>
-                  {providerOptions.map((provider) => (
-                    <SelectItem key={provider} value={provider}>
-                      {provider}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            emptyText={
+              modelsMeta?.catalog_sync_required
+                ? t('models.emptySyncRequired', {
+                    defaultValue: 'No official catalog yet. Sync OpenAI catalog first.',
+                  })
+                : t('models.empty')
+            }
             actions={
-              filteredData.length === 0 ? (
-                <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={() => navigate('/imports')}>
-                    <PlusCircle className="mr-1 h-4 w-4" />
-                    {t('models.emptyActions.importAccount')}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => navigate('/accounts')}>
-                    <Cpu className="mr-1 h-4 w-4" />
-                    {t('models.emptyActions.goAccounts')}
-                  </Button>
-                </div>
-              ) : null
+              modelsMeta?.catalog_sync_required ? (
+                <Button size="sm" onClick={() => syncCatalogMutation.mutate()}>
+                  <RotateCw className="mr-2 h-4 w-4" />
+                  {t('models.actions.syncOpenAiCatalog', { defaultValue: 'Sync OpenAI catalog' })}
+                </Button>
+              ) : undefined
             }
           />
         </TooltipProvider>
@@ -1017,230 +551,203 @@ export default function Models() {
           setEditorOpen(open)
           if (!open) {
             setEditingModel(null)
-            setEditorTab('profile')
-            setBillingRuleForm(defaultBillingPricingRuleForm())
           }
         }}
       >
-        <DialogContent className="sm:max-w-4xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>
               {currentModel
                 ? t('models.dialog.titleWithId', {
-                    defaultValue: 'Model profile · {{modelId}}',
+                    defaultValue: 'Model details · {{modelId}}',
                     modelId: currentModel.id,
                   })
-                : t('models.actions.createModel', { defaultValue: 'Create model' })}
+                : t('models.title', { defaultValue: 'Models' })}
             </DialogTitle>
             <DialogDescription>
-              {t('models.dialog.description', {
+              {t('models.dialog.officialDescription', {
                 defaultValue:
-                  'Edit profile and pricing in this dialog. Saved pricing will be written back to the model pool list immediately.',
+                  'Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.',
               })}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <AccessibleTabList
-              idBase="models-editor"
-              ariaLabel={t('models.dialog.tabListAriaLabel', { defaultValue: 'Model profile tabs' })}
-              value={editorTab}
-              onValueChange={setEditorTab}
-              items={[
-                {
-                  value: 'profile',
-                  label: t('models.tabs.profile', { defaultValue: 'Profile' }),
-                },
-                {
-                  value: 'pricing',
-                  label: t('models.tabs.pricing', { defaultValue: 'Pricing' }),
-                },
-              ]}
-            />
+          {currentModel ? (
+            <div className="space-y-4">
+              <section className={POOL_SECTION_CLASS_NAME}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="info">{currentModel.owned_by}</Badge>
+                  <Badge variant={availabilityBadgeVariant(currentModel.availability_status)}>
+                    {availabilityLabel(currentModel.availability_status, t)}
+                  </Badge>
+                  <Badge variant={pricingSourceVariant(effectivePricingOrFallback(currentModel).source)}>
+                    {pricingSourceLabel(effectivePricingOrFallback(currentModel).source, t)}
+                  </Badge>
+                </div>
 
-            {editorTab === 'profile' ? (
-              <section
-                id="models-editor-panel-profile"
-                role="tabpanel"
-                tabIndex={0}
-                aria-labelledby="models-editor-tab-profile"
-                className={POOL_SECTION_CLASS_NAME}
-              >
-                <h3 className="text-base font-medium">
-                  {t('models.profile.sectionTitle', { defaultValue: 'Model profile' })}
-                </h3>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <label htmlFor="model-editor-id" className="text-xs font-medium text-muted-foreground">
-                      {t('models.form.modelId', { defaultValue: 'Model ID' })}
-                    </label>
-                    <Input
-                      id="model-editor-id"
-                      name="model"
-                      value={modelForm.model}
-                      disabled={Boolean(currentModel)}
-                      onChange={(event) =>
-                        setModelForm((prev) => ({ ...prev, model: event.target.value }))
-                      }
-                      placeholder={t('models.form.modelIdPlaceholder', {
-                        defaultValue: 'Example: gpt-5.3-codex',
-                      })}
-                    />
-                    {currentModel ? (
-                      <p className="text-xs text-muted-foreground">
-                        {t('models.form.modelIdLockedHint', {
-                          defaultValue:
-                            'Existing models cannot change the ID. Use "Create model" to add a new one.',
-                        })}
-                      </p>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <h3 className="text-base font-medium">
+                      {t('models.detail.officialTitle', { defaultValue: 'Official metadata' })}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">{currentOfficial?.title}</p>
+                    {currentOfficial?.description ? (
+                      <p className="text-sm text-muted-foreground">{currentOfficial?.description}</p>
                     ) : null}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      {t('models.form.source', { defaultValue: 'Source' })}
-                    </label>
-                    <div className="rounded border px-3 py-2 text-sm text-muted-foreground">
-                      {modelSourceLabel(currentModel ? currentModel.source : 'entity_only', t)}
+                    <div className="space-y-1 text-sm">
+                      <div>
+                        <span className="font-medium">{t('models.detail.contextWindow', { defaultValue: 'Context window' })}:</span>{' '}
+                        <span className="font-mono">{currentOfficial?.context_window_tokens?.toLocaleString() ?? '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-medium">{t('models.detail.maxOutputTokens', { defaultValue: 'Max output tokens' })}:</span>{' '}
+                        <span className="font-mono">{currentOfficial?.max_output_tokens?.toLocaleString() ?? '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-medium">{t('models.detail.knowledgeCutoff', { defaultValue: 'Knowledge cutoff' })}:</span>{' '}
+                        <span>{currentOfficial?.knowledge_cutoff ?? '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-medium">{t('models.detail.reasoningTokenSupport', { defaultValue: 'Reasoning token support' })}:</span>{' '}
+                        <span>
+                          {typeof currentOfficial?.reasoning_token_support === 'boolean'
+                            ? currentOfficial?.reasoning_token_support
+                              ? t('models.pricing.enabled', { defaultValue: 'Enabled' })
+                              : t('models.pricing.disabled', { defaultValue: 'Disabled' })
+                            : '-'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{t('models.detail.sourceUrl', { defaultValue: 'Source URL' })}:</span>
+                        <a
+                          className="inline-flex items-center gap-1 text-primary underline underline-offset-4"
+                          href={currentOfficial?.source_url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t('models.detail.openOfficialPage', { defaultValue: 'Open official page' })}
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label htmlFor="model-editor-provider" className="text-xs font-medium text-muted-foreground">
-                      {t('models.form.provider', { defaultValue: 'Provider' })}
-                    </label>
-                    <Input
-                      id="model-editor-provider"
-                      name="provider"
-                      value={modelForm.provider}
-                      onChange={(event) =>
-                        setModelForm((prev) => ({ ...prev, provider: event.target.value }))
-                      }
-                      placeholder={t('models.form.providerPlaceholder', {
-                        defaultValue: 'Example: openai / custom',
-                      })}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label htmlFor="model-editor-visibility" className="text-xs font-medium text-muted-foreground">
-                      {t('models.form.visibility', { defaultValue: 'Visibility' })}
-                    </label>
-                    <Input
-                      id="model-editor-visibility"
-                      name="visibility"
-                      value={modelForm.visibility}
-                      onChange={(event) =>
-                        setModelForm((prev) => ({ ...prev, visibility: event.target.value }))
-                      }
-                      placeholder={t('models.form.visibilityPlaceholder', {
-                        defaultValue: 'Example: list / hide',
-                      })}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    onClick={() => {
-                      if (!modelForm.model.trim()) {
-                        setError(
-                          t('models.errors.modelIdRequired', { defaultValue: 'Model ID cannot be empty.' }),
-                        )
-                        return
-                      }
-                      upsertModelEntityMutation.mutate()
-                    }}
-                    disabled={upsertModelEntityMutation.isPending}
-                  >
-                    {upsertModelEntityMutation.isPending ? (
-                      <RotateCw className="mr-2 h-4 w-4 animate-spin" />
+                  <div className="space-y-2">
+                    <h3 className="text-base font-medium">
+                      {t('models.detail.capabilitiesTitle', { defaultValue: 'Capabilities' })}
+                    </h3>
+                    <div className="space-y-1 text-sm text-muted-foreground">
+                      <div>
+                        <span className="font-medium text-foreground">{t('models.detail.inputModalities', { defaultValue: 'Input modalities' })}:</span>{' '}
+                        {currentOfficial?.input_modalities && currentOfficial.input_modalities.length > 0
+                          ? currentOfficial.input_modalities.join(', ')
+                          : '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-foreground">{t('models.detail.outputModalities', { defaultValue: 'Output modalities' })}:</span>{' '}
+                        {currentOfficial?.output_modalities && currentOfficial.output_modalities.length > 0
+                          ? currentOfficial.output_modalities.join(', ')
+                          : '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-foreground">{t('models.detail.endpoints', { defaultValue: 'Endpoints' })}:</span>{' '}
+                        {currentOfficial?.endpoints && currentOfficial.endpoints.length > 0
+                          ? currentOfficial.endpoints.join(', ')
+                          : '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-foreground">{t('models.columns.syncedAt', { defaultValue: 'Synced' })}:</span>{' '}
+                        {currentOfficial?.synced_at
+                          ? formatRelativeTime(
+                              new Date(currentOfficial.synced_at).getTime(),
+                              i18n.resolvedLanguage,
+                              true,
+                            )
+                          : '-'}
+                      </div>
+                    </div>
+                    {currentOfficial?.pricing_notes ? (
+                      <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground">
+                        {currentOfficial?.pricing_notes}
+                      </div>
                     ) : null}
-                    {t('models.actions.saveModelProfile', { defaultValue: 'Save model profile' })}
-                  </Button>
-
-                  <Button
-                    variant="destructive"
-                    onClick={() => {
-                      if (!currentModel?.entity_id) {
-                        return
-                      }
-                      deleteModelEntityMutation.mutate(currentModel.entity_id)
-                    }}
-                    disabled={!canDeleteCurrentModelEntity || deleteModelEntityMutation.isPending}
-                  >
-                    {deleteModelEntityMutation.isPending ? (
-                      <RotateCw className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="mr-2 h-4 w-4" />
-                    )}
-                    {t('models.actions.deleteModel', { defaultValue: 'Delete model' })}
-                  </Button>
+                  </div>
                 </div>
 
-                {!canDeleteCurrentModelEntity ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t('models.hints.cannotDeleteNonLocalEntity', {
-                      defaultValue: 'The current model is not a local entity model, so its entity cannot be deleted.',
-                    })}
-                  </p>
+                {currentOfficial?.raw_text ? (
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-medium">
+                      {t('models.detail.rawText', { defaultValue: 'Official text snapshot' })}
+                    </h4>
+                    <Textarea
+                      readOnly
+                      value={currentOfficial?.raw_text}
+                      className="min-h-[180px] font-mono text-xs"
+                    />
+                  </div>
                 ) : null}
               </section>
-            ) : null}
 
-            {editorTab === 'pricing' ? (
-              <section
-                id="models-editor-panel-pricing"
-                role="tabpanel"
-                tabIndex={0}
-                aria-labelledby="models-editor-tab-pricing"
-                className={POOL_SECTION_CLASS_NAME}
-              >
+              <section className={POOL_SECTION_CLASS_NAME}>
                 <h3 className="text-base font-medium">
-                  {t('models.pricing.sectionTitle', { defaultValue: 'Model pricing' })}
+                  {t('models.pricing.overrideSectionTitle', { defaultValue: 'Manual price override' })}
                 </h3>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="rounded-md border border-border/70 p-3 text-sm">
+                    <div className="mb-1 font-medium">
+                      {t('models.pricing.officialBase', { defaultValue: 'Official base' })}
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      in {formatMicrocredits(currentOfficial?.input_price_microcredits)} · cached{' '}
+                      {formatMicrocredits(currentOfficial?.cached_input_price_microcredits)} · out{' '}
+                      {formatMicrocredits(currentOfficial?.output_price_microcredits)}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border/70 p-3 text-sm">
+                    <div className="mb-1 font-medium">
+                      {t('models.pricing.manualOverride', { defaultValue: 'Manual override' })}
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      in {formatMicrocredits(currentModel.override_pricing?.input_price_microcredits)} · cached{' '}
+                      {formatMicrocredits(currentModel.override_pricing?.cached_input_price_microcredits)} · out{' '}
+                      {formatMicrocredits(currentModel.override_pricing?.output_price_microcredits)}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border/70 p-3 text-sm">
+                    <div className="mb-1 font-medium">
+                      {t('models.pricing.effectiveSectionTitle', { defaultValue: 'Effective pricing' })}
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      in {formatMicrocredits(effectivePricingOrFallback(currentModel).input_price_microcredits)} · cached{' '}
+                      {formatMicrocredits(effectivePricingOrFallback(currentModel).cached_input_price_microcredits)} · out{' '}
+                      {formatMicrocredits(effectivePricingOrFallback(currentModel).output_price_microcredits)}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                   <div className="space-y-1.5">
                     <label htmlFor="model-pricing-input" className="text-xs font-medium text-muted-foreground">
-                      <span className="block">
-                        {t('models.pricing.inputPrice', { defaultValue: 'Input price' })}
-                      </span>
-                      <span className="block">
-                        {t('models.pricing.perMillionTokensMicrocredits', {
-                          defaultValue: 'Per 1M tokens, in microcredits',
-                        })}
-                      </span>
+                      {t('models.pricing.inputPrice', { defaultValue: 'Input price' })}
                     </label>
                     <Input
                       id="model-pricing-input"
-                      name="input_price_microcredits"
                       type="number"
                       inputMode="numeric"
                       min={0}
                       value={pricingForm.input_price_microcredits}
                       onChange={(event) =>
-                        setPricingForm((prev) => ({
-                          ...prev,
-                          input_price_microcredits: event.target.value,
-                        }))
+                        setPricingForm((prev) => ({ ...prev, input_price_microcredits: event.target.value }))
                       }
                     />
                   </div>
-
                   <div className="space-y-1.5">
-                    <label htmlFor="model-pricing-cached-input" className="text-xs font-medium text-muted-foreground">
-                      <span className="block">
-                        {t('models.pricing.cachedInputPrice', { defaultValue: 'Cached input price' })}
-                      </span>
-                      <span className="block">
-                        {t('models.pricing.perMillionTokensMicrocredits', {
-                          defaultValue: 'Per 1M tokens, in microcredits',
-                        })}
-                      </span>
+                    <label htmlFor="model-pricing-cached" className="text-xs font-medium text-muted-foreground">
+                      {t('models.pricing.cachedInputPrice', { defaultValue: 'Cached input price' })}
                     </label>
                     <Input
-                      id="model-pricing-cached-input"
-                      name="cached_input_price_microcredits"
+                      id="model-pricing-cached"
                       type="number"
                       inputMode="numeric"
                       min={0}
@@ -1253,34 +760,21 @@ export default function Models() {
                       }
                     />
                   </div>
-
                   <div className="space-y-1.5">
                     <label htmlFor="model-pricing-output" className="text-xs font-medium text-muted-foreground">
-                      <span className="block">
-                        {t('models.pricing.outputPrice', { defaultValue: 'Output price' })}
-                      </span>
-                      <span className="block">
-                        {t('models.pricing.perMillionTokensMicrocredits', {
-                          defaultValue: 'Per 1M tokens, in microcredits',
-                        })}
-                      </span>
+                      {t('models.pricing.outputPrice', { defaultValue: 'Output price' })}
                     </label>
                     <Input
                       id="model-pricing-output"
-                      name="output_price_microcredits"
                       type="number"
                       inputMode="numeric"
                       min={0}
                       value={pricingForm.output_price_microcredits}
                       onChange={(event) =>
-                        setPricingForm((prev) => ({
-                          ...prev,
-                          output_price_microcredits: event.target.value,
-                        }))
+                        setPricingForm((prev) => ({ ...prev, output_price_microcredits: event.target.value }))
                       }
                     />
                   </div>
-
                   <label htmlFor="model-pricing-enabled" className="flex items-center gap-2 text-sm text-muted-foreground md:pt-7">
                     <Checkbox
                       id="model-pricing-enabled"
@@ -1289,21 +783,13 @@ export default function Models() {
                         setPricingForm((prev) => ({ ...prev, enabled: Boolean(checked) }))
                       }
                     />
-                    {t('models.pricing.enablePricing', { defaultValue: 'Enable pricing' })}
+                    {t('models.pricing.enablePricing', { defaultValue: 'Enable override' })}
                   </label>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    onClick={() => {
-                      if (!modelForm.model.trim()) {
-                        setError(
-                          t('models.errors.modelIdRequired', { defaultValue: 'Model ID cannot be empty.' }),
-                        )
-                        return
-                      }
-                      upsertPricingMutation.mutate()
-                    }}
+                    onClick={() => upsertPricingMutation.mutate()}
                     disabled={upsertPricingMutation.isPending}
                   >
                     {upsertPricingMutation.isPending ? (
@@ -1315,12 +801,10 @@ export default function Models() {
                   <Button
                     variant="destructive"
                     onClick={() => {
-                      if (!currentModel?.pricing?.id) {
-                        return
-                      }
-                      deletePricingMutation.mutate(currentModel.pricing.id)
+                      if (!currentModel.override_pricing?.id) return
+                      deletePricingMutation.mutate(currentModel.override_pricing.id)
                     }}
-                    disabled={!canDeleteCurrentPricing || deletePricingMutation.isPending}
+                    disabled={!canDeleteOverride || deletePricingMutation.isPending}
                   >
                     {deletePricingMutation.isPending ? (
                       <RotateCw className="mr-2 h-4 w-4 animate-spin" />
@@ -1330,303 +814,9 @@ export default function Models() {
                     {t('models.actions.deletePricing', { defaultValue: 'Delete pricing' })}
                   </Button>
                 </div>
-
-                {!canDeleteCurrentPricing ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t('models.hints.cannotDeleteMissingPricing', {
-                      defaultValue:
-                        'The current model has no local pricing record. Save pricing first before deleting it.',
-                    })}
-                  </p>
-                ) : null}
-
-                <div className="space-y-4 rounded-lg border border-border/70 p-4">
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-medium">
-                      {t('models.rules.sectionTitle', { defaultValue: 'Tiered pricing rules' })}
-                    </h4>
-                    <p className="text-xs text-muted-foreground">
-                      {t('models.rules.sectionDescription', {
-                        defaultValue:
-                          'Configure request/session-based multipliers for long-context or special billing bands.',
-                      })}
-                    </p>
-                  </div>
-
-                  {currentBillingRules.length > 0 ? (
-                    <div className="space-y-2">
-                      {currentBillingRules.map((rule) => (
-                        <div
-                          key={rule.id}
-                          className="flex flex-col gap-2 rounded-md border border-border/60 px-3 py-2 md:flex-row md:items-center md:justify-between"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge variant="info">
-                                {billingRuleRequestKindLabel(rule.request_kind, t)}
-                              </Badge>
-                              <Badge variant="secondary">
-                                {billingRuleScopeLabel(rule.scope, t)}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {t('models.rules.priorityLabel', { defaultValue: 'Priority' })}: {rule.priority}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {rule.enabled
-                                  ? t('models.pricing.enabled', { defaultValue: 'Enabled' })
-                                  : t('models.pricing.disabled', { defaultValue: 'Disabled' })}
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {t('models.rules.ruleSummary', {
-                                defaultValue:
-                                  'Threshold {{threshold}} · input ×{{inputMultiplier}} · cached ×{{cachedMultiplier}} · output ×{{outputMultiplier}}',
-                                threshold:
-                                  typeof rule.threshold_input_tokens === 'number'
-                                    ? String(rule.threshold_input_tokens)
-                                    : t('models.rules.noThreshold', { defaultValue: 'none' }),
-                                inputMultiplier: String(rule.input_multiplier_ppm),
-                                cachedMultiplier: String(rule.cached_input_multiplier_ppm),
-                                outputMultiplier: String(rule.output_multiplier_ppm),
-                              })}
-                            </p>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setBillingRuleForm(billingRuleFormFromItem(rule))}
-                            >
-                              <SquarePen className="mr-2 h-4 w-4" />
-                              {t('models.actions.editBillingRule', { defaultValue: 'Edit rule' })}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => deleteBillingRuleMutation.mutate(rule.id)}
-                              disabled={deleteBillingRuleMutation.isPending}
-                            >
-                              {deleteBillingRuleMutation.isPending ? (
-                                <RotateCw className="mr-2 h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="mr-2 h-4 w-4" />
-                              )}
-                              {t('models.actions.deleteBillingRule', { defaultValue: 'Delete rule' })}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {t('models.rules.empty', {
-                        defaultValue: 'No tiered pricing rules are configured for this model yet.',
-                      })}
-                    </p>
-                  )}
-
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">
-                        {t('models.rules.requestKind', { defaultValue: 'Request kind' })}
-                      </label>
-                      <Select
-                        value={billingRuleForm.request_kind}
-                        onValueChange={(value) =>
-                          setBillingRuleForm((prev) => ({ ...prev, request_kind: value }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="any">
-                            {t('models.rules.requestKinds.any', { defaultValue: 'Any' })}
-                          </SelectItem>
-                          <SelectItem value="response">
-                            {t('models.rules.requestKinds.response', { defaultValue: 'Responses' })}
-                          </SelectItem>
-                          <SelectItem value="compact">
-                            {t('models.rules.requestKinds.compact', { defaultValue: 'Compact' })}
-                          </SelectItem>
-                          <SelectItem value="chat">
-                            {t('models.rules.requestKinds.chat', { defaultValue: 'Chat' })}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">
-                        {t('models.rules.scope', { defaultValue: 'Scope' })}
-                      </label>
-                      <Select
-                        value={billingRuleForm.scope}
-                        onValueChange={(value) =>
-                          setBillingRuleForm((prev) => ({ ...prev, scope: value }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="request">
-                            {t('models.rules.scopes.request', { defaultValue: 'Request' })}
-                          </SelectItem>
-                          <SelectItem value="session">
-                            {t('models.rules.scopes.session', { defaultValue: 'Session' })}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label htmlFor="model-rule-threshold" className="text-xs font-medium text-muted-foreground">
-                        {t('models.rules.thresholdInputTokens', {
-                          defaultValue: 'Threshold input tokens',
-                        })}
-                      </label>
-                      <Input
-                        id="model-rule-threshold"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        value={billingRuleForm.threshold_input_tokens}
-                        onChange={(event) =>
-                          setBillingRuleForm((prev) => ({
-                            ...prev,
-                            threshold_input_tokens: event.target.value,
-                          }))
-                        }
-                        placeholder={t('models.rules.noThreshold', { defaultValue: 'none' })}
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label htmlFor="model-rule-priority" className="text-xs font-medium text-muted-foreground">
-                        {t('models.rules.priorityLabel', { defaultValue: 'Priority' })}
-                      </label>
-                      <Input
-                        id="model-rule-priority"
-                        type="number"
-                        inputMode="numeric"
-                        value={billingRuleForm.priority}
-                        onChange={(event) =>
-                          setBillingRuleForm((prev) => ({ ...prev, priority: event.target.value }))
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label htmlFor="model-rule-input-multiplier" className="text-xs font-medium text-muted-foreground">
-                        {t('models.rules.inputMultiplierPpm', {
-                          defaultValue: 'Input multiplier (ppm)',
-                        })}
-                      </label>
-                      <Input
-                        id="model-rule-input-multiplier"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        value={billingRuleForm.input_multiplier_ppm}
-                        onChange={(event) =>
-                          setBillingRuleForm((prev) => ({
-                            ...prev,
-                            input_multiplier_ppm: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label htmlFor="model-rule-cached-multiplier" className="text-xs font-medium text-muted-foreground">
-                        {t('models.rules.cachedInputMultiplierPpm', {
-                          defaultValue: 'Cached input multiplier (ppm)',
-                        })}
-                      </label>
-                      <Input
-                        id="model-rule-cached-multiplier"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        value={billingRuleForm.cached_input_multiplier_ppm}
-                        onChange={(event) =>
-                          setBillingRuleForm((prev) => ({
-                            ...prev,
-                            cached_input_multiplier_ppm: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label htmlFor="model-rule-output-multiplier" className="text-xs font-medium text-muted-foreground">
-                        {t('models.rules.outputMultiplierPpm', {
-                          defaultValue: 'Output multiplier (ppm)',
-                        })}
-                      </label>
-                      <Input
-                        id="model-rule-output-multiplier"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        value={billingRuleForm.output_multiplier_ppm}
-                        onChange={(event) =>
-                          setBillingRuleForm((prev) => ({
-                            ...prev,
-                            output_multiplier_ppm: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <label htmlFor="model-rule-enabled" className="flex items-center gap-2 text-sm text-muted-foreground md:pt-7">
-                      <Checkbox
-                        id="model-rule-enabled"
-                        checked={billingRuleForm.enabled}
-                        onCheckedChange={(checked) =>
-                          setBillingRuleForm((prev) => ({ ...prev, enabled: Boolean(checked) }))
-                        }
-                      />
-                      {t('models.rules.enableRule', { defaultValue: 'Enable rule' })}
-                    </label>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        if (!modelForm.model.trim()) {
-                          setError(
-                            t('models.errors.modelIdRequired', { defaultValue: 'Model ID cannot be empty.' }),
-                          )
-                          return
-                        }
-                        upsertBillingRuleMutation.mutate()
-                      }}
-                      disabled={upsertBillingRuleMutation.isPending}
-                    >
-                      {upsertBillingRuleMutation.isPending ? (
-                        <RotateCw className="mr-2 h-4 w-4 animate-spin" />
-                      ) : null}
-                      {t('models.actions.saveBillingRule', { defaultValue: 'Save rule' })}
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setBillingRuleForm(defaultBillingPricingRuleForm())}
-                    >
-                      {t('models.actions.newBillingRule', { defaultValue: 'New rule' })}
-                    </Button>
-                  </div>
-                </div>
               </section>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </motion.div>

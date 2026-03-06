@@ -446,15 +446,18 @@ async fn list_admin_models(
 ) -> Result<Json<AdminModelsResponse>, (StatusCode, Json<ErrorEnvelope>)> {
     let _principal = require_admin_principal(&state, &headers)?;
     let tenant_auth = require_tenant_auth_service(&state)?;
-    let context = load_models_catalog_context(&state, false).await?;
-    let model_entities = tenant_auth
-        .admin_list_model_entities()
+    let official_catalog = tenant_auth
+        .admin_list_openai_model_catalog()
+        .await
+        .map_err(map_tenant_error)?;
+    let pricing_overrides = tenant_auth
+        .admin_list_model_pricing()
         .await
         .map_err(map_tenant_error)?;
     Ok(Json(build_admin_models_response(
         &state,
-        context,
-        model_entities,
+        official_catalog,
+        pricing_overrides,
     )))
 }
 
@@ -469,19 +472,89 @@ async fn probe_admin_models(
         .await
         .map_err(|err| {
             tracing::warn!(error = %err, "manual model probe failed");
+            let code = if err.to_string().contains("sync OpenAI catalog first") {
+                "official_catalog_missing"
+            } else {
+                "model_probe_failed"
+            };
             (
                 StatusCode::BAD_GATEWAY,
-                Json(ErrorEnvelope::new("model_probe_failed", "model probe failed")),
+                Json(ErrorEnvelope::new(code, "model probe failed")),
             )
         })?;
-    let context = load_models_catalog_context(&state, false).await?;
-    let model_entities = tenant_auth
-        .admin_list_model_entities()
+    let official_catalog = tenant_auth
+        .admin_list_openai_model_catalog()
+        .await
+        .map_err(map_tenant_error)?;
+    let pricing_overrides = tenant_auth
+        .admin_list_model_pricing()
         .await
         .map_err(map_tenant_error)?;
     Ok(Json(build_admin_models_response(
         &state,
-        context,
-        model_entities,
+        official_catalog,
+        pricing_overrides,
     )))
+}
+
+
+async fn sync_openai_admin_models_catalog(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<crate::tenant::OpenAiModelsSyncResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    let response = tenant_auth
+        .admin_sync_openai_models_catalog()
+        .await
+        .map_err(|err| {
+            tracing::warn!(error = %err, "openai catalog sync failed");
+            {
+                let mut last_error = state
+                    .model_catalog_last_error
+                    .write()
+                    .expect("model_catalog_last_error lock poisoned");
+                *last_error = Some(err.to_string());
+            }
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorEnvelope::new(
+                    "openai_catalog_sync_failed",
+                    "openai catalog sync failed",
+                )),
+            )
+        })?;
+    {
+        let mut last_error = state
+            .model_catalog_last_error
+            .write()
+            .expect("model_catalog_last_error lock poisoned");
+        *last_error = None;
+    }
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.models.sync_openai".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("openai_models_catalog".to_string()),
+            target_id: None,
+            payload_json: json!({
+                "models_total": response.models_total,
+                "created_or_updated": response.created_or_updated,
+                "deleted_catalog_rows": response.deleted_catalog_rows,
+                "cleared_custom_entities": response.cleared_custom_entities,
+                "cleared_billing_rules": response.cleared_billing_rules,
+                "deleted_legacy_pricing_rows": response.deleted_legacy_pricing_rows,
+                "synced_at": response.synced_at,
+            }),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(Json(response))
 }

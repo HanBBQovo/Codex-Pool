@@ -364,14 +364,14 @@ impl TenantAuthService {
         if let Some(row) = sqlx::query(
             r#"
             SELECT input_price_microcredits, cached_input_price_microcredits, output_price_microcredits
-            FROM model_pricing
+            FROM model_pricing_overrides
             WHERE model = $1 AND enabled = true
             "#,
         )
         .bind(model)
         .fetch_optional(&self.pool)
         .await
-        .context("failed to query exact model pricing")?
+        .context("failed to query exact model pricing override")?
         {
             let input_price_microcredits: i64 = row.try_get("input_price_microcredits")?;
             let cached_input_price_microcredits = normalize_cached_input_price_microcredits(
@@ -382,49 +382,31 @@ impl TenantAuthService {
                 input_price_microcredits,
                 cached_input_price_microcredits,
                 output_price_microcredits: row.try_get("output_price_microcredits")?,
-                source: "exact".to_string(),
+                source: "manual_override".to_string(),
             });
         }
 
-        let wildcard_rows = sqlx::query(
+        if let Some(row) = sqlx::query(
             r#"
-            SELECT model, input_price_microcredits, cached_input_price_microcredits, output_price_microcredits
-            FROM model_pricing
-            WHERE enabled = true AND model LIKE '%*'
+            SELECT
+                input_price_microcredits,
+                cached_input_price_microcredits,
+                output_price_microcredits
+            FROM openai_models_catalog
+            WHERE model_id = $1
             "#,
         )
-        .fetch_all(&self.pool)
+        .bind(model)
+        .fetch_optional(&self.pool)
         .await
-        .context("failed to query wildcard model pricing")?;
-
-        let mut best_match: Option<(usize, BillingPricingResolved)> = None;
-        for row in wildcard_rows {
-            let pattern: String = row.try_get("model")?;
-            let prefix = pattern.trim_end_matches('*');
-            if prefix.is_empty() || !model.starts_with(prefix) {
-                continue;
-            }
-
-            let input_price_microcredits: i64 = row.try_get("input_price_microcredits")?;
-            let candidate = BillingPricingResolved {
-                input_price_microcredits,
-                cached_input_price_microcredits: normalize_cached_input_price_microcredits(
-                    input_price_microcredits,
-                    row.try_get("cached_input_price_microcredits")?,
-                ),
+        .context("failed to query official model pricing")?
+        {
+            return Ok(BillingPricingResolved {
+                input_price_microcredits: row.try_get("input_price_microcredits")?,
+                cached_input_price_microcredits: row.try_get("cached_input_price_microcredits")?,
                 output_price_microcredits: row.try_get("output_price_microcredits")?,
-                source: format!("wildcard:{pattern}"),
-            };
-            let prefix_len = prefix.len();
-            match best_match.as_ref() {
-                Some((best_len, _)) if *best_len >= prefix_len => {}
-                _ => {
-                    best_match = Some((prefix_len, candidate));
-                }
-            }
-        }
-        if let Some((_, resolved)) = best_match {
-            return Ok(resolved);
+                source: "official_sync".to_string(),
+            });
         }
 
         if billing_pricing_fallback_enabled() {

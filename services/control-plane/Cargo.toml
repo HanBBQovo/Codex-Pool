@@ -18,6 +18,7 @@ chrono.workspace = true
 clickhouse = "0.14"
 codex-pool-core = { path = "../../crates/codex-pool-core" }
 reqwest.workspace = true
+regex.workspace = true
 sqlx-core = { version = "=0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-webpki", "chrono", "uuid"] }
 sqlx-postgres = { version = "=0.8.6", default-features = false, features = ["chrono", "uuid"] }
 serde.workspace = true

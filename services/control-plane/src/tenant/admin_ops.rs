@@ -232,13 +232,13 @@ impl TenantAuthService {
                 enabled,
                 created_at,
                 updated_at
-            FROM model_pricing
+            FROM model_pricing_overrides
             ORDER BY model ASC
             "#,
         )
         .fetch_all(&self.pool)
         .await
-        .context("failed to list model pricing")?;
+        .context("failed to list model pricing overrides")?;
         rows.into_iter()
             .map(|row| -> Result<ModelPricingItem> {
                 Ok(ModelPricingItem {
@@ -264,6 +264,16 @@ impl TenantAuthService {
         if model.is_empty() {
             return Err(anyhow!("model must not be empty"));
         }
+        let exists = sqlx::query_scalar::<_, i64>(
+            r#"SELECT COUNT(*) FROM openai_models_catalog WHERE model_id = $1"#,
+        )
+        .bind(model)
+        .fetch_one(&self.pool)
+        .await
+        .context("failed to validate official model id for price override")?;
+        if exists == 0 {
+            return Err(anyhow!("model must exist in official catalog before creating an override"));
+        }
         let cached_input_price_microcredits = req
             .cached_input_price_microcredits
             .unwrap_or_else(|| (req.input_price_microcredits / 10).max(0));
@@ -279,7 +289,7 @@ impl TenantAuthService {
         let now = Utc::now();
         let row = sqlx::query(
             r#"
-            INSERT INTO model_pricing (
+            INSERT INTO model_pricing_overrides (
                 id, model, input_price_microcredits, cached_input_price_microcredits, output_price_microcredits, enabled, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
@@ -310,7 +320,7 @@ impl TenantAuthService {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .context("failed to upsert model pricing")?;
+        .context("failed to upsert model pricing override")?;
         Ok(ModelPricingItem {
             id: row.try_get("id")?,
             model: row.try_get("model")?,
@@ -326,14 +336,14 @@ impl TenantAuthService {
     pub async fn admin_delete_model_pricing(&self, pricing_id: Uuid) -> Result<()> {
         let result = sqlx::query(
             r#"
-            DELETE FROM model_pricing
+            DELETE FROM model_pricing_overrides
             WHERE id = $1
             "#,
         )
         .bind(pricing_id)
         .execute(&self.pool)
         .await
-        .context("failed to delete model pricing")?;
+        .context("failed to delete model pricing override")?;
 
         if result.rows_affected() == 0 {
             return Err(anyhow!("model pricing not found"));

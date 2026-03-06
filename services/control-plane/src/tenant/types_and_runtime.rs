@@ -423,6 +423,40 @@ pub struct ModelPricingItem {
 }
 
 
+#[derive(Debug, Clone, Serialize)]
+pub struct OpenAiModelCatalogItem {
+    pub model_id: String,
+    pub owned_by: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub context_window_tokens: Option<i64>,
+    pub max_output_tokens: Option<i64>,
+    pub knowledge_cutoff: Option<String>,
+    pub reasoning_token_support: Option<bool>,
+    pub input_price_microcredits: Option<i64>,
+    pub cached_input_price_microcredits: Option<i64>,
+    pub output_price_microcredits: Option<i64>,
+    pub pricing_notes: Option<String>,
+    pub input_modalities: Vec<String>,
+    pub output_modalities: Vec<String>,
+    pub endpoints: Vec<String>,
+    pub source_url: String,
+    pub raw_text: Option<String>,
+    pub synced_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OpenAiModelsSyncResponse {
+    pub models_total: usize,
+    pub created_or_updated: usize,
+    pub deleted_catalog_rows: usize,
+    pub cleared_custom_entities: u64,
+    pub cleared_billing_rules: u64,
+    pub deleted_legacy_pricing_rows: u64,
+    pub synced_at: DateTime<Utc>,
+}
+
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct BillingPricingRuleUpsertRequest {
     #[serde(default)]

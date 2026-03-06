@@ -51,6 +51,7 @@ export default {
         },
         details: {
             description: "查看帳號資料、OAuth 狀態、限額與原始資料。",
+            officialDescription: "這裡展示 OpenAI 官方模型資訊，唯讀。下方可以編輯手動價格覆蓋。",
             limitsTitle: "限額詳情",
             noOauthStatus: "暫無 OAuth 狀態資料",
             oauthNotApplicable: "此帳號類型不支援 OAuth 詳情",
@@ -955,6 +956,9 @@ export default {
         actions: {
             copyModelId: "複製模型名",
             createModel: "創建模型",
+            syncOpenAiCatalog: "同步 OpenAI 目錄",
+            probeAvailability: "探測可用性",
+            openDetails: "詳情",
             deleteModel: "刪除模型",
             deletePricing: "刪除定價",
             deleteBillingRule: "刪除規則",
@@ -991,6 +995,9 @@ export default {
             actions: "詳情",
             availability: "可用性",
             cachedInputPrice: "緩存輸入價格",
+            context: "上下文 / 最大輸出",
+            modalities: "模態",
+            syncedAt: "同步時間",
             catalog: "目錄狀態",
             checkedAt: "最近探測",
             id: "模型名稱",
@@ -1002,10 +1009,12 @@ export default {
         description: "在這裡查看模型可用性，並管理模型資料與定價。",
         dialog: {
             description: "在此對話方塊中編輯設定檔和定價。儲存的定價將立即寫回模型池清單。",
+            officialDescription: "這裡展示 OpenAI 官方模型資訊，唯讀。下方可以編輯手動價格覆蓋。",
             tabListAriaLabel: "模型資料分頁",
             titleWithId: "模型資料 · {{modelId}}"
         },
         empty: "目前未暴露或映射任何模型。",
+        emptySyncRequired: "目前還沒有官方目錄，請先同步 OpenAI 官方目錄。",
         emptyActions: {
             goAccounts: "前往帳號池",
             importAccount: "導入帳號"
@@ -1013,6 +1022,7 @@ export default {
         errors: {
             deleteModelEntityFailed: "刪除模型實體失敗。",
             deleteModelPricingFailed: "無法刪除模型定價。",
+            openAiCatalogSyncFailed: "同步 OpenAI 官方目錄失敗。",
             deleteBillingRuleFailed: "刪除分段計價規則失敗。",
             modelIdRequired: "模型 ID 不能為空。",
             probeFailed: "模型探測失敗。",
@@ -1049,6 +1059,7 @@ export default {
             modelPricingDeleted: "模型定價記錄已刪除。",
             billingRuleDeleted: "分段計價規則已刪除。",
             modelPricingSaved: "已儲存模型定價：{{model}}",
+            openAiCatalogSynced: "OpenAI 官方目錄同步完成：更新 {{count}} 個模型。",
             billingRuleSaved: "分段計價規則已儲存：{{model}}",
             modelProfileSaved: "模型資料已儲存：{{model}}",
             probeCompleted: "模型探測完成。最新模型池已同步。"
@@ -1063,7 +1074,16 @@ export default {
             notConfigured: "未配置",
             outputPrice: "產出價格",
             perMillionTokensMicrocredits: "每 100 萬 token，單位微積分",
-            sectionTitle: "模型定價"
+            sectionTitle: "模型定價",
+            effectiveSectionTitle: "實際計費價格",
+            manualOverride: "手動覆蓋",
+            officialBase: "官方基礎價",
+            overrideSectionTitle: "手動價格覆蓋",
+            sourceLabels: {
+                officialSync: "OpenAI 官方",
+                manualOverride: "手動覆蓋",
+                unknown: "未知"
+            },
         },
         rules: {
             cachedInputMultiplierPpm: "快取輸入倍率（ppm）",
@@ -1094,6 +1114,10 @@ export default {
         },
         probeSourceUnknown: "未知帳號",
         probeSummary: "探測快取：{{stale}}，最近 {{checkedAt}}，快取時長 {{ttlHours}} 小時，來源 {{source}}",
+        syncHint: {
+            notSynced: "OpenAI 官方目錄尚未同步。",
+            syncedAt: "目錄已於 {{time}} 同步"
+        },
         profile: {
             sectionTitle: "模型資料"
         },
@@ -1109,7 +1133,20 @@ export default {
             notFound: "找不到該模型，可能已被移除或目前篩選不可見。",
             httpStatus: "HTTP 狀態",
             error: "錯誤詳情",
-            noError: "無錯誤詳情"
+            noError: "無錯誤詳情",
+            officialTitle: "官方中繼資料",
+            officialDescription: "這裡展示 OpenAI 官方模型資訊，唯讀。下方可以編輯手動價格覆蓋。",
+            contextWindow: "上下文視窗",
+            maxOutputTokens: "最大輸出 Token",
+            knowledgeCutoff: "知識截止日期",
+            reasoningTokenSupport: "推理 Token 支援",
+            sourceUrl: "來源連結",
+            openOfficialPage: "打開官方頁面",
+            capabilitiesTitle: "能力資訊",
+            inputModalities: "輸入模態",
+            outputModalities: "輸出模態",
+            endpoints: "支援端點",
+            rawText: "官方文字快照",
         }
     },
     nav: {

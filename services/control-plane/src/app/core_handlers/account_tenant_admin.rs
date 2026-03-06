@@ -374,6 +374,7 @@ async fn delete_admin_model_pricing(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[allow(dead_code)]
 async fn list_admin_billing_pricing_rules(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -387,6 +388,7 @@ async fn list_admin_billing_pricing_rules(
         .map_err(map_tenant_error)
 }
 
+#[allow(dead_code)]
 async fn upsert_admin_billing_pricing_rule(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -429,6 +431,7 @@ async fn upsert_admin_billing_pricing_rule(
     Ok(Json(response))
 }
 
+#[allow(dead_code)]
 async fn delete_admin_billing_pricing_rule(
     Path(rule_id): Path<Uuid>,
     State(state): State<AppState>,
@@ -460,6 +463,7 @@ async fn delete_admin_billing_pricing_rule(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[allow(dead_code)]
 async fn list_admin_model_entities(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -473,6 +477,7 @@ async fn list_admin_model_entities(
         .map_err(map_tenant_error)
 }
 
+#[allow(dead_code)]
 async fn upsert_admin_model_entity(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -509,6 +514,7 @@ async fn upsert_admin_model_entity(
     Ok(Json(response))
 }
 
+#[allow(dead_code)]
 async fn delete_admin_model_entity(
     Path(entity_id): Path<Uuid>,
     State(state): State<AppState>,

@@ -51,6 +51,7 @@ export default {
         },
         details: {
             description: "説明",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "制限タイトル",
             noOauthStatus: "認証ステータスなし",
             oauthNotApplicable: "Oauth は適用されません",
@@ -955,6 +956,9 @@ export default {
         actions: {
             copyModelId: "モデル名をコピー",
             createModel: "モデルの作成",
+            syncOpenAiCatalog: "Sync OpenAI catalog",
+            probeAvailability: "Probe availability",
+            openDetails: "Details",
             deleteModel: "モデルの削除",
             deletePricing: "価格設定の削除",
             deleteBillingRule: "Delete rule",
@@ -991,6 +995,9 @@ export default {
             actions: "詳細",
             availability: "可用性",
             cachedInputPrice: "キャッシュされた入力価格",
+            context: "Context / Max output",
+            modalities: "Modalities",
+            syncedAt: "Synced",
             catalog: "カタログ状態",
             checkedAt: "最終チェック",
             id: "モデル名",
@@ -1002,10 +1009,12 @@ export default {
         description: "ここでモデルの入手可能性を確認し、モデルのプロファイルと価格を管理します。",
         dialog: {
             description: "このダイアログでプロファイルと価格を編集します。保存された価格設定は、モデル プール リストにすぐに書き戻されます。",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             tabListAriaLabel: "モデルプロファイルタブ",
             titleWithId: "モデルプロフィール · {{modelId}}"
         },
         empty: "設定されたモデルはありません。",
+        emptySyncRequired: "No official catalog yet. Sync OpenAI catalog first.",
         emptyActions: {
             goAccounts: "アカウント一覧へ",
             importAccount: "アカウントをインポート"
@@ -1013,6 +1022,7 @@ export default {
         errors: {
             deleteModelEntityFailed: "モデル エンティティの削除に失敗しました。",
             deleteModelPricingFailed: "モデル価格の削除に失敗しました。",
+            openAiCatalogSyncFailed: "Failed to sync OpenAI catalog.",
             deleteBillingRuleFailed: "Failed to delete tiered pricing rule.",
             modelIdRequired: "モデル ID を空にすることはできません。",
             probeFailed: "モデルの調査に失敗しました。",
@@ -1049,6 +1059,7 @@ export default {
             modelPricingDeleted: "モデル価格レコードが削除されました。",
             billingRuleDeleted: "Tiered pricing rule deleted.",
             modelPricingSaved: "保存されたモデル価格: {{model}}",
+            openAiCatalogSynced: "OpenAI catalog synced: {{count}} models updated.",
             billingRuleSaved: "Tiered pricing rule saved: {{model}}",
             modelProfileSaved: "モデル プロファイルが保存されました: {{model}}",
             probeCompleted: "モデルのプローブが完了しました。最新モデルのプールが同期されました。"
@@ -1063,7 +1074,16 @@ export default {
             notConfigured: "未設定",
             outputPrice: "出力価格",
             perMillionTokensMicrocredits: "100万トークンあたり、マイクロクレジット単位",
-            sectionTitle: "モデルの価格設定"
+            sectionTitle: "モデルの価格設定",
+            effectiveSectionTitle: "Effective pricing",
+            manualOverride: "Manual override",
+            officialBase: "Official base",
+            overrideSectionTitle: "Manual price override",
+            sourceLabels: {
+                officialSync: "OpenAI official",
+                manualOverride: "Manual override",
+                unknown: "Unknown"
+            },
         },
         rules: {
             cachedInputMultiplierPpm: "Cached input multiplier (ppm)",
@@ -1094,6 +1114,10 @@ export default {
         },
         probeSourceUnknown: "不明なアカウント",
         probeSummary: "プローブキャッシュ：{{stale}}、最終 {{checkedAt}}、保持 {{ttlHours}} 時間、ソース {{source}}",
+        syncHint: {
+            notSynced: "OpenAI catalog has not been synced yet.",
+            syncedAt: "Catalog synced {{time}}"
+        },
         profile: {
             sectionTitle: "モデルプロフィール"
         },
@@ -1109,7 +1133,20 @@ export default {
             notFound: "モデルが見つかりません。削除されたか、現在のフィルター外です。",
             httpStatus: "HTTP ステータス",
             error: "エラー詳細",
-            noError: "エラー詳細なし"
+            noError: "エラー詳細なし",
+            officialTitle: "Official metadata",
+            officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
+            contextWindow: "Context window",
+            maxOutputTokens: "Max output tokens",
+            knowledgeCutoff: "Knowledge cutoff",
+            reasoningTokenSupport: "Reasoning token support",
+            sourceUrl: "Source URL",
+            openOfficialPage: "Open official page",
+            capabilitiesTitle: "Capabilities",
+            inputModalities: "Input modalities",
+            outputModalities: "Output modalities",
+            endpoints: "Endpoints",
+            rawText: "Official text snapshot",
         }
     },
     nav: {
