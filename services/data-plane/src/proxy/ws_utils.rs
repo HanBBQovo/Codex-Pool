@@ -80,6 +80,8 @@ struct WsLogicalResponseSeed {
 struct WsTrackedResponse {
     seed: WsLogicalResponseSeed,
     billing_session: Option<BillingSession>,
+    original_request_text: Option<String>,
+    response_started: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -103,15 +105,7 @@ struct WsLogicalResponseTracker {
 }
 
 impl WsLogicalResponseTracker {
-    fn register_logical_request(
-        &mut self,
-        seed: WsLogicalResponseSeed,
-        billing_session: Option<BillingSession>,
-    ) {
-        let tracked = WsTrackedResponse {
-            seed,
-            billing_session,
-        };
+    fn register_tracked_request(&mut self, tracked: WsTrackedResponse) {
         if let Some(response_id) = tracked.seed.response_id.clone() {
             if self.completed_response_ids.contains(&response_id) {
                 return;
@@ -122,6 +116,21 @@ impl WsLogicalResponseTracker {
         }
     }
 
+    fn register_logical_request(
+        &mut self,
+        seed: WsLogicalResponseSeed,
+        billing_session: Option<BillingSession>,
+        original_request_text: Option<String>,
+    ) {
+        let tracked = WsTrackedResponse {
+            seed,
+            billing_session,
+            original_request_text,
+            response_started: false,
+        };
+        self.register_tracked_request(tracked);
+    }
+
     #[cfg(test)]
     fn observe_downstream_text(&mut self, text: &str) {
         let Some(value) = parse_ws_json_text(text) else {
@@ -130,7 +139,7 @@ impl WsLogicalResponseTracker {
         let Some(seed) = extract_ws_logical_request_seed(&value) else {
             return;
         };
-        self.register_logical_request(seed, None);
+        self.register_logical_request(seed, None, Some(text.to_string()));
     }
 
     fn observe_upstream_message(
@@ -196,6 +205,8 @@ impl WsLogicalResponseTracker {
                     started_at: Instant::now(),
                 },
                 billing_session: None,
+                original_request_text: None,
+                response_started: false,
             });
 
         if tracked.seed.request_id.is_none() {
@@ -208,6 +219,7 @@ impl WsLogicalResponseTracker {
         if tracked.seed.model.is_none() {
             tracked.seed.model = extract_ws_model(value);
         }
+        tracked.response_started = true;
 
         self.active_by_response_id.insert(response_id, tracked);
     }
@@ -236,6 +248,8 @@ impl WsLogicalResponseTracker {
                     started_at: Instant::now(),
                 },
                 billing_session: None,
+                original_request_text: None,
+                response_started: false,
             });
 
         if tracked.seed.request_id.is_none() {
@@ -316,6 +330,8 @@ impl WsLogicalResponseTracker {
                     started_at: Instant::now(),
                 },
                 billing_session: None,
+                original_request_text: None,
+                response_started: false,
             });
 
         if tracked.seed.request_id.is_none() {
@@ -339,6 +355,77 @@ impl WsLogicalResponseTracker {
                     release_reason,
                 });
         }
+    }
+
+    fn find_retryable_request(&self, value: &Value) -> Option<WsTrackedResponse> {
+        let response_id = extract_ws_response_id(value);
+        if let Some(response_id) = response_id.as_deref() {
+            if let Some(tracked) = self.active_by_response_id.get(response_id) {
+                if !tracked.response_started {
+                    return Some(tracked.clone());
+                }
+            }
+        }
+
+        let request_id = extract_ws_request_id(value);
+        if let Some(request_id) = request_id.as_deref() {
+            if let Some(tracked) = self
+                .active_by_response_id
+                .values()
+                .find(|tracked| tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
+            {
+                return Some(tracked.clone());
+            }
+            if let Some(tracked) = self
+                .pending_requests
+                .iter()
+                .find(|tracked| tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
+            {
+                return Some(tracked.clone());
+            }
+        }
+
+        None
+    }
+
+    fn take_retryable_request(&mut self, value: &Value) -> Option<WsTrackedResponse> {
+        let response_id = extract_ws_response_id(value);
+        if let Some(response_id) = response_id.as_deref() {
+            if self
+                .active_by_response_id
+                .get(response_id)
+                .is_some_and(|tracked| !tracked.response_started)
+            {
+                return self.active_by_response_id.remove(response_id);
+            }
+        }
+
+        let request_id = extract_ws_request_id(value);
+        if let Some(request_id) = request_id.as_deref() {
+            if let Some(active_response_id) = self
+                .active_by_response_id
+                .iter()
+                .find_map(|(response_id, tracked)| {
+                    (tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
+                        .then(|| response_id.clone())
+                })
+            {
+                return self.active_by_response_id.remove(&active_response_id);
+            }
+            if let Some(index) = self
+                .pending_requests
+                .iter()
+                .position(|tracked| tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
+            {
+                return self.pending_requests.remove(index);
+            }
+        }
+
+        None
+    }
+
+    fn requeue_tracked_request(&mut self, tracked: WsTrackedResponse) {
+        self.register_tracked_request(tracked);
     }
 
     fn drain_pending_billing_actions(&mut self) -> Vec<WsPendingBillingAction> {
@@ -464,7 +551,11 @@ async fn proxy_websocket_streams(
                                 None
                             };
 
-                            tracker.register_logical_request(seed, billing_session);
+                            tracker.register_logical_request(
+                                seed,
+                                billing_session,
+                                Some(text.to_string()),
+                            );
                         }
                     }
                 }
@@ -490,10 +581,124 @@ async fn proxy_websocket_streams(
                     break WS_RELEASE_REASON_UPSTREAM_CLOSED;
                 };
 
+                let mut parsed_upstream_value: Option<Value> = None;
                 let mut failover_error_context: Option<UpstreamErrorContext> = None;
                 if let TungsteniteMessage::Text(text) = &message {
                     if let Some(value) = parse_ws_json_text(text.as_ref()) {
                         failover_error_context = build_ws_failover_error_context(&value);
+                        parsed_upstream_value = Some(value);
+                    }
+                }
+
+                if let (Some(value), Some(error_context)) =
+                    (parsed_upstream_value.as_ref(), failover_error_context.as_ref())
+                {
+                    if should_rotate_ws_session_on_error(error_context) {
+                        if let Some(original_tracked) = tracker.find_retryable_request(value) {
+                            let recovery_outcome = apply_recovery_action(
+                                state.as_ref(),
+                                ws_usage_context.account_id,
+                                Some(error_context),
+                            )
+                            .await;
+                            let ejection_ttl = ejection_ttl_for_response(
+                                error_context.status,
+                                state.account_ejection_ttl,
+                                false,
+                                Some(error_context),
+                                recovery_outcome,
+                            )
+                            .unwrap_or(state.account_ejection_ttl);
+                            mark_account_unhealthy_and_clear_sticky(
+                                &state,
+                                ws_usage_context.account_id,
+                                ws_usage_context.sticky_key.as_deref(),
+                                ejection_ttl,
+                            )
+                            .await;
+
+                            let mut excluded_account_ids = HashSet::new();
+                            excluded_account_ids.insert(ws_usage_context.account_id);
+                            if let Some((next_account, next_socket)) =
+                                connect_failover_upstream_for_ws_session(
+                                    &state,
+                                    &ws_usage_context,
+                                    &excluded_account_ids,
+                                )
+                                .await
+                            {
+                                if let Some(mut retried_tracked) =
+                                    build_retried_ws_tracked_request(
+                                        &state,
+                                        &ws_usage_context,
+                                        next_account.id,
+                                        &original_tracked,
+                                    )
+                                    .await
+                                {
+                                    if let Some(original_request_text) =
+                                        retried_tracked.original_request_text.clone()
+                                    {
+                                        let (mut new_upstream_sender, new_upstream_receiver) =
+                                            next_socket.split();
+                                        if new_upstream_sender
+                                            .send(TungsteniteMessage::Text(
+                                                original_request_text.into(),
+                                            ))
+                                            .await
+                                            .is_ok()
+                                        {
+                                            let _ = tracker.take_retryable_request(value);
+                                            if original_tracked.billing_session.is_some() {
+                                                release_billing_hold_best_effort(
+                                                    state.clone(),
+                                                    original_tracked.billing_session.clone(),
+                                                    Some(BillingReleaseFailureContext {
+                                                        release_reason: Some(
+                                                            "ws_retry_rebind".to_string(),
+                                                        ),
+                                                        failover_action: Some(
+                                                            "retry_same_request".to_string(),
+                                                        ),
+                                                        failover_reason_class: Some(
+                                                            "ws_retry_rebind".to_string(),
+                                                        ),
+                                                        ..Default::default()
+                                                    }),
+                                                )
+                                                .await;
+                                            }
+                                            let _ = upstream_sender.close().await;
+                                            upstream_sender = new_upstream_sender;
+                                            upstream_receiver = new_upstream_receiver;
+                                            ws_usage_context.account_id = next_account.id;
+                                            tracker.requeue_tracked_request(retried_tracked);
+                                            continue;
+                                        }
+
+                                        if retried_tracked.billing_session.is_some() {
+                                            release_billing_hold_best_effort(
+                                                state.clone(),
+                                                retried_tracked.billing_session.take(),
+                                                Some(BillingReleaseFailureContext {
+                                                    release_reason: Some(
+                                                        "ws_retry_rebind".to_string(),
+                                                    ),
+                                                    failover_action: Some(
+                                                        "retry_same_request".to_string(),
+                                                    ),
+                                                    failover_reason_class: Some(
+                                                        "ws_retry_rebind".to_string(),
+                                                    ),
+                                                    ..Default::default()
+                                                }),
+                                            )
+                                            .await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -588,6 +793,55 @@ async fn proxy_websocket_streams(
     }
 
     Ok(())
+}
+
+async fn build_retried_ws_tracked_request(
+    state: &Arc<AppState>,
+    ws_usage_context: &WsLogicalUsageConnectionContext,
+    next_account_id: Uuid,
+    tracked: &WsTrackedResponse,
+) -> Option<WsTrackedResponse> {
+    let original_request_text = tracked.original_request_text.clone()?;
+    let value = parse_ws_json_text(&original_request_text)?;
+    let parsed_policy_context =
+        parse_ws_request_policy_context(&ws_usage_context.request_headers, &value);
+    let pending_billing_session = match build_pending_billing_session(
+        state.as_ref(),
+        ws_usage_context.principal.as_ref(),
+        &ws_usage_context.request_headers,
+        &parsed_policy_context,
+        &ws_usage_context.request_path,
+        WS_LOGICAL_REQUEST_METHOD,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(_) => return None,
+    };
+
+    let billing_session = if let Some(pending_session) = pending_billing_session.as_ref() {
+        match authorize_billing_session(
+            state.as_ref(),
+            pending_session,
+            next_account_id,
+            &ws_usage_context.request_path,
+            WS_LOGICAL_REQUEST_METHOD,
+            tracked.seed.started_at,
+            true,
+        )
+        .await
+        {
+            Ok(session) => Some(session),
+            Err(_) => return None,
+        }
+    } else {
+        None
+    };
+
+    let mut retried = tracked.clone();
+    retried.billing_session = billing_session;
+    retried.response_started = false;
+    Some(retried)
 }
 
 fn parse_ws_json_text(text: &str) -> Option<Value> {

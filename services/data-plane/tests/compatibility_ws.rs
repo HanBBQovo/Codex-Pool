@@ -1523,6 +1523,84 @@ async fn ws_upgrade_account_deactivated_triggers_disable_and_failover() {
 
 
 #[tokio::test]
+async fn ws_session_retries_same_request_on_new_account_before_any_output() {
+    let quota_upstream_base = spawn_ws_scripted_upstream(vec![vec![json!({
+        "type": "error",
+        "request_id": "req-retry",
+        "error": {
+            "code": "usage_limit",
+            "message": "You've hit your usage limit. Upgrade to Plus to continue using Codex"
+        }
+    })]])
+    .await;
+    let healthy_upstream_base = spawn_ws_scripted_upstream(vec![vec![
+        json!({
+            "type": "response.created",
+            "response": { "id": "resp-retry", "model": "gpt-5.4" }
+        }),
+        json!({
+            "type": "response.completed",
+            "response": {
+                "id": "resp-retry",
+                "model": "gpt-5.4",
+                "usage": { "input_tokens": 8, "output_tokens": 4 }
+            }
+        }),
+    ]])
+    .await;
+
+    let data_plane_base = spawn_data_plane_server(vec![
+        test_account(quota_upstream_base, "upstream-token-a"),
+        test_account(healthy_upstream_base, "upstream-token-b"),
+    ])
+    .await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    ws_client
+        .send(Message::Text(
+            json!({
+                "type": "response.create",
+                "request_id": "req-retry",
+                "response": { "model": "gpt-5.4" }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let (first, second) = tokio::time::timeout(Duration::from_secs(2), async {
+        let first = ws_client.next().await.unwrap().unwrap();
+        let second = ws_client.next().await.unwrap().unwrap();
+        (first, second)
+    })
+    .await
+    .expect("same request should be retried on a new account");
+
+    let first_text = match first {
+        Message::Text(text) => text.to_string(),
+        other => panic!("expected first text message, got {other:?}"),
+    };
+    let second_text = match second {
+        Message::Text(text) => text.to_string(),
+        other => panic!("expected second text message, got {other:?}"),
+    };
+    let first_payload: Value = serde_json::from_str(&first_text).unwrap();
+    let second_payload: Value = serde_json::from_str(&second_text).unwrap();
+
+    assert_eq!(first_payload["type"], "response.created");
+    assert_eq!(second_payload["type"], "response.completed");
+    assert_eq!(second_payload["response"]["id"], "resp-retry");
+
+    ws_client.close(None).await.unwrap();
+}
+
+#[tokio::test]
 async fn ws_session_rotates_account_after_usage_limit_error_for_followup_requests() {
     let quota_upstream_base = spawn_ws_scripted_upstream(vec![vec![json!({
         "type": "error",
@@ -1533,20 +1611,36 @@ async fn ws_session_rotates_account_after_usage_limit_error_for_followup_request
         }
     })]])
     .await;
-    let healthy_upstream_base = spawn_ws_scripted_upstream(vec![vec![
-        json!({
-            "type": "response.created",
-            "response": { "id": "resp-2", "model": "gpt-5.4" }
-        }),
-        json!({
-            "type": "response.completed",
-            "response": {
-                "id": "resp-2",
-                "model": "gpt-5.4",
-                "usage": { "input_tokens": 5, "output_tokens": 3 }
-            }
-        }),
-    ]])
+    let healthy_upstream_base = spawn_ws_scripted_upstream(vec![
+        vec![
+            json!({
+                "type": "response.created",
+                "response": { "id": "resp-1", "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp-1",
+                    "model": "gpt-5.4",
+                    "usage": { "input_tokens": 5, "output_tokens": 3 }
+                }
+            }),
+        ],
+        vec![
+            json!({
+                "type": "response.created",
+                "response": { "id": "resp-2", "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp-2",
+                    "model": "gpt-5.4",
+                    "usage": { "input_tokens": 7, "output_tokens": 4 }
+                }
+            }),
+        ],
+    ])
     .await;
 
     let data_plane_base = spawn_data_plane_server(vec![
@@ -1574,14 +1668,26 @@ async fn ws_session_rotates_account_after_usage_limit_error_for_followup_request
         .await
         .unwrap();
 
-    let first = ws_client.next().await.unwrap().unwrap();
+    let (first, second) = tokio::time::timeout(Duration::from_secs(2), async {
+        let first = ws_client.next().await.unwrap().unwrap();
+        let second = ws_client.next().await.unwrap().unwrap();
+        (first, second)
+    })
+    .await
+    .expect("first request should retry successfully on rotated account");
     let first_text = match first {
         Message::Text(text) => text.to_string(),
-        other => panic!("expected text message, got {other:?}"),
+        other => panic!("expected first text message, got {other:?}"),
+    };
+    let second_text = match second {
+        Message::Text(text) => text.to_string(),
+        other => panic!("expected second text message, got {other:?}"),
     };
     let first_payload: Value = serde_json::from_str(&first_text).unwrap();
-    assert_eq!(first_payload["type"], "error");
-    assert_eq!(first_payload["error"]["code"], "usage_limit");
+    let second_payload: Value = serde_json::from_str(&second_text).unwrap();
+    assert_eq!(first_payload["type"], "response.created");
+    assert_eq!(second_payload["type"], "response.completed");
+    assert_eq!(second_payload["response"]["id"], "resp-1");
 
     ws_client
         .send(Message::Text(
@@ -1596,27 +1702,27 @@ async fn ws_session_rotates_account_after_usage_limit_error_for_followup_request
         .await
         .unwrap();
 
-    let (second, third) = tokio::time::timeout(Duration::from_secs(2), async {
-        let second = ws_client.next().await.unwrap().unwrap();
+    let (third, fourth) = tokio::time::timeout(Duration::from_secs(2), async {
         let third = ws_client.next().await.unwrap().unwrap();
-        (second, third)
+        let fourth = ws_client.next().await.unwrap().unwrap();
+        (third, fourth)
     })
     .await
-    .expect("follow-up request should succeed on rotated account");
+    .expect("follow-up request should stay on rotated account");
 
-    let second_text = match second {
-        Message::Text(text) => text.to_string(),
-        other => panic!("expected second text message, got {other:?}"),
-    };
     let third_text = match third {
         Message::Text(text) => text.to_string(),
         other => panic!("expected third text message, got {other:?}"),
     };
-    let second_payload: Value = serde_json::from_str(&second_text).unwrap();
+    let fourth_text = match fourth {
+        Message::Text(text) => text.to_string(),
+        other => panic!("expected fourth text message, got {other:?}"),
+    };
     let third_payload: Value = serde_json::from_str(&third_text).unwrap();
-    assert_eq!(second_payload["type"], "response.created");
-    assert_eq!(third_payload["type"], "response.completed");
-    assert_eq!(third_payload["response"]["id"], "resp-2");
+    let fourth_payload: Value = serde_json::from_str(&fourth_text).unwrap();
+    assert_eq!(third_payload["type"], "response.created");
+    assert_eq!(fourth_payload["type"], "response.completed");
+    assert_eq!(fourth_payload["response"]["id"], "resp-2");
 
     ws_client.close(None).await.unwrap();
 }
