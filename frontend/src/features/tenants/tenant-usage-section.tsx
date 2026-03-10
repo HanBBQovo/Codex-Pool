@@ -7,6 +7,7 @@ import type { UsageSummaryQueryResponse } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { formatExactCount } from '@/lib/count-number-format'
 import { POOL_ELEVATED_SECTION_CLASS_NAME, POOL_METRIC_CARD_CLASS_NAME } from '@/lib/pool-styles'
 import { cn } from '@/lib/utils'
 
@@ -196,7 +197,7 @@ export function TenantUsageSection({
                 {t('tenants.usage.metrics.apiKeyRequests', { defaultValue: 'API key requests' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
-                {usageSummaryQuery.data.tenant_api_key_total_requests.toLocaleString()}
+                {formatExactCount(usageSummaryQuery.data.tenant_api_key_total_requests)}
               </div>
             </div>
             <div className={POOL_METRIC_CARD_CLASS_NAME}>
@@ -204,7 +205,7 @@ export function TenantUsageSection({
                 {t('tenants.usage.metrics.activeApiKeys', { defaultValue: 'Active API keys' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
-                {usageSummaryQuery.data.unique_tenant_api_key_count.toLocaleString()}
+                {formatExactCount(usageSummaryQuery.data.unique_tenant_api_key_count)}
               </div>
             </div>
           </div>
@@ -215,7 +216,7 @@ export function TenantUsageSection({
                 {t('tenants.usage.metrics.accountRequests', { defaultValue: 'Account requests' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
-                {usageSummaryQuery.data.account_total_requests.toLocaleString()}
+                {formatExactCount(usageSummaryQuery.data.account_total_requests)}
               </div>
             </div>
             <div className={POOL_METRIC_CARD_CLASS_NAME}>
@@ -225,7 +226,7 @@ export function TenantUsageSection({
                 })}
               </div>
               <div className="mt-1 text-xl font-semibold">
-                {usageSummaryQuery.data.tenant_api_key_total_requests.toLocaleString()}
+                {formatExactCount(usageSummaryQuery.data.tenant_api_key_total_requests)}
               </div>
             </div>
             <div className={POOL_METRIC_CARD_CLASS_NAME}>
@@ -233,7 +234,7 @@ export function TenantUsageSection({
                 {t('tenants.usage.metrics.activeAccounts', { defaultValue: 'Active accounts' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
-                {usageSummaryQuery.data.unique_account_count.toLocaleString()}
+                {formatExactCount(usageSummaryQuery.data.unique_account_count)}
               </div>
             </div>
             <div className={POOL_METRIC_CARD_CLASS_NAME}>
@@ -241,7 +242,7 @@ export function TenantUsageSection({
                 {t('tenants.usage.metrics.activeApiKeys', { defaultValue: 'Active API keys' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
-                {usageSummaryQuery.data.unique_tenant_api_key_count.toLocaleString()}
+                {formatExactCount(usageSummaryQuery.data.unique_tenant_api_key_count)}
               </div>
             </div>
           </div>

@@ -16,6 +16,7 @@ export interface TrendChartProps {
   height?: number
   locale?: string
   xAxisFormatter?: (val: string | number) => string
+  valueFormatter?: (value: number) => string
 }
 
 function safeFormatDateTime(
@@ -48,8 +49,23 @@ export default function TrendChartCore({
   height = 300,
   locale,
   xAxisFormatter,
+  valueFormatter,
 }: TrendChartProps) {
   const defaultFormatter = (val: string | number) => safeFormatDateTime(val, 'time', locale)
+  const formatValue = (value: unknown) => {
+    if (typeof value === 'number') {
+      return valueFormatter ? valueFormatter(value) : String(value)
+    }
+
+    if (typeof value === 'string') {
+      const numeric = Number(value)
+      if (Number.isFinite(numeric) && valueFormatter) {
+        return valueFormatter(numeric)
+      }
+    }
+
+    return String(value ?? '')
+  }
 
   return (
     <div style={{ width: '100%', minWidth: 0, minHeight: 1, height }}>
@@ -74,6 +90,7 @@ export default function TrendChartCore({
           />
           <YAxis
             tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+            tickFormatter={formatValue}
             tickLine={false}
             axisLine={false}
             dx={-10}
@@ -89,6 +106,7 @@ export default function TrendChartCore({
               boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
             }}
             labelFormatter={(label) => safeFormatDateTime(label, 'datetime', locale)}
+            formatter={(value) => formatValue(value)}
           />
           {lines.map((line, idx) => (
             <Line

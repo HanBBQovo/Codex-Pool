@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input'
 import { LoadingOverlay } from '@/components/ui/loading-overlay'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { formatOptionalExactCount } from '@/lib/count-number-format'
 import { POOL_SECTION_CLASS_NAME } from '@/lib/pool-styles'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/time'
@@ -75,12 +76,8 @@ function effectivePricingOrFallback(model: Pick<ModelSchema, 'effective_pricing'
 }
 
 function contextText(official?: AdminModelOfficialInfo | null) {
-  const context = typeof official?.context_window_tokens === 'number'
-    ? official.context_window_tokens.toLocaleString()
-    : '-'
-  const maxOutput = typeof official?.max_output_tokens === 'number'
-    ? official.max_output_tokens.toLocaleString()
-    : '-'
+  const context = formatOptionalExactCount(official?.context_window_tokens)
+  const maxOutput = formatOptionalExactCount(official?.max_output_tokens)
   return `${context} / ${maxOutput}`
 }
 
@@ -596,11 +593,11 @@ export default function Models() {
                     <div className="space-y-1 text-sm">
                       <div>
                         <span className="font-medium">{t('models.detail.contextWindow', { defaultValue: 'Context window' })}:</span>{' '}
-                        <span className="font-mono">{currentOfficial?.context_window_tokens?.toLocaleString() ?? '-'}</span>
+                        <span className="font-mono">{formatOptionalExactCount(currentOfficial?.context_window_tokens)}</span>
                       </div>
                       <div>
                         <span className="font-medium">{t('models.detail.maxOutputTokens', { defaultValue: 'Max output tokens' })}:</span>{' '}
-                        <span className="font-mono">{currentOfficial?.max_output_tokens?.toLocaleString() ?? '-'}</span>
+                        <span className="font-mono">{formatOptionalExactCount(currentOfficial?.max_output_tokens)}</span>
                       </div>
                       <div>
                         <span className="font-medium">{t('models.detail.knowledgeCutoff', { defaultValue: 'Knowledge cutoff' })}:</span>{' '}
@@ -618,15 +615,19 @@ export default function Models() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{t('models.detail.sourceUrl', { defaultValue: 'Source URL' })}:</span>
-                        <a
-                          className="inline-flex items-center gap-1 text-primary underline underline-offset-4"
-                          href={currentOfficial?.source_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {t('models.detail.openOfficialPage', { defaultValue: 'Open official page' })}
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
+                        {currentOfficial?.source_url ? (
+                          <a
+                            className="inline-flex items-center gap-1 text-primary underline underline-offset-4"
+                            href={currentOfficial.source_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {t('models.detail.openOfficialPage', { defaultValue: 'Open official page' })}
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </div>
                     </div>
                   </div>

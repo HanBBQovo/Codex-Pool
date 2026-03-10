@@ -41,7 +41,16 @@ import {
   toggleTokenComponent,
   type TokenComponentSelection,
 } from '@/lib/dashboard-metrics'
-import { formatTokenCount, formatTokenRate } from '@/lib/token-format'
+import {
+  formatDashboardCount,
+  formatDashboardDurationSeconds,
+  formatDashboardExactNumber,
+  formatDashboardMetric,
+  formatDashboardTokenCount,
+  formatDashboardTokenRate,
+  formatDashboardTrendTimestampLabel,
+} from '@/lib/dashboard-number-format'
+import { formatExactCount } from '@/lib/count-number-format'
 
 type RangePreset = 1 | 7 | 30
 
@@ -54,13 +63,6 @@ function loadModelMode(): ModelDistributionMode {
   }
   const raw = window.localStorage.getItem(MODEL_MODE_STORAGE_KEY)
   return raw === 'tokens' ? 'tokens' : 'requests'
-}
-
-function formatMetric(value: number): string {
-  if (value >= 1000) {
-    return value.toLocaleString(undefined, { maximumFractionDigits: 1 })
-  }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
 export function TenantDashboardPage() {
@@ -239,31 +241,36 @@ export function TenantDashboardPage() {
   const kpiCards = [
     {
       title: t('tenantDashboard.kpi.rpm', { defaultValue: 'RPM' }),
-      value: formatMetric(rpm),
+      value: formatDashboardMetric(rpm),
+      exactValue: formatDashboardExactNumber(rpm),
       desc: t('tenantDashboard.kpi.rpmDesc', { defaultValue: 'Requests per minute' }),
       icon: TrendingUp,
     },
     {
       title: t('tenantDashboard.kpi.tpm', { defaultValue: 'TPM' }),
-      value: formatTokenRate(tpm),
+      value: formatDashboardTokenRate(tpm),
+      exactValue: formatDashboardExactNumber(tpm),
       desc: t('tenantDashboard.kpi.tpmDesc', { defaultValue: 'Tokens per minute' }),
       icon: Gauge,
     },
     {
       title: t('tenantDashboard.kpi.totalTokens', { defaultValue: 'Token consumption total' }),
-      value: formatTokenCount(totalTokens),
+      value: formatDashboardTokenCount(totalTokens),
+      exactValue: formatExactCount(totalTokens),
       desc: t('tenantDashboard.kpi.totalTokensDesc', { defaultValue: 'Input + cached + output + reasoning' }),
       icon: Zap,
     },
     {
       title: t('tenantDashboard.kpi.totalRequests', { defaultValue: 'Total requests' }),
-      value: totalRequests.toLocaleString(),
+      value: formatDashboardCount(totalRequests),
+      exactValue: formatExactCount(totalRequests),
       desc: t('tenantDashboard.kpi.totalRequestsDesc', { defaultValue: 'Selected time range' }),
       icon: TrendingUp,
     },
     {
       title: t('tenantDashboard.kpi.avgFirstTokenSpeed', { defaultValue: 'Average first-token speed' }),
-      value: avgFirstTokenSec === null ? '--' : `${avgFirstTokenSec.toFixed(2)}s`,
+      value: formatDashboardDurationSeconds(avgFirstTokenSec),
+      exactValue: formatDashboardDurationSeconds(avgFirstTokenSec),
       desc: t('tenantDashboard.kpi.avgFirstTokenSpeedDesc', { defaultValue: 'TTFT (streaming exact / non-stream approximate)' }),
       icon: Timer,
     },
@@ -470,7 +477,10 @@ export function TenantDashboardPage() {
                     {isFetchingSummary && !summary ? (
                       <Skeleton className="h-10 w-32 rounded-xl" />
                     ) : (
-                      <p className="flex items-center gap-2 text-3xl font-semibold leading-none text-slate-900 dark:text-slate-100">
+                      <p
+                        className="flex items-center gap-2 text-3xl font-semibold leading-none text-slate-900 dark:text-slate-100"
+                        title={item.exactValue}
+                      >
                         <item.icon className="h-5 w-5 text-cyan-500" />
                         {item.value}
                       </p>
@@ -504,10 +514,11 @@ export function TenantDashboardPage() {
                       variant={tokenComponents[item.key] ? 'solid' : 'bordered'}
                       color={tokenComponents[item.key] ? 'primary' : 'default'}
                       className="cursor-pointer"
+                      title={formatExactCount(item.value)}
                       style={tokenComponents[item.key] ? { backgroundColor: item.color, color: '#fff' } : undefined}
                       onClick={() => setTokenComponents((prev) => toggleTokenComponent(prev, item.key))}
                     >
-                      {item.label}: {formatTokenCount(item.value)}
+                      {item.label}: {formatDashboardTokenCount(item.value)}
                     </Chip>
                   ))}
                 </div>
@@ -542,23 +553,23 @@ export function TenantDashboardPage() {
                           tickLine={false}
                           axisLine={false}
                         />
-                        <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <YAxis
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                          tickFormatter={(value) =>
+                            typeof value === 'number'
+                              ? formatDashboardTokenCount(value)
+                              : String(value ?? '')
+                          }
+                          tickLine={false}
+                          axisLine={false}
+                        />
                         <Tooltip
                           formatter={(value) =>
                             typeof value === 'number'
-                              ? formatTokenCount(value)
+                              ? formatDashboardTokenCount(value)
                               : String(value ?? '')
                           }
-                          labelFormatter={(label) =>
-                            new Intl.DateTimeFormat(undefined, {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              hour12: false,
-                            }).format(new Date(Number(label)))
-                          }
+                          labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
                         />
                         {showTokenArea && tokenComponents.input ? (
                           <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.input', { defaultValue: 'Input' })} />
@@ -629,7 +640,19 @@ export function TenantDashboardPage() {
                         margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-                        <XAxis type="number" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <XAxis
+                          type="number"
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                          tickFormatter={(value) =>
+                            typeof value === 'number'
+                              ? (modelMode === 'tokens'
+                                  ? formatDashboardTokenCount(value)
+                                  : formatDashboardCount(value))
+                              : String(value ?? '')
+                          }
+                          tickLine={false}
+                          axisLine={false}
+                        />
                         <YAxis
                           dataKey="model"
                           type="category"
@@ -646,7 +669,9 @@ export function TenantDashboardPage() {
                         <Tooltip
                           formatter={(value) =>
                             typeof value === 'number'
-                              ? (modelMode === 'tokens' ? formatTokenCount(value) : value.toLocaleString())
+                              ? (modelMode === 'tokens'
+                                  ? formatDashboardTokenCount(value)
+                                  : formatDashboardCount(value))
                               : String(value ?? '')
                           }
                           labelFormatter={(label) =>
@@ -675,7 +700,7 @@ export function TenantDashboardPage() {
             {tokenBreakdownRows.map((row) => (
               <div key={row.key} className="rounded-xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-700/70 dark:bg-slate-900/50">
                 <p className="text-xs text-slate-500 dark:text-slate-400">{row.label}</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{formatTokenCount(row.value)}</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{formatDashboardTokenCount(row.value)}</p>
               </div>
             ))}
           </CardBody>

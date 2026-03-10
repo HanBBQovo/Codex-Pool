@@ -18,7 +18,8 @@ import {
 } from '@/components/ui/card'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import { TrendChart } from '@/components/ui/trend-chart'
-import { formatNumber, formatPercent, resolveLocale } from '@/lib/i18n-format'
+import { formatExactCount } from '@/lib/count-number-format'
+import { formatPercent, resolveLocale } from '@/lib/i18n-format'
 import { cn } from '@/lib/utils'
 
 interface TopKeyRow {
@@ -127,7 +128,7 @@ export default function Usage() {
                 accessorKey: 'requests',
                 cell: ({ row }) => (
                     <span className="font-mono tabular-nums">
-                        {formatNumber(row.original.requests, { locale })}
+                        {formatExactCount(row.original.requests, locale)}
                     </span>
                 ),
             },
@@ -256,6 +257,7 @@ export default function Usage() {
                                     lines={[{ dataKey: 'requests', name: t('usage.chart.requests'), stroke: 'var(--chart-1)' }]}
                                     height={320}
                                     locale={locale}
+                                    valueFormatter={(value) => formatExactCount(value, locale)}
                                     xAxisFormatter={(val) => xAxisDateFormatter.format(new Date(val))}
                                 />
                             )}

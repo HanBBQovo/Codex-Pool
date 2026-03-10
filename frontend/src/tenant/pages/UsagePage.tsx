@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import { TrendChart } from '@/components/ui/trend-chart'
+import { formatExactCount } from '@/lib/count-number-format'
 import { currentRangeByDays } from '@/tenant/lib/format'
 
 type RangePreset = 1 | 7 | 30
@@ -116,7 +117,7 @@ export function TenantUsagePage() {
         id: 'requests',
         header: t('tenantUsage.columns.requests', { defaultValue: 'Requests' }),
         accessorKey: 'requests',
-        cell: ({ row }) => <span className="font-mono">{row.original.requests.toLocaleString()}</span>,
+        cell: ({ row }) => <span className="font-mono">{formatExactCount(row.original.requests)}</span>,
       },
     ],
     [t],
@@ -141,7 +142,7 @@ export function TenantUsagePage() {
         id: 'requests',
         header: t('tenantUsage.columns.requests', { defaultValue: 'Requests' }),
         accessorKey: 'requests',
-        cell: ({ row }) => <span className="font-mono">{row.original.requests.toLocaleString()}</span>,
+        cell: ({ row }) => <span className="font-mono">{formatExactCount(row.original.requests)}</span>,
       },
     ],
     [t],
@@ -210,6 +211,7 @@ export function TenantUsagePage() {
                 },
               ]}
               height={280}
+              valueFormatter={formatExactCount}
               xAxisFormatter={(value) =>
                 new Intl.DateTimeFormat(undefined, {
                   month: '2-digit',

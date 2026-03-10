@@ -42,7 +42,16 @@ import {
   type ModelDistributionMode,
   type TokenComponentSelection,
 } from '@/lib/dashboard-metrics'
-import { formatTokenCount, formatTokenRate } from '@/lib/token-format'
+import {
+  formatDashboardCount,
+  formatDashboardDurationSeconds,
+  formatDashboardExactNumber,
+  formatDashboardMetric,
+  formatDashboardTokenCount,
+  formatDashboardTokenRate,
+  formatDashboardTrendTimestampLabel,
+} from '@/lib/dashboard-number-format'
+import { formatExactCount } from '@/lib/count-number-format'
 import { cn } from '@/lib/utils'
 
 type AlertSeverity = 'critical' | 'warning' | 'info'
@@ -137,13 +146,6 @@ function loadModelMode(): ModelDistributionMode {
   }
   const raw = window.localStorage.getItem(ADMIN_MODEL_MODE_STORAGE_KEY)
   return raw === 'tokens' ? 'tokens' : 'requests'
-}
-
-function formatMetric(value: number): string {
-  if (value >= 1000) {
-    return value.toLocaleString(undefined, { maximumFractionDigits: 1 })
-  }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
 function compactTenantId(tenantId: string): string {
@@ -390,56 +392,64 @@ export default function Dashboard() {
     {
       id: 'total_requests',
       title: t('dashboard.kpi.totalRequests', { defaultValue: 'Total requests' }),
-      value: totalRequests.toLocaleString(),
+      value: formatDashboardCount(totalRequests),
+      exactValue: formatExactCount(totalRequests),
       change: `${scopeLabel(scope)} / ${rangePreset === 1 ? '24h' : `${rangePreset}d`}`,
       icon: TrendingUp,
     },
     {
       id: 'total_tokens',
       title: t('dashboard.kpi.totalTokens', { defaultValue: 'Token consumption total' }),
-      value: formatTokenCount(totalTokens),
+      value: formatDashboardTokenCount(totalTokens),
+      exactValue: formatExactCount(totalTokens),
       change: t('dashboard.kpi.totalTokensDesc', { defaultValue: 'Input + cached + output + reasoning' }),
       icon: Zap,
     },
     {
       id: 'rpm',
       title: t('dashboard.kpi.rpm', { defaultValue: 'RPM' }),
-      value: formatMetric(rpm),
+      value: formatDashboardMetric(rpm),
+      exactValue: formatDashboardExactNumber(rpm),
       change: t('dashboard.kpi.rpmDesc', { defaultValue: 'Requests per minute' }),
       icon: Gauge,
     },
     {
       id: 'tpm',
       title: t('dashboard.kpi.tpm', { defaultValue: 'TPM' }),
-      value: formatTokenRate(tpm),
+      value: formatDashboardTokenRate(tpm),
+      exactValue: formatDashboardExactNumber(tpm),
       change: t('dashboard.kpi.tpmDesc', { defaultValue: 'Tokens per minute' }),
       icon: Gauge,
     },
     {
       id: 'avg_first_token_speed',
       title: t('dashboard.kpi.avgFirstTokenSpeed', { defaultValue: 'Average first-token speed' }),
-      value: avgFirstTokenSec === null ? '--' : `${avgFirstTokenSec.toFixed(2)}s`,
+      value: formatDashboardDurationSeconds(avgFirstTokenSec),
+      exactValue: formatDashboardDurationSeconds(avgFirstTokenSec),
       change: t('dashboard.kpi.avgFirstTokenSpeedDesc', { defaultValue: 'TTFT (streaming exact / non-stream approximate)' }),
       icon: Timer,
     },
     {
       id: 'tenant_count',
       title: t('dashboard.kpi.tenants', { defaultValue: 'Tenants' }),
-      value: (systemState?.counts.tenants ?? 0).toLocaleString(),
+      value: formatDashboardCount(systemState?.counts.tenants ?? 0),
+      exactValue: formatExactCount(systemState?.counts.tenants ?? 0),
       change: t('dashboard.kpi.tenantsDesc', { defaultValue: 'Admin-only operational metric' }),
       icon: Building2,
     },
     {
       id: 'account_count',
       title: t('dashboard.kpi.accounts', { defaultValue: 'Accounts' }),
-      value: (systemState?.counts.total_accounts ?? 0).toLocaleString(),
+      value: formatDashboardCount(systemState?.counts.total_accounts ?? 0),
+      exactValue: formatExactCount(systemState?.counts.total_accounts ?? 0),
       change: t('dashboard.kpi.accountsDesc', { defaultValue: 'Admin-only operational metric' }),
       icon: Users,
     },
     {
       id: 'api_key_count',
       title: t('dashboard.kpi.apiKeys', { defaultValue: 'API keys' }),
-      value: (systemState?.counts.api_keys ?? 0).toLocaleString(),
+      value: formatDashboardCount(systemState?.counts.api_keys ?? 0),
+      exactValue: formatExactCount(systemState?.counts.api_keys ?? 0),
       change: t('dashboard.kpi.apiKeysDesc', { defaultValue: 'Configured keys in system' }),
       icon: Zap,
     },
@@ -570,7 +580,14 @@ export default function Dashboard() {
         id: 'requests',
         header: t('dashboard.table.requests', { defaultValue: 'Requests' }),
         accessorKey: 'requests',
-        cell: ({ row }) => <span className="font-mono">{row.original.requests.toLocaleString()}</span>,
+        cell: ({ row }) => (
+          <span
+            className="font-mono"
+            title={formatExactCount(row.original.requests)}
+          >
+            {formatDashboardCount(row.original.requests)}
+          </span>
+        ),
       },
     ],
     [t],
@@ -721,7 +738,10 @@ export default function Dashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-1">
-                  <div className="min-h-8 flex items-center text-2xl font-bold font-sans tracking-tight leading-tight">
+                  <div
+                    className="min-h-8 flex items-center text-2xl font-bold font-sans tracking-tight leading-tight"
+                    title={isLoading ? undefined : m.exactValue}
+                  >
                     {isLoading ? <div className="h-8 w-28 bg-muted animate-pulse rounded" /> : m.value}
                   </div>
                   <div className="h-4 flex items-center">
@@ -755,10 +775,11 @@ export default function Dashboard() {
                       key={row.key}
                       variant={tokenComponents[row.key] ? 'default' : 'outline'}
                       className="cursor-pointer"
+                      title={formatExactCount(row.value)}
                       style={tokenComponents[row.key] ? { backgroundColor: row.color, color: '#fff' } : undefined}
                       onClick={() => setTokenComponents((prev) => toggleTokenComponent(prev, row.key))}
                     >
-                      {row.label}: {formatTokenCount(row.value)}
+                      {row.label}: {formatDashboardTokenCount(row.value)}
                     </Badge>
                   ))}
                 </div>
@@ -790,11 +811,21 @@ export default function Dashboard() {
                           tickLine={false}
                           axisLine={false}
                         />
-                        <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <YAxis
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                          tickFormatter={(value) =>
+                            typeof value === 'number'
+                              ? formatDashboardTokenCount(value)
+                              : String(value ?? '')
+                          }
+                          tickLine={false}
+                          axisLine={false}
+                        />
                         <Tooltip
+                          labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
                           formatter={(value) =>
                             typeof value === 'number'
-                              ? formatTokenCount(value)
+                              ? formatDashboardTokenCount(value)
                               : String(value ?? '')
                           }
                         />
@@ -854,7 +885,19 @@ export default function Dashboard() {
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={modelDistributionData} layout="vertical" margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-                        <XAxis type="number" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <XAxis
+                          type="number"
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                          tickFormatter={(value) =>
+                            typeof value === 'number'
+                              ? (modelMode === 'tokens'
+                                  ? formatDashboardTokenCount(value)
+                                  : formatDashboardCount(value))
+                              : String(value ?? '')
+                          }
+                          tickLine={false}
+                          axisLine={false}
+                        />
                         <YAxis
                           type="category"
                           dataKey="model"
@@ -869,7 +912,9 @@ export default function Dashboard() {
                         <Tooltip
                           formatter={(value) =>
                             typeof value === 'number'
-                              ? (modelMode === 'tokens' ? formatTokenCount(value) : value.toLocaleString())
+                              ? (modelMode === 'tokens'
+                                  ? formatDashboardTokenCount(value)
+                                  : formatDashboardCount(value))
                               : String(value ?? '')
                           }
                           labelFormatter={(label) =>
