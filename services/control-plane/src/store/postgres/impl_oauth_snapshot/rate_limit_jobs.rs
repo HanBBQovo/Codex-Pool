@@ -459,6 +459,11 @@ impl PostgresStore {
         let expires_at = fetched_at + Duration::seconds(rate_limit_cache_ttl_sec_from_env());
         let payload = serde_json::to_string(&rate_limits)
             .context("failed to encode oauth rate-limit snapshots json")?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("failed to start oauth rate-limit success transaction")?;
 
         sqlx::query(
             r#"
@@ -486,9 +491,20 @@ impl PostgresStore {
         .bind(payload)
         .bind(fetched_at)
         .bind(expires_at)
-        .execute(&self.pool)
+        .execute(tx.as_mut())
         .await
         .context("failed to upsert oauth rate-limit cache snapshot")?;
+
+        self.append_data_plane_outbox_event_tx(
+            &mut tx,
+            DataPlaneSnapshotEventType::AccountUpsert,
+            account_id,
+        )
+        .await?;
+        self.bump_revision_tx(&mut tx).await?;
+        tx.commit()
+            .await
+            .context("failed to commit oauth rate-limit success transaction")?;
 
         Ok(())
     }
@@ -507,6 +523,11 @@ impl PostgresStore {
         let quota_signal = is_quota_error_signal(error_code, error_message);
         let auth_signal = is_auth_error_signal(error_code, error_message);
         let rate_limited_signal = is_rate_limited_signal(error_code, error_message);
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("failed to start oauth rate-limit failure transaction")?;
 
         sqlx::query(
             r#"
@@ -533,9 +554,20 @@ impl PostgresStore {
         .bind(error_code)
         .bind(truncated_message.as_str())
         .bind(now)
-        .execute(&self.pool)
+        .execute(tx.as_mut())
         .await
         .context("failed to persist oauth rate-limit cache failure")?;
+
+        self.append_data_plane_outbox_event_tx(
+            &mut tx,
+            DataPlaneSnapshotEventType::AccountUpsert,
+            account_id,
+        )
+        .await?;
+        self.bump_revision_tx(&mut tx).await?;
+        tx.commit()
+            .await
+            .context("failed to commit oauth rate-limit failure transaction")?;
 
         tracing::warn!(
             account_id = %account_id,
@@ -623,105 +655,116 @@ impl PostgresStore {
         concurrency: usize,
     ) -> RateLimitRefreshBatchStats {
         let effective_concurrency = concurrency.max(1);
+        let max_rps = rate_limit_refresh_max_rps_from_env();
+        let launch_interval = std::time::Duration::from_secs_f64(1.0 / f64::from(max_rps));
+        let throttle = std::sync::Arc::new(tokio::sync::Mutex::new(tokio::time::Instant::now()));
         let results = futures_util::stream::iter(targets.into_iter())
-            .map(|target| async move {
-                let account_id = target.account_id;
-                let fetched_at = Utc::now();
-                match self
-                    .fetch_live_rate_limits_result(
-                        &UpstreamAuthProvider::OAuthRefreshToken,
-                        target.access_token_enc,
-                        Some(target.base_url),
-                        target.chatgpt_account_id,
-                    )
-                    .await
-                {
-                    Ok(rate_limits) => {
-                        self.persist_rate_limit_success_outcome(account_id, rate_limits, fetched_at)
+            .map(|target| {
+                let throttle = throttle.clone();
+                async move {
+                    throttle_refresh_start(throttle.as_ref(), launch_interval).await;
+                    let account_id = target.account_id;
+                    let fetched_at = Utc::now();
+                    match self
+                        .fetch_live_rate_limits_result(
+                            &UpstreamAuthProvider::OAuthRefreshToken,
+                            target.access_token_enc,
+                            Some(target.base_url),
+                            target.chatgpt_account_id,
+                        )
+                        .await
+                    {
+                        Ok(rate_limits) => {
+                            self.persist_rate_limit_success_outcome(
+                                account_id,
+                                rate_limits,
+                                fetched_at,
+                            )
                             .await
-                    }
-                    Err((error_code, error_message)) => {
-                        let should_try_refresh = should_trigger_refresh_after_rate_limit_failure(
-                            &error_code,
-                            &error_message,
-                        );
-                        if should_try_refresh {
-                            tracing::info!(
-                                account_id = %account_id,
-                                error_code = %error_code,
-                                "oauth rate-limit failure matched auth signal; attempting forced oauth refresh"
+                        }
+                        Err((error_code, error_message)) => {
+                            let should_try_refresh = should_trigger_refresh_after_rate_limit_failure(
+                                &error_code,
+                                &error_message,
                             );
-                            if self
-                                .try_refresh_oauth_account_after_rate_limit_failure(account_id)
-                                .await
-                            {
+                            if should_try_refresh {
                                 tracing::info!(
                                     account_id = %account_id,
                                     error_code = %error_code,
-                                    "forced oauth refresh recovered account after rate-limit auth failure"
+                                    "oauth rate-limit failure matched auth signal; attempting forced oauth refresh"
                                 );
-                                let refreshed_target = match self
-                                    .load_rate_limit_refresh_target_by_account_id(account_id)
+                                if self
+                                    .try_refresh_oauth_account_after_rate_limit_failure(account_id)
                                     .await
                                 {
-                                    Ok(target) => target,
-                                    Err(err) => {
-                                        let code =
-                                            "refresh_recovered_target_load_failed".to_string();
-                                        let _ = self
-                                            .persist_rate_limit_cache_failure(
-                                                account_id,
-                                                &code,
-                                                &err.to_string(),
-                                            )
-                                            .await;
-                                        return (false, Some(code));
-                                    }
-                                };
-                                let refetched_at = Utc::now();
-                                return match self
-                                    .fetch_live_rate_limits_result(
-                                        &UpstreamAuthProvider::OAuthRefreshToken,
-                                        refreshed_target.access_token_enc,
-                                        Some(refreshed_target.base_url),
-                                        refreshed_target.chatgpt_account_id,
-                                    )
-                                    .await
-                                {
-                                    Ok(rate_limits) => {
-                                        self.persist_rate_limit_success_outcome(
-                                            account_id,
-                                            rate_limits,
-                                            refetched_at,
+                                    tracing::info!(
+                                        account_id = %account_id,
+                                        error_code = %error_code,
+                                        "forced oauth refresh recovered account after rate-limit auth failure"
+                                    );
+                                    let refreshed_target = match self
+                                        .load_rate_limit_refresh_target_by_account_id(account_id)
+                                        .await
+                                    {
+                                        Ok(target) => target,
+                                        Err(err) => {
+                                            let code =
+                                                "refresh_recovered_target_load_failed".to_string();
+                                            let _ = self
+                                                .persist_rate_limit_cache_failure(
+                                                    account_id,
+                                                    &code,
+                                                    &err.to_string(),
+                                                )
+                                                .await;
+                                            return (false, Some(code));
+                                        }
+                                    };
+                                    let refetched_at = Utc::now();
+                                    return match self
+                                        .fetch_live_rate_limits_result(
+                                            &UpstreamAuthProvider::OAuthRefreshToken,
+                                            refreshed_target.access_token_enc,
+                                            Some(refreshed_target.base_url),
+                                            refreshed_target.chatgpt_account_id,
                                         )
                                         .await
-                                    }
-                                    Err((refetch_error_code, refetch_error_message)) => {
-                                        let _ = self
-                                            .persist_rate_limit_cache_failure(
+                                    {
+                                        Ok(rate_limits) => {
+                                            self.persist_rate_limit_success_outcome(
                                                 account_id,
-                                                &refetch_error_code,
-                                                &refetch_error_message,
+                                                rate_limits,
+                                                refetched_at,
                                             )
-                                            .await;
-                                        (false, Some(refetch_error_code))
-                                    }
-                                };
+                                            .await
+                                        }
+                                        Err((refetch_error_code, refetch_error_message)) => {
+                                            let _ = self
+                                                .persist_rate_limit_cache_failure(
+                                                    account_id,
+                                                    &refetch_error_code,
+                                                    &refetch_error_message,
+                                                )
+                                                .await;
+                                            (false, Some(refetch_error_code))
+                                        }
+                                    };
+                                }
+                                tracing::warn!(
+                                    account_id = %account_id,
+                                    error_code = %error_code,
+                                    "forced oauth refresh did not recover account after rate-limit auth failure"
+                                );
                             }
-                            tracing::warn!(
-                                account_id = %account_id,
-                                error_code = %error_code,
-                                "forced oauth refresh did not recover account after rate-limit auth failure"
-                            );
+                            let _ = self
+                                .persist_rate_limit_cache_failure(
+                                    account_id,
+                                    &error_code,
+                                    &error_message,
+                                )
+                                .await;
+                            (false, Some(error_code))
                         }
-                        let _ = self
-                            .persist_rate_limit_cache_failure(
-                                account_id,
-                                &error_code,
-                                &error_message,
-                            )
-                            .await;
-                        (false, Some(error_code))
                     }
                 }
             })

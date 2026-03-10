@@ -598,24 +598,6 @@ impl PostgresStore {
 
         sqlx::query(
             r#"
-            DELETE FROM admin_model_entities
-            "#,
-        )
-        .execute(tx.as_mut())
-        .await
-        .context("failed to clear admin_model_entities during simplification bootstrap")?;
-
-        sqlx::query(
-            r#"
-            DELETE FROM billing_pricing_rules
-            "#,
-        )
-        .execute(tx.as_mut())
-        .await
-        .context("failed to clear billing_pricing_rules during simplification bootstrap")?;
-
-        sqlx::query(
-            r#"
             CREATE TABLE IF NOT EXISTS admin_model_entities (
                 id UUID PRIMARY KEY,
                 model_id TEXT NOT NULL UNIQUE,
@@ -639,6 +621,24 @@ impl PostgresStore {
         .execute(tx.as_mut())
         .await
         .context("failed to create admin_model_entities model_id index")?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM admin_model_entities
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to clear admin_model_entities during simplification bootstrap")?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM billing_pricing_rules
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to clear billing_pricing_rules during simplification bootstrap")?;
 
         sqlx::query(
             r#"

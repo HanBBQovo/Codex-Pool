@@ -2,6 +2,7 @@ use base64::Engine;
 use chrono::{Duration, Utc};
 use codex_pool_core::api::{
     CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
+    DataPlaneSnapshotEventType,
     ImportOAuthRefreshTokenRequest, OAuthImportItemStatus, OAuthImportJobItem,
     OAuthImportJobStatus, OAuthImportJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
     OAuthRefreshStatus, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
@@ -21,14 +22,84 @@ use control_plane::tenant::{AdminImpersonateRequest, TenantAuthService};
 use sqlx_core::executor::Executor;
 use sqlx_core::query::query;
 use sqlx_core::query_scalar::query_scalar;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use sqlx_postgres::PgPoolOptions;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Instant;
 use uuid::Uuid;
 
 fn test_db_url() -> Option<String> {
     std::env::var("CONTROL_PLANE_DATABASE_URL")
         .ok()
         .or_else(|| std::env::var("DATABASE_URL").ok())
+}
+
+static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+fn admin_db_url(database_url: &str) -> String {
+    let mut parsed = reqwest::Url::parse(database_url).expect("valid postgres database url");
+    parsed.set_path("/postgres");
+    parsed.to_string()
+}
+
+fn quoted_database_identifier(database_name: &str) -> String {
+    assert!(
+        database_name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'),
+        "database name must stay ASCII-safe for quoted SQL identifiers"
+    );
+    format!("\"{database_name}\"")
+}
+
+fn child_database_url(database_url: &str, database_name: &str) -> String {
+    let mut parsed = reqwest::Url::parse(database_url).expect("valid postgres database url");
+    parsed.set_path(&format!("/{database_name}"));
+    parsed.to_string()
+}
+
+async fn create_temp_database(database_url: &str, database_name: &str) {
+    let admin_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&admin_db_url(database_url))
+        .await
+        .expect("connect admin postgres");
+    let quoted_name = quoted_database_identifier(database_name);
+    query(&format!("DROP DATABASE IF EXISTS {quoted_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop leftover temp database");
+    query(&format!("CREATE DATABASE {quoted_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("create temp database");
+    admin_pool.close().await;
+}
+
+async fn drop_temp_database(database_url: &str, database_name: &str) {
+    let admin_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&admin_db_url(database_url))
+        .await
+        .expect("connect admin postgres");
+    query(
+        r#"
+        SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE datname = $1
+          AND pid <> pg_backend_pid()
+        "#,
+    )
+    .bind(database_name)
+    .execute(&admin_pool)
+    .await
+    .expect("terminate temp database connections");
+    let quoted_name = quoted_database_identifier(database_name);
+    query(&format!("DROP DATABASE IF EXISTS {quoted_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop temp database");
+    admin_pool.close().await;
 }
 
 #[derive(Default)]
@@ -91,6 +162,143 @@ impl OAuthTokenClient for RefreshThenRateLimitOAuthClient {
     }
 }
 
+#[derive(Default)]
+struct SuccessThenQuotaOAuthClient {
+    refresh_calls: AtomicUsize,
+    fetch_calls: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl OAuthTokenClient for SuccessThenQuotaOAuthClient {
+    async fn refresh_token(
+        &self,
+        _refresh_token: &str,
+        _base_url: Option<&str>,
+    ) -> Result<OAuthTokenInfo, OAuthTokenClientError> {
+        let call_no = self.refresh_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(OAuthTokenInfo {
+            access_token: format!("test-outbox-token-{call_no}"),
+            refresh_token: format!("test-outbox-refresh-{call_no}"),
+            expires_at: Utc::now() + Duration::hours(1),
+            token_type: Some("Bearer".to_string()),
+            scope: Some("model.read".to_string()),
+            chatgpt_account_id: Some("acct-outbox".to_string()),
+            chatgpt_plan_type: Some("plus".to_string()),
+        })
+    }
+
+    async fn fetch_rate_limits(
+        &self,
+        access_token: &str,
+        _base_url: Option<&str>,
+        _chatgpt_account_id: Option<&str>,
+    ) -> Result<Vec<OAuthRateLimitSnapshot>, OAuthTokenClientError> {
+        let call_no = self.fetch_calls.fetch_add(1, Ordering::SeqCst);
+        if access_token.starts_with("test-outbox-token-") && call_no > 0 {
+            return Err(OAuthTokenClientError::Upstream {
+                code: OAuthRefreshErrorCode::RateLimited,
+                message: "usage limit reached".to_string(),
+            });
+        }
+
+        Ok(vec![OAuthRateLimitSnapshot {
+            limit_id: Some("codex".to_string()),
+            limit_name: Some("Codex".to_string()),
+            primary: Some(OAuthRateLimitWindow {
+                used_percent: 8.0,
+                window_minutes: Some(5),
+                resets_at: Some(Utc::now() + Duration::minutes(5)),
+            }),
+            secondary: None,
+        }])
+    }
+}
+
+#[derive(Default)]
+struct RecordingOAuthClient {
+    refresh_calls: AtomicUsize,
+    record_fetches: AtomicBool,
+    fetch_started_at: Mutex<Vec<Instant>>,
+}
+
+impl RecordingOAuthClient {
+    fn enable_recording(&self) {
+        self.record_fetches.store(true, Ordering::SeqCst);
+        self.fetch_started_at
+            .lock()
+            .expect("recording mutex poisoned")
+            .clear();
+    }
+
+    fn fetch_starts(&self) -> Vec<Instant> {
+        self.fetch_started_at
+            .lock()
+            .expect("recording mutex poisoned")
+            .clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl OAuthTokenClient for RecordingOAuthClient {
+    async fn refresh_token(
+        &self,
+        _refresh_token: &str,
+        _base_url: Option<&str>,
+    ) -> Result<OAuthTokenInfo, OAuthTokenClientError> {
+        let call_no = self.refresh_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(OAuthTokenInfo {
+            access_token: format!("test-recording-token-{call_no}"),
+            refresh_token: format!("test-recording-refresh-{call_no}"),
+            expires_at: Utc::now() + Duration::hours(1),
+            token_type: Some("Bearer".to_string()),
+            scope: Some("model.read".to_string()),
+            chatgpt_account_id: Some("acct-recording".to_string()),
+            chatgpt_plan_type: Some("team".to_string()),
+        })
+    }
+
+    async fn fetch_rate_limits(
+        &self,
+        _access_token: &str,
+        _base_url: Option<&str>,
+        _chatgpt_account_id: Option<&str>,
+    ) -> Result<Vec<OAuthRateLimitSnapshot>, OAuthTokenClientError> {
+        if self.record_fetches.load(Ordering::SeqCst) {
+            self.fetch_started_at
+                .lock()
+                .expect("recording mutex poisoned")
+                .push(Instant::now());
+        }
+
+        Ok(vec![OAuthRateLimitSnapshot {
+            limit_id: Some("codex".to_string()),
+            limit_name: Some("Codex".to_string()),
+            primary: Some(OAuthRateLimitWindow {
+                used_percent: 5.0,
+                window_minutes: Some(5),
+                resets_at: Some(Utc::now() + Duration::minutes(5)),
+            }),
+            secondary: None,
+        }])
+    }
+}
+
+async fn expire_rate_limit_snapshot(repo: &PostgresStore, account_id: Uuid) {
+    let pool = repo.postgres_pool().expect("postgres pool");
+    query(
+        r#"
+        UPDATE upstream_account_rate_limit_snapshots
+        SET expires_at = now() - interval '1 second',
+            updated_at = now()
+        WHERE account_id = $1
+        "#,
+    )
+    .bind(account_id)
+    .execute(&pool)
+    .await
+    .expect("expire rate-limit snapshot");
+}
+
 #[tokio::test]
 async fn postgres_repo_refetches_rate_limits_after_forced_oauth_refresh() {
     let Some(db_url) = test_db_url() else {
@@ -134,6 +342,194 @@ async fn postgres_repo_refetches_rate_limits_after_forced_oauth_refresh() {
 
     assert!(oauth_client.refresh_calls.load(Ordering::SeqCst) >= 2);
     assert!(oauth_client.fetch_calls.load(Ordering::SeqCst) >= 2);
+}
+
+#[tokio::test]
+async fn postgres_repo_bootstraps_empty_database() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!("skip postgres_repo_bootstraps_empty_database: set CONTROL_PLANE_DATABASE_URL");
+        return;
+    };
+
+    let database_name = format!("cp_empty_bootstrap_{}", Uuid::new_v4().simple());
+    create_temp_database(&db_url, &database_name).await;
+    let empty_db_url = child_database_url(&db_url, &database_name);
+
+    let result = PostgresStore::connect(&empty_db_url).await;
+    let connect_ok = result.is_ok();
+    let error_text = result
+        .as_ref()
+        .err()
+        .map(std::string::ToString::to_string)
+        .unwrap_or_default();
+    drop(result);
+    drop_temp_database(&db_url, &database_name).await;
+
+    assert!(
+        connect_ok,
+        "expected connect() to bootstrap a brand-new database, got {error_text}"
+    );
+}
+
+#[tokio::test]
+async fn postgres_repo_emits_snapshot_event_after_rate_limit_cache_failure() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_emits_snapshot_event_after_rate_limit_cache_failure: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([7_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let oauth_client = Arc::new(SuccessThenQuotaOAuthClient::default());
+    let repo = PostgresStore::connect_with_oauth(&db_url, oauth_client, Some(cipher))
+        .await
+        .unwrap();
+
+    let account = repo
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: format!("oauth-rate-limit-outbox-{}", Uuid::new_v4().simple()),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: format!("rt-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: Some(format!("acct-{}", Uuid::new_v4().simple())),
+            mode: Some(UpstreamMode::ChatGptSession),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: None,
+            source_type: None,
+        })
+        .await
+        .unwrap();
+
+    expire_rate_limit_snapshot(&repo, account.id).await;
+
+    let snapshot_before = repo.snapshot().await.unwrap();
+    let cursor_before = snapshot_before.cursor;
+
+    let refreshed = repo.refresh_due_oauth_rate_limit_caches().await.unwrap();
+    assert!(refreshed >= 1);
+
+    let status = repo.oauth_account_status(account.id).await.unwrap();
+    assert_eq!(status.rate_limits_last_error_code.as_deref(), Some("rate_limited"));
+    assert!(
+        status
+            .rate_limits_last_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("usage limit")
+    );
+
+    let snapshot_after = repo.snapshot().await.unwrap();
+    let refreshed_account = snapshot_after
+        .accounts
+        .iter()
+        .find(|item| item.id == account.id)
+        .expect("account present in snapshot");
+    assert!(!refreshed_account.enabled);
+
+    let events = repo.data_plane_snapshot_events(cursor_before, 50).await.unwrap();
+    assert!(
+        events.events.iter().any(|event| {
+            event.account_id == account.id
+                && matches!(event.event_type, DataPlaneSnapshotEventType::AccountUpsert)
+        }),
+        "expected account upsert event for refreshed rate-limit snapshot"
+    );
+}
+
+#[tokio::test]
+async fn postgres_repo_rate_limit_refresh_respects_global_max_rps() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_rate_limit_refresh_respects_global_max_rps: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let _env_guard = ENV_LOCK.lock().expect("lock env");
+    let old_batch = std::env::var("CONTROL_PLANE_RATE_LIMIT_REFRESH_BATCH_SIZE").ok();
+    let old_concurrency = std::env::var("CONTROL_PLANE_RATE_LIMIT_REFRESH_CONCURRENCY").ok();
+    let old_max_rps = std::env::var("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS").ok();
+    std::env::set_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_BATCH_SIZE", "2");
+    std::env::set_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_CONCURRENCY", "2");
+    std::env::set_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS", "1");
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([9_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let oauth_client = Arc::new(RecordingOAuthClient::default());
+    let repo = PostgresStore::connect_with_oauth(&db_url, oauth_client.clone(), Some(cipher))
+        .await
+        .unwrap();
+
+    let first_account = repo
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: format!("oauth-rate-limit-throttle-a-{}", Uuid::new_v4().simple()),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: format!("rt-a-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: Some(format!("acct-a-{}", Uuid::new_v4().simple())),
+            mode: Some(UpstreamMode::ChatGptSession),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: None,
+            source_type: None,
+        })
+        .await
+        .unwrap();
+    let second_account = repo
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: format!("oauth-rate-limit-throttle-b-{}", Uuid::new_v4().simple()),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: format!("rt-b-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: Some(format!("acct-b-{}", Uuid::new_v4().simple())),
+            mode: Some(UpstreamMode::ChatGptSession),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: None,
+            source_type: None,
+        })
+        .await
+        .unwrap();
+
+    expire_rate_limit_snapshot(&repo, first_account.id).await;
+    expire_rate_limit_snapshot(&repo, second_account.id).await;
+    oauth_client.enable_recording();
+
+    let started_at = Instant::now();
+    let refreshed = repo.refresh_due_oauth_rate_limit_caches().await.unwrap();
+    let elapsed = started_at.elapsed();
+
+    if let Some(value) = old_batch.as_deref() {
+        std::env::set_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_BATCH_SIZE", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_BATCH_SIZE");
+    }
+    if let Some(value) = old_concurrency.as_deref() {
+        std::env::set_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_CONCURRENCY", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_CONCURRENCY");
+    }
+    if let Some(value) = old_max_rps.as_deref() {
+        std::env::set_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS");
+    }
+
+    assert!(refreshed >= 2);
+
+    let mut starts = oauth_client.fetch_starts();
+    starts.sort();
+    assert!(starts.len() >= 2, "expected at least two recorded fetches");
+    assert!(
+        starts[1].duration_since(starts[0]) >= std::time::Duration::from_millis(900),
+        "expected fetch launches to be spaced by rate-limit max RPS, got {:?}",
+        starts[1].duration_since(starts[0])
+    );
+    assert!(
+        elapsed >= std::time::Duration::from_millis(900),
+        "expected refresh batch to take at least one second with max_rps=1, got {:?}",
+        elapsed
+    );
 }
 
 #[tokio::test]

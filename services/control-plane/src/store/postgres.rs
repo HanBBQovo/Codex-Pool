@@ -67,6 +67,10 @@ const RATE_LIMIT_REFRESH_CONCURRENCY_ENV: &str = "CONTROL_PLANE_RATE_LIMIT_REFRE
 const DEFAULT_RATE_LIMIT_REFRESH_CONCURRENCY: usize = 8;
 const MIN_RATE_LIMIT_REFRESH_CONCURRENCY: usize = 1;
 const MAX_RATE_LIMIT_REFRESH_CONCURRENCY: usize = 64;
+const RATE_LIMIT_REFRESH_MAX_RPS_ENV: &str = "CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS";
+const DEFAULT_RATE_LIMIT_REFRESH_MAX_RPS: u32 = 2;
+const MIN_RATE_LIMIT_REFRESH_MAX_RPS: u32 = 1;
+const MAX_RATE_LIMIT_REFRESH_MAX_RPS: u32 = 64;
 const RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC_ENV: &str =
     "CONTROL_PLANE_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC";
 const DEFAULT_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC: i64 = 60;
@@ -156,6 +160,17 @@ fn rate_limit_refresh_concurrency_from_env() -> usize {
         )
 }
 
+fn rate_limit_refresh_max_rps_from_env() -> u32 {
+    std::env::var(RATE_LIMIT_REFRESH_MAX_RPS_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .unwrap_or(DEFAULT_RATE_LIMIT_REFRESH_MAX_RPS)
+        .clamp(
+            MIN_RATE_LIMIT_REFRESH_MAX_RPS,
+            MAX_RATE_LIMIT_REFRESH_MAX_RPS,
+        )
+}
+
 fn rate_limit_refresh_error_backoff_sec_from_env() -> i64 {
     std::env::var(RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC_ENV)
         .ok()
@@ -230,7 +245,7 @@ mod postgres_env_tests {
     use super::{
         is_blocking_rate_limit_error, oauth_effective_enabled, oauth_refresh_batch_size_from_env,
         oauth_refresh_concurrency_from_env, oauth_refresh_max_rps_from_env,
-        rate_limit_failure_backoff_seconds,
+        rate_limit_failure_backoff_seconds, rate_limit_refresh_max_rps_from_env,
         postgres_max_connections_from_env,
     };
     use chrono::{Duration, Utc};
@@ -322,6 +337,21 @@ mod postgres_env_tests {
         assert_eq!(oauth_refresh_max_rps_from_env(), 200);
 
         set_env("CONTROL_PLANE_OAUTH_REFRESH_MAX_RPS", old.as_deref());
+    }
+
+    #[test]
+    fn rate_limit_refresh_max_rps_uses_safe_default_and_clamps() {
+        let _guard = ENV_LOCK.lock().expect("lock env");
+        let old = set_env("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS", None);
+        assert_eq!(rate_limit_refresh_max_rps_from_env(), 2);
+
+        set_env("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS", Some("0"));
+        assert_eq!(rate_limit_refresh_max_rps_from_env(), 1);
+
+        set_env("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS", Some("999"));
+        assert_eq!(rate_limit_refresh_max_rps_from_env(), 64);
+
+        set_env("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS", old.as_deref());
     }
 
     #[test]
