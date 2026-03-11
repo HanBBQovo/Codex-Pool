@@ -656,7 +656,7 @@ export default {
             status: "Статус",
             throughput: "Пропускная способность",
             total: "Всего",
-            updated: "Обновлено"
+            updated: "Уже есть / обновлено"
         },
         precheck: {
             createdNotice: "Задание импорта создано: {{id}}",
@@ -715,7 +715,7 @@ export default {
             queued: "В очереди",
             running: "В работе",
             skipped: "Пропущено",
-            updated: "Обновлено"
+            updated: "Уже есть / обновлено"
         },
         subtitleModern: "Добавьте файлы пачкой, проверьте перед импортом и запустите импорт в один клик с живым прогрессом и деталями ошибок.",
         template: {
@@ -805,7 +805,7 @@ export default {
             accountLabel: "Метка: {{label}}",
             email: "Email: {{email}}",
             created: "Создан",
-            updated: "Обновлен"
+            updated: "Уже существует"
         },
         manual: {
             title: "Резервный ручной callback",

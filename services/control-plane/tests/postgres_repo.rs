@@ -681,10 +681,10 @@ async fn postgres_repo_rate_limit_refresh_respects_global_max_rps() {
 }
 
 #[tokio::test]
-async fn postgres_repo_oauth_upsert_keeps_distinct_accounts_with_shared_chatgpt_account_id() {
+async fn postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_id() {
     let Some(db_url) = test_db_url() else {
         eprintln!(
-            "skip postgres_repo_oauth_upsert_keeps_distinct_accounts_with_shared_chatgpt_account_id: set CONTROL_PLANE_DATABASE_URL"
+            "skip postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_id: set CONTROL_PLANE_DATABASE_URL"
         );
         return;
     };
@@ -726,23 +726,81 @@ async fn postgres_repo_oauth_upsert_keeps_distinct_accounts_with_shared_chatgpt_
         .unwrap();
 
     assert!(first.created);
-    assert!(second.created);
-    assert_ne!(first.account.id, second.account.id);
+    assert!(!second.created);
+    assert_eq!(first.account.id, second.account.id);
 
     let snapshot = repo.snapshot().await.unwrap();
-    let expected_ids = [first.account.id, second.account.id]
-        .into_iter()
-        .collect::<std::collections::HashSet<_>>();
     let shared_accounts = snapshot
         .accounts
         .into_iter()
-        .filter(|account| expected_ids.contains(&account.id))
+        .filter(|account| account.chatgpt_account_id.as_deref() == Some("acct-shared-workspace"))
         .collect::<Vec<_>>();
 
-    assert_eq!(shared_accounts.len(), 2);
-    assert!(shared_accounts.iter().all(|account| {
-        account.chatgpt_account_id.as_deref() == Some("acct-shared-workspace")
-    }));
+    assert_eq!(shared_accounts.len(), 1);
+}
+
+#[tokio::test]
+async fn postgres_repo_cleanup_removes_duplicate_chatgpt_account_ids() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_cleanup_removes_duplicate_chatgpt_account_ids: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([14_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let oauth_client = Arc::new(SharedAccountIdRecordingOAuthClient);
+    let repo = PostgresStore::connect_with_oauth(&db_url, oauth_client, Some(cipher))
+        .await
+        .unwrap();
+
+    let first = repo
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: format!("oauth-dup-a-{}", Uuid::new_v4().simple()),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: format!("rt-dup-a-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: Some("acct-shared-workspace".to_string()),
+            mode: Some(UpstreamMode::CodexOauth),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: Some("team".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+    let second = repo
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: format!("oauth-dup-b-{}", Uuid::new_v4().simple()),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: format!("rt-dup-b-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: Some("acct-shared-workspace".to_string()),
+            mode: Some(UpstreamMode::CodexOauth),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: Some("team".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+
+    assert_ne!(first.id, second.id);
+
+    let removed = repo
+        .dedupe_oauth_accounts_by_chatgpt_account_id()
+        .await
+        .unwrap();
+    assert_eq!(removed, 1);
+
+    let snapshot = repo.snapshot().await.unwrap();
+    let shared_accounts = snapshot
+        .accounts
+        .into_iter()
+        .filter(|account| account.chatgpt_account_id.as_deref() == Some("acct-shared-workspace"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(shared_accounts.len(), 1);
+    assert_eq!(shared_accounts[0].id, second.id);
 }
 
 #[tokio::test]

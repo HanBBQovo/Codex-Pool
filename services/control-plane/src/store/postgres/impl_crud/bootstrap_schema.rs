@@ -6,11 +6,21 @@ impl PostgresStore {
             .await
             .context("failed to connect to postgres")?;
         Self::ensure_schema(&pool).await?;
-        Ok(Self {
+        let store = Self {
             pool,
             oauth_client: std::sync::Arc::new(OpenAiOAuthClient::from_env()),
             credential_cipher: CredentialCipher::from_env().unwrap_or(None),
-        })
+        };
+        let removed = store
+            .dedupe_oauth_accounts_by_chatgpt_account_id_inner(None)
+            .await?;
+        if removed > 0 {
+            tracing::warn!(
+                removed,
+                "removed duplicate oauth accounts that shared a chatgpt_account_id during startup"
+            );
+        }
+        Ok(store)
     }
 
     pub async fn connect_with_oauth(
@@ -24,11 +34,21 @@ impl PostgresStore {
             .await
             .context("failed to connect to postgres")?;
         Self::ensure_schema(&pool).await?;
-        Ok(Self {
+        let store = Self {
             pool,
             oauth_client,
             credential_cipher,
-        })
+        };
+        let removed = store
+            .dedupe_oauth_accounts_by_chatgpt_account_id_inner(None)
+            .await?;
+        if removed > 0 {
+            tracing::warn!(
+                removed,
+                "removed duplicate oauth accounts that shared a chatgpt_account_id during startup"
+            );
+        }
+        Ok(store)
     }
 
     pub fn clone_pool(&self) -> PgPool {

@@ -656,7 +656,7 @@ export default {
             status: "狀態",
             throughput: "吞吐",
             total: "總數",
-            updated: "更新"
+            updated: "已存在／已更新"
         },
         precheck: {
             createdNotice: "匯入任務已建立：{{id}}",
@@ -715,7 +715,7 @@ export default {
             queued: "排隊中",
             running: "處理中",
             skipped: "略過",
-            updated: "已更新"
+            updated: "已存在／已更新"
         },
         subtitleModern: "先批量加入檔案，預檢後再一鍵匯入，並即時查看每個任務的進度與錯誤明細。",
         template: {
@@ -805,7 +805,7 @@ export default {
             accountLabel: "標籤：{{label}}",
             email: "電子郵件：{{email}}",
             created: "新增",
-            updated: "更新"
+            updated: "已存在"
         },
         manual: {
             title: "手動回呼備援",

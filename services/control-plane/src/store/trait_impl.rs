@@ -68,6 +68,10 @@ impl ControlPlaneStore for InMemoryStore {
         self.upsert_oauth_refresh_token_inner(req).await
     }
 
+    async fn dedupe_oauth_accounts_by_chatgpt_account_id(&self) -> Result<u64> {
+        Ok(self.dedupe_oauth_accounts_by_chatgpt_account_id_inner(None))
+    }
+
     async fn upsert_one_time_session_account(
         &self,
         req: UpsertOneTimeSessionAccountRequest,
@@ -438,7 +442,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn in_memory_oauth_upsert_keeps_distinct_accounts_with_shared_chatgpt_account_id() {
+    async fn in_memory_oauth_upsert_dedupes_by_chatgpt_account_id() {
         let cipher = CredentialCipher::from_base64_key(
             &base64::engine::general_purpose::STANDARD.encode([3_u8; 32]),
         )
@@ -478,8 +482,8 @@ mod tests {
             .unwrap();
 
         assert!(first.created);
-        assert!(second.created);
-        assert_ne!(first.account.id, second.account.id);
+        assert!(!second.created);
+        assert_eq!(first.account.id, second.account.id);
 
         let snapshot = store.snapshot().await.unwrap();
         let shared_accounts = snapshot
@@ -488,6 +492,6 @@ mod tests {
             .filter(|account| account.chatgpt_account_id.as_deref() == Some("acct_shared"))
             .collect::<Vec<_>>();
 
-        assert_eq!(shared_accounts.len(), 2);
+        assert_eq!(shared_accounts.len(), 1);
     }
 }

@@ -656,7 +656,7 @@ export default {
             status: "状態",
             throughput: "スループット",
             total: "合計",
-            updated: "更新"
+            updated: "既存／更新"
         },
         precheck: {
             createdNotice: "インポートジョブを作成しました: {{id}}",
@@ -715,7 +715,7 @@ export default {
             queued: "待機中",
             running: "実行中",
             skipped: "スキップ",
-            updated: "更新済み"
+            updated: "既存／更新"
         },
         subtitleModern: "ファイルを一括追加して事前チェックし、ワンクリックでインポート。進捗とエラー詳細をリアルタイムで確認できます。",
         template: {
@@ -805,7 +805,7 @@ export default {
             accountLabel: "ラベル: {{label}}",
             email: "メール: {{email}}",
             created: "新規作成",
-            updated: "更新"
+            updated: "既存アカウント"
         },
         manual: {
             title: "手動コールバックの代替手順",

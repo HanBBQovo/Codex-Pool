@@ -101,6 +101,48 @@ async fn spawn_codex_oauth_token_server(
     (format!("http://{addr}/oauth/token"), handle)
 }
 
+#[derive(Clone)]
+struct FixedAccountIdOAuthTokenClient {
+    account_id: &'static str,
+}
+
+#[async_trait::async_trait]
+impl control_plane::oauth::OAuthTokenClient for FixedAccountIdOAuthTokenClient {
+    async fn refresh_token(
+        &self,
+        refresh_token: &str,
+        _base_url: Option<&str>,
+    ) -> Result<
+        control_plane::oauth::OAuthTokenInfo,
+        control_plane::oauth::OAuthTokenClientError,
+    > {
+        Ok(control_plane::oauth::OAuthTokenInfo {
+            access_token: format!("access-{refresh_token}"),
+            refresh_token: refresh_token.to_string(),
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(3600),
+            token_type: Some("Bearer".to_string()),
+            scope: Some("offline_access".to_string()),
+            email: Some("oauth-user@example.com".to_string()),
+            oauth_subject: Some("auth0|oauth-user".to_string()),
+            oauth_identity_provider: Some("google-oauth2".to_string()),
+            email_verified: Some(true),
+            chatgpt_account_id: Some(self.account_id.to_string()),
+            chatgpt_user_id: Some("user-shared".to_string()),
+            chatgpt_plan_type: Some("team".to_string()),
+            chatgpt_subscription_active_start: None,
+            chatgpt_subscription_active_until: None,
+            chatgpt_subscription_last_checked: None,
+            chatgpt_account_user_id: Some("acct_user_shared".to_string()),
+            chatgpt_compute_residency: Some("us".to_string()),
+            organizations: Some(vec![json!({
+                "id": "org_shared",
+                "title": "Personal",
+            })]),
+            groups: Some(vec![]),
+        })
+    }
+}
+
 #[tokio::test]
 async fn codex_oauth_login_session_callback_imports_account() {
     let _guard = OAUTH_LOGIN_ENV_LOCK.lock().await;
@@ -233,6 +275,153 @@ async fn codex_oauth_login_session_callback_imports_account() {
     assert!(list_json
         .as_array()
         .is_some_and(|items| items.iter().any(|item| item["id"] == imported_id)));
+
+    mock_handle.abort();
+    set_env("OPENAI_OAUTH_TOKEN_URL", old_token_url.as_deref());
+    set_env("OPENAI_OAUTH_CLIENT_ID", old_client_id.as_deref());
+    set_env("OPENAI_OAUTH_AUTHORIZE_URL", old_authorize_url.as_deref());
+    set_env("CONTROL_PLANE_PUBLIC_BASE_URL", old_public_base_url.as_deref());
+}
+
+#[tokio::test]
+async fn codex_oauth_login_session_updates_existing_chatgpt_account_id() {
+    let _guard = OAUTH_LOGIN_ENV_LOCK.lock().await;
+    let (token_url, mock_handle) = spawn_codex_oauth_token_server(false).await;
+    let old_token_url = set_env("OPENAI_OAUTH_TOKEN_URL", Some(&token_url));
+    let old_client_id = set_env("OPENAI_OAUTH_CLIENT_ID", Some("client_test_codex"));
+    let old_authorize_url = set_env(
+        "OPENAI_OAUTH_AUTHORIZE_URL",
+        Some("https://auth.example.com/oauth/authorize"),
+    );
+    let old_public_base_url = set_env("CONTROL_PLANE_PUBLIC_BASE_URL", Some("https://cp.example.com"));
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([21_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(FixedAccountIdOAuthTokenClient {
+            account_id: "acct-from-code",
+        }),
+        Some(cipher),
+    );
+    let seeded = store
+        .import_oauth_refresh_token(codex_pool_core::api::ImportOAuthRefreshTokenRequest {
+            label: "seeded-oauth".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-seeded".to_string(),
+            chatgpt_account_id: Some("acct-from-code".to_string()),
+            mode: Some(codex_pool_core::model::UpstreamMode::CodexOauth),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: Some("team".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts/oauth/codex/login-sessions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "label": "codex-oauth-duplicate",
+                        "base_url": "https://chatgpt.com/backend-api/codex",
+                        "enabled": true,
+                        "priority": 100
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+    let create_body = to_bytes(create_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let create_json: Value = serde_json::from_slice(&create_body).unwrap();
+    let session_id = create_json["session_id"].as_str().unwrap().to_string();
+    let authorize_url = create_json["authorize_url"].as_str().unwrap();
+    let state = reqwest::Url::parse(authorize_url)
+        .unwrap()
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.to_string())
+        .unwrap();
+
+    let callback_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/api/v1/upstream-accounts/oauth/codex/callback?code=code-from-oauth&state={state}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(callback_response.status(), StatusCode::OK);
+
+    let mut latest = Value::Null;
+    for _ in 0..20 {
+        let status_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/v1/upstream-accounts/oauth/codex/login-sessions/{session_id}"
+                    ))
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status_response.status(), StatusCode::OK);
+        let status_body = to_bytes(status_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        latest = serde_json::from_slice(&status_body).unwrap();
+        if matches!(
+            latest["status"].as_str().unwrap_or_default(),
+            "completed" | "failed" | "expired"
+        ) {
+            break;
+        }
+        sleep(Duration::from_millis(30)).await;
+    }
+
+    assert_eq!(latest["status"], "completed", "latest session={latest}");
+    assert_eq!(latest["result"]["created"], false);
+    assert_eq!(latest["result"]["account"]["id"], seeded.id.to_string());
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_body = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let list_json: Value = serde_json::from_slice(&list_body).unwrap();
+    assert_eq!(list_json.as_array().map(Vec::len), Some(1));
 
     mock_handle.abort();
     set_env("OPENAI_OAUTH_TOKEN_URL", old_token_url.as_deref());
@@ -546,6 +735,99 @@ async fn oauth_import_job_accepts_large_multipart_payload() {
         .unwrap();
     let create_json: Value = serde_json::from_slice(&create_body).unwrap();
     assert_eq!(create_json["total"], 1);
+}
+
+#[tokio::test]
+async fn oauth_import_job_updates_existing_chatgpt_account_id() {
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([22_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(FixedAccountIdOAuthTokenClient {
+            account_id: "acct-batch-shared",
+        }),
+        Some(cipher),
+    );
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let boundary = "----cp-boundary-duplicate-existing";
+    let content = concat!(
+        "{\"refresh_token\":\"rt-batch-a\",\"email\":\"shared@example.com\"}\n",
+        "{\"refresh_token\":\"rt-batch-b\",\"email\":\"shared@example.com\"}"
+    );
+    let payload = build_multipart_payload(boundary, "shared.jsonl", content);
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts/oauth/import-jobs")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+    let create_body = to_bytes(create_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let create_json: Value = serde_json::from_slice(&create_body).unwrap();
+    let job_id = create_json["job_id"].as_str().unwrap().to_string();
+
+    let mut latest_job = Value::Null;
+    for _ in 0..20 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/v1/upstream-accounts/oauth/import-jobs/{job_id}"
+                    ))
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        latest_job = serde_json::from_slice(&body).unwrap();
+        let status = latest_job["status"].as_str().unwrap_or_default();
+        if !matches!(status, "queued" | "running") {
+            break;
+        }
+        sleep(Duration::from_millis(30)).await;
+    }
+
+    assert_eq!(latest_job["status"], "completed");
+    assert_eq!(latest_job["created_count"], 1);
+    assert_eq!(latest_job["updated_count"], 1);
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_body = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let list_json: Value = serde_json::from_slice(&list_body).unwrap();
+    assert_eq!(list_json.as_array().map(Vec::len), Some(1));
 }
 
 fn build_multipart_payload(boundary: &str, file_name: &str, content: &str) -> Vec<u8> {

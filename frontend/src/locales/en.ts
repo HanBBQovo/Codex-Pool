@@ -656,7 +656,7 @@ export default {
             status: "Status",
             throughput: "Throughput",
             total: "Total",
-            updated: "Updated"
+            updated: "Existing / Updated"
         },
         precheck: {
             createdNotice: "Import job created: {{id}}",
@@ -715,7 +715,7 @@ export default {
             queued: "Queued",
             running: "Running",
             skipped: "Skipped",
-            updated: "Updated"
+            updated: "Existing / Updated"
         },
         subtitleModern: "Add files in bulk, review checks, then import in one click with live progress and error details.",
         template: {
@@ -805,7 +805,7 @@ export default {
             accountLabel: "Label: {{label}}",
             email: "Email: {{email}}",
             created: "Created",
-            updated: "Updated"
+            updated: "Already exists"
         },
         manual: {
             title: "Manual Callback Fallback",

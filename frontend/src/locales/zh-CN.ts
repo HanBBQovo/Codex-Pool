@@ -656,7 +656,7 @@ export default {
             status: "状态",
             throughput: "吞吐",
             total: "总数",
-            updated: "更新"
+            updated: "已存在/已更新"
         },
         precheck: {
             createdNotice: "导入任务已创建：{{id}}",
@@ -715,7 +715,7 @@ export default {
             queued: "排队中",
             running: "处理中",
             skipped: "跳过",
-            updated: "已更新"
+            updated: "已存在/已更新"
         },
         subtitleModern: "先批量加入文件，预检查后再一键导入，并实时查看每个任务的进度和错误明细。",
         template: {
@@ -805,7 +805,7 @@ export default {
             accountLabel: "标签：{{label}}",
             email: "邮箱：{{email}}",
             created: "新建",
-            updated: "更新"
+            updated: "已存在"
         },
         manual: {
             title: "手动回调兜底",

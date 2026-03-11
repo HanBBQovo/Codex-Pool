@@ -409,6 +409,11 @@ impl ControlPlaneStore for PostgresStore {
         self.queue_oauth_refresh_token_vault_inner(req).await
     }
 
+    async fn dedupe_oauth_accounts_by_chatgpt_account_id(&self) -> Result<u64> {
+        self.dedupe_oauth_accounts_by_chatgpt_account_id_inner(None)
+            .await
+    }
+
     async fn upsert_one_time_session_account(
         &self,
         req: UpsertOneTimeSessionAccountRequest,
