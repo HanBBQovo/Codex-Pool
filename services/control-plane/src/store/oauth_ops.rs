@@ -665,9 +665,7 @@ impl InMemoryStore {
         oauth_credential: Option<&OAuthCredentialRecord>,
         session_profile: Option<SessionProfileRecord>,
     ) -> Option<SessionProfileRecord> {
-        let Some(mut profile) = session_profile else {
-            return None;
-        };
+        let mut profile = session_profile?;
         if provider != UpstreamAuthProvider::OAuthRefreshToken {
             return Some(profile);
         }

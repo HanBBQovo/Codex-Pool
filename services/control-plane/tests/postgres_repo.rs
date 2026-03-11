@@ -24,8 +24,9 @@ use sqlx_core::query::query;
 use sqlx_core::query_scalar::query_scalar;
 use sqlx_postgres::PgPoolOptions;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::Instant;
+use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 use serde_json::json;
 
@@ -35,7 +36,7 @@ fn test_db_url() -> Option<String> {
         .or_else(|| std::env::var("DATABASE_URL").ok())
 }
 
-static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static ENV_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
 fn admin_db_url(database_url: &str) -> String {
     let mut parsed = reqwest::Url::parse(database_url).expect("valid postgres database url");
@@ -266,7 +267,7 @@ impl OAuthTokenClient for SuccessThenQuotaOAuthClient {
 struct RecordingOAuthClient {
     refresh_calls: AtomicUsize,
     record_fetches: AtomicBool,
-    fetch_started_at: Mutex<Vec<Instant>>,
+    fetch_started_at: StdMutex<Vec<Instant>>,
 }
 
 impl RecordingOAuthClient {
@@ -718,7 +719,7 @@ async fn postgres_repo_rate_limit_refresh_respects_global_max_rps() {
         return;
     };
 
-    let _env_guard = ENV_LOCK.lock().expect("lock env");
+    let _env_guard = ENV_LOCK.lock().await;
     let old_batch = std::env::var("CONTROL_PLANE_RATE_LIMIT_REFRESH_BATCH_SIZE").ok();
     let old_concurrency = std::env::var("CONTROL_PLANE_RATE_LIMIT_REFRESH_CONCURRENCY").ok();
     let old_max_rps = std::env::var("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS").ok();

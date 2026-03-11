@@ -172,7 +172,7 @@ function createSettingsDraft(settings: AiRoutingSettings): SettingsFormState {
   return {
     enabled: settings.enabled,
     autoPublish: settings.auto_publish,
-    plannerModelChain: settings.planner_model_chain.join(', '),
+    plannerModelChain: (settings.planner_model_chain ?? []).join(', '),
     triggerMode: settings.trigger_mode,
     killSwitch: settings.kill_switch,
   }

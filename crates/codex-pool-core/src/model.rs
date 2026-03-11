@@ -54,15 +54,15 @@ pub struct UpstreamAccount {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct RoutingProfileSelector {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub plan_types: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub modes: Vec<UpstreamMode>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub auth_providers: Vec<UpstreamAuthProvider>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub include_account_ids: Vec<Uuid>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub exclude_account_ids: Vec<Uuid>,
 }
 
@@ -84,11 +84,11 @@ pub struct ModelRoutingPolicy {
     pub id: Uuid,
     pub name: String,
     pub family: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub exact_models: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub model_prefixes: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub fallback_profile_ids: Vec<Uuid>,
     pub enabled: bool,
     pub priority: i32,
@@ -115,7 +115,7 @@ pub struct AccountRoutingTraits {
 pub struct CompiledRoutingProfile {
     pub id: Uuid,
     pub name: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub account_ids: Vec<Uuid>,
 }
 
@@ -124,11 +124,11 @@ pub struct CompiledModelRoutingPolicy {
     pub id: Uuid,
     pub name: String,
     pub family: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub exact_models: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub model_prefixes: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub fallback_segments: Vec<CompiledRoutingProfile>,
 }
 
@@ -138,9 +138,9 @@ pub struct CompiledRoutingPlan {
     pub published_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trigger_reason: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub default_route: Vec<CompiledRoutingProfile>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub policies: Vec<CompiledModelRoutingPolicy>,
 }
 
@@ -156,7 +156,7 @@ pub enum AiRoutingTriggerMode {
 pub struct AiRoutingSettings {
     pub enabled: bool,
     pub auto_publish: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub planner_model_chain: Vec<String>,
     pub trigger_mode: AiRoutingTriggerMode,
     pub kill_switch: bool,

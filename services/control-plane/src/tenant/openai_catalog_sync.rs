@@ -302,7 +302,7 @@ impl TenantAuthService {
             return Err(anyhow!("official models index returned no model ids"));
         }
 
-        let pages = futures_util::stream::iter(model_ids.iter().cloned().map(|model_id| {
+        let pages = futures_util::stream::iter(model_ids.into_iter().map(|model_id| {
             let client = client.clone();
             async move {
                 let url = format!("{OPENAI_MODELS_INDEX_URL}/{model_id}");

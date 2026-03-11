@@ -511,7 +511,6 @@ struct UpstreamAccountHealthStateRecord {
 #[derive(Debug, Clone, Default)]
 struct AccountModelSupportRecord {
     supported_models: Vec<String>,
-    checked_at: Option<DateTime<Utc>>,
 }
 
 pub struct InMemoryStore {

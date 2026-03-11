@@ -16,7 +16,7 @@ impl PostgresStore {
             .filter(|value| !value.is_empty());
 
         if let Some(account_user_id) = normalized_account_user_id {
-            return Ok(sqlx::query_scalar::<_, Uuid>(
+            return sqlx::query_scalar::<_, Uuid>(
                 r#"
                 SELECT a.id
                 FROM upstream_accounts a
@@ -36,7 +36,7 @@ impl PostgresStore {
             .bind(account_user_id)
             .fetch_optional(&self.pool)
             .await
-            .context("failed to query oauth account by chatgpt_account_user_id")?);
+            .context("failed to query oauth account by chatgpt_account_user_id");
         }
 
         let (Some(user_id), Some(account_id)) = (normalized_user_id, normalized_account_id) else {

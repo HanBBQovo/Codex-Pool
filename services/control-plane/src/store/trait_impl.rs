@@ -264,7 +264,7 @@ impl ControlPlaneStore for InMemoryStore {
         &self,
         account_id: Uuid,
         supported_models: Vec<String>,
-        checked_at: DateTime<Utc>,
+        _checked_at: DateTime<Utc>,
     ) -> Result<()> {
         let mut normalized = supported_models
             .into_iter()
@@ -278,7 +278,6 @@ impl ControlPlaneStore for InMemoryStore {
             account_id,
             AccountModelSupportRecord {
                 supported_models: normalized,
-                checked_at: Some(checked_at),
             },
         );
         self.revision.fetch_add(1, Ordering::Relaxed);

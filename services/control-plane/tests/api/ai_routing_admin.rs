@@ -3,6 +3,28 @@ async fn admin_ai_routing_management_endpoints_work() {
     let app = build_app();
     let admin_token = login_admin_token(&app).await;
 
+    let initial_settings_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/ai-routing/settings")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial_settings_response.status(), StatusCode::OK);
+    let initial_settings_body = to_bytes(initial_settings_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let initial_settings_json: Value = serde_json::from_slice(&initial_settings_body).unwrap();
+    assert_eq!(
+        initial_settings_json["settings"]["planner_model_chain"],
+        json!([])
+    );
+
     let list_profiles_response = app
         .clone()
         .oneshot(
@@ -174,7 +196,7 @@ async fn admin_ai_routing_management_endpoints_work() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!(
+                .uri(format!(
                     "/api/v1/admin/ai-routing/model-policies/{policy_id}"
                 ))
                 .header("authorization", format!("Bearer {admin_token}"))
@@ -189,7 +211,7 @@ async fn admin_ai_routing_management_endpoints_work() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!(
+                .uri(format!(
                     "/api/v1/admin/ai-routing/profiles/{profile_id}"
                 ))
                 .header("authorization", format!("Bearer {admin_token}"))

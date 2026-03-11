@@ -119,23 +119,119 @@ export interface UpdateAiRoutingSettingsRequest {
   kill_switch: boolean
 }
 
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
+}
+
+function normalizeProfileSelector(
+  selector?: Partial<RoutingProfileSelector> | null,
+): RoutingProfileSelector {
+  return {
+    plan_types: normalizeStringArray(selector?.plan_types),
+    modes: Array.isArray(selector?.modes) ? selector.modes : [],
+    auth_providers: Array.isArray(selector?.auth_providers) ? selector.auth_providers : [],
+    include_account_ids: normalizeStringArray(selector?.include_account_ids),
+    exclude_account_ids: normalizeStringArray(selector?.exclude_account_ids),
+  }
+}
+
+function normalizeProfile(profile: RoutingProfile): RoutingProfile {
+  return {
+    ...profile,
+    selector: normalizeProfileSelector(profile.selector),
+  }
+}
+
+function normalizePolicy(policy: ModelRoutingPolicy): ModelRoutingPolicy {
+  return {
+    ...policy,
+    exact_models: normalizeStringArray(policy.exact_models),
+    model_prefixes: normalizeStringArray(policy.model_prefixes),
+    fallback_profile_ids: normalizeStringArray(policy.fallback_profile_ids),
+  }
+}
+
+function normalizeCompiledProfile(profile: CompiledRoutingProfile): CompiledRoutingProfile {
+  return {
+    ...profile,
+    account_ids: normalizeStringArray(profile.account_ids),
+  }
+}
+
+function normalizeCompiledPolicy(
+  policy: CompiledModelRoutingPolicy,
+): CompiledModelRoutingPolicy {
+  return {
+    ...policy,
+    exact_models: normalizeStringArray(policy.exact_models),
+    model_prefixes: normalizeStringArray(policy.model_prefixes),
+    fallback_segments: Array.isArray(policy.fallback_segments)
+      ? policy.fallback_segments.map(normalizeCompiledProfile)
+      : [],
+  }
+}
+
+function normalizeCompiledPlan(plan: CompiledRoutingPlan): CompiledRoutingPlan {
+  return {
+    ...plan,
+    default_route: Array.isArray(plan.default_route)
+      ? plan.default_route.map(normalizeCompiledProfile)
+      : [],
+    policies: Array.isArray(plan.policies) ? plan.policies.map(normalizeCompiledPolicy) : [],
+  }
+}
+
+function normalizeSettings(settings: AiRoutingSettings): AiRoutingSettings {
+  return {
+    ...settings,
+    planner_model_chain: normalizeStringArray(settings.planner_model_chain),
+  }
+}
+
+function normalizeVersion(version: RoutingPlanVersion): RoutingPlanVersion {
+  return {
+    ...version,
+    compiled_plan: normalizeCompiledPlan(version.compiled_plan),
+  }
+}
+
 export const aiRoutingApi = {
-  listProfiles: () =>
-    apiClient.get<RoutingProfilesResponse>('/admin/ai-routing/profiles'),
+  listProfiles: async () => {
+    const response = await apiClient.get<RoutingProfilesResponse>('/admin/ai-routing/profiles')
+    return {
+      profiles: Array.isArray(response.profiles) ? response.profiles.map(normalizeProfile) : [],
+    }
+  },
   upsertProfile: (payload: UpsertRoutingProfileRequest) =>
     apiClient.post<RoutingProfile>('/admin/ai-routing/profiles', payload),
   deleteProfile: (profileId: string) =>
     apiClient.delete<void>(`/admin/ai-routing/profiles/${profileId}`),
-  listPolicies: () =>
-    apiClient.get<ModelRoutingPoliciesResponse>('/admin/ai-routing/model-policies'),
+  listPolicies: async () => {
+    const response = await apiClient.get<ModelRoutingPoliciesResponse>(
+      '/admin/ai-routing/model-policies',
+    )
+    return {
+      policies: Array.isArray(response.policies) ? response.policies.map(normalizePolicy) : [],
+    }
+  },
   upsertPolicy: (payload: UpsertModelRoutingPolicyRequest) =>
     apiClient.post<ModelRoutingPolicy>('/admin/ai-routing/model-policies', payload),
   deletePolicy: (policyId: string) =>
     apiClient.delete<void>(`/admin/ai-routing/model-policies/${policyId}`),
-  getSettings: () =>
-    apiClient.get<AiRoutingSettingsResponse>('/admin/ai-routing/settings'),
+  getSettings: async () => {
+    const response = await apiClient.get<AiRoutingSettingsResponse>('/admin/ai-routing/settings')
+    return {
+      settings: normalizeSettings(response.settings),
+    }
+  },
   updateSettings: (payload: UpdateAiRoutingSettingsRequest) =>
     apiClient.put<AiRoutingSettingsResponse>('/admin/ai-routing/settings', payload),
-  listVersions: () =>
-    apiClient.get<RoutingPlanVersionsResponse>('/admin/ai-routing/versions'),
+  listVersions: async () => {
+    const response = await apiClient.get<RoutingPlanVersionsResponse>('/admin/ai-routing/versions')
+    return {
+      versions: Array.isArray(response.versions) ? response.versions.map(normalizeVersion) : [],
+    }
+  },
 }

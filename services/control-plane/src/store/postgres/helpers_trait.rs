@@ -200,35 +200,39 @@ fn should_trigger_refresh_after_rate_limit_failure(error_code: &str, error_messa
         )
 }
 
+struct SeenOkRateLimitRefreshContext<'a> {
+    token_expires_at: Option<DateTime<Utc>>,
+    last_refresh_status: &'a OAuthRefreshStatus,
+    refresh_reused_detected: bool,
+    last_refresh_error_code: Option<&'a str>,
+    rate_limits_expires_at: Option<DateTime<Utc>>,
+    rate_limits_last_error_code: Option<&'a str>,
+    rate_limits_last_error: Option<&'a str>,
+}
+
 fn should_refresh_rate_limit_cache_on_seen_ok(
     now: DateTime<Utc>,
-    token_expires_at: Option<DateTime<Utc>>,
-    last_refresh_status: &OAuthRefreshStatus,
-    refresh_reused_detected: bool,
-    last_refresh_error_code: Option<&str>,
-    rate_limits_expires_at: Option<DateTime<Utc>>,
-    rate_limits_last_error_code: Option<&str>,
-    rate_limits_last_error: Option<&str>,
+    ctx: SeenOkRateLimitRefreshContext<'_>,
 ) -> bool {
-    if !token_expires_at.is_some_and(|expires_at| {
+    if !ctx.token_expires_at.is_some_and(|expires_at| {
         expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC)
     }) {
         return false;
     }
-    if refresh_reused_detected {
+    if ctx.refresh_reused_detected {
         return false;
     }
-    if matches!(last_refresh_status, OAuthRefreshStatus::Failed)
-        && is_fatal_refresh_error_code(last_refresh_error_code)
+    if matches!(ctx.last_refresh_status, OAuthRefreshStatus::Failed)
+        && is_fatal_refresh_error_code(ctx.last_refresh_error_code)
     {
         return false;
     }
 
     if has_active_rate_limit_block(
         now,
-        rate_limits_expires_at,
-        rate_limits_last_error_code,
-        rate_limits_last_error,
+        ctx.rate_limits_expires_at,
+        ctx.rate_limits_last_error_code,
+        ctx.rate_limits_last_error,
     ) {
         return true;
     }
@@ -593,7 +597,7 @@ impl ControlPlaneStore for PostgresStore {
 
 #[cfg(test)]
 mod tests {
-    use super::should_refresh_rate_limit_cache_on_seen_ok;
+    use super::{SeenOkRateLimitRefreshContext, should_refresh_rate_limit_cache_on_seen_ok};
     use chrono::{Duration, Utc};
     use codex_pool_core::api::OAuthRefreshStatus;
 
@@ -602,13 +606,15 @@ mod tests {
         let now = Utc::now();
         let should_refresh = should_refresh_rate_limit_cache_on_seen_ok(
             now,
-            Some(now + Duration::minutes(30)),
-            &OAuthRefreshStatus::Ok,
-            false,
-            None,
-            Some(now + Duration::minutes(3)),
-            None,
-            None,
+            SeenOkRateLimitRefreshContext {
+                token_expires_at: Some(now + Duration::minutes(30)),
+                last_refresh_status: &OAuthRefreshStatus::Ok,
+                refresh_reused_detected: false,
+                last_refresh_error_code: None,
+                rate_limits_expires_at: Some(now + Duration::minutes(3)),
+                rate_limits_last_error_code: None,
+                rate_limits_last_error: None,
+            },
         );
         assert!(should_refresh);
     }
@@ -618,13 +624,15 @@ mod tests {
         let now = Utc::now();
         let should_refresh = should_refresh_rate_limit_cache_on_seen_ok(
             now,
-            Some(now + Duration::minutes(30)),
-            &OAuthRefreshStatus::Failed,
-            false,
-            Some("refresh_token_revoked"),
-            Some(now + Duration::minutes(3)),
-            None,
-            None,
+            SeenOkRateLimitRefreshContext {
+                token_expires_at: Some(now + Duration::minutes(30)),
+                last_refresh_status: &OAuthRefreshStatus::Failed,
+                refresh_reused_detected: false,
+                last_refresh_error_code: Some("refresh_token_revoked"),
+                rate_limits_expires_at: Some(now + Duration::minutes(3)),
+                rate_limits_last_error_code: None,
+                rate_limits_last_error: None,
+            },
         );
         assert!(!should_refresh);
     }

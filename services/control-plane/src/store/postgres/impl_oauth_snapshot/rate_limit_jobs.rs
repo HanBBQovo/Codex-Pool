@@ -945,13 +945,15 @@ impl PostgresStore {
         let rate_limits_last_error = row.try_get::<Option<String>, _>("rate_limits_last_error")?;
         if !should_refresh_rate_limit_cache_on_seen_ok(
             now,
-            token_expires_at,
-            &last_refresh_status,
-            refresh_reused_detected,
-            last_refresh_error_code.as_deref(),
-            rate_limits_expires_at,
-            rate_limits_last_error_code.as_deref(),
-            rate_limits_last_error.as_deref(),
+            SeenOkRateLimitRefreshContext {
+                token_expires_at,
+                last_refresh_status: &last_refresh_status,
+                refresh_reused_detected,
+                last_refresh_error_code: last_refresh_error_code.as_deref(),
+                rate_limits_expires_at,
+                rate_limits_last_error_code: rate_limits_last_error_code.as_deref(),
+                rate_limits_last_error: rate_limits_last_error.as_deref(),
+            },
         ) {
             return Ok(());
         }

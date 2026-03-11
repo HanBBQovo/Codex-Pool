@@ -134,14 +134,15 @@ impl InMemoryStore {
         let compiled_profiles = profiles
             .iter()
             .map(|profile| {
+                let now = Utc::now();
                 let mut matched = accounts
                     .iter()
                     .filter(|account| {
                         profile_matches_account(profile, account, account_traits)
-                            && !account_traits
+                            && account_traits
                                 .get(&account.id)
                                 .and_then(|traits| traits.blocked_until)
-                                .is_some_and(|blocked_until| blocked_until > Utc::now())
+                                .is_none_or(|blocked_until| blocked_until <= now)
                     })
                     .cloned()
                     .collect::<Vec<_>>();
