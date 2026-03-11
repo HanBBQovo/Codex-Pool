@@ -161,7 +161,7 @@ pub trait ControlPlaneStore: Send + Sync {
         let upserted = self.upsert_oauth_refresh_token(req).await?;
         Ok(upserted.created)
     }
-    async fn dedupe_oauth_accounts_by_chatgpt_account_id(&self) -> Result<u64> {
+    async fn dedupe_oauth_accounts_by_identity(&self) -> Result<u64> {
         Ok(0)
     }
     async fn upsert_one_time_session_account(

@@ -12,12 +12,12 @@ impl PostgresStore {
             credential_cipher: CredentialCipher::from_env().unwrap_or(None),
         };
         let removed = store
-            .dedupe_oauth_accounts_by_chatgpt_account_id_inner(None)
+            .dedupe_oauth_accounts_by_identity_inner(None, None, None)
             .await?;
         if removed > 0 {
             tracing::warn!(
                 removed,
-                "removed duplicate oauth accounts that shared a chatgpt_account_id during startup"
+                "removed duplicate oauth accounts that shared the same identity during startup"
             );
         }
         Ok(store)
@@ -40,12 +40,12 @@ impl PostgresStore {
             credential_cipher,
         };
         let removed = store
-            .dedupe_oauth_accounts_by_chatgpt_account_id_inner(None)
+            .dedupe_oauth_accounts_by_identity_inner(None, None, None)
             .await?;
         if removed > 0 {
             tracing::warn!(
                 removed,
-                "removed duplicate oauth accounts that shared a chatgpt_account_id during startup"
+                "removed duplicate oauth accounts that shared the same identity during startup"
             );
         }
         Ok(store)

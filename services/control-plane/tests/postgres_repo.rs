@@ -294,13 +294,24 @@ impl OAuthTokenClient for SharedAccountIdRecordingOAuthClient {
         refresh_token: &str,
         _base_url: Option<&str>,
     ) -> Result<OAuthTokenInfo, OAuthTokenClientError> {
+        let (email, account_user_id) = if refresh_token.contains("workspace-b") {
+            (
+                "shared-workspace-b@example.com",
+                "acct_user_shared_workspace_b",
+            )
+        } else {
+            (
+                "shared-workspace-a@example.com",
+                "acct_user_shared_workspace_a",
+            )
+        };
         Ok(OAuthTokenInfo {
             access_token: format!("shared-access-{refresh_token}"),
             refresh_token: refresh_token.to_string(),
             expires_at: Utc::now() + Duration::hours(1),
             token_type: Some("Bearer".to_string()),
             scope: Some("model.read".to_string()),
-            email: Some("shared-workspace@example.com".to_string()),
+            email: Some(email.to_string()),
             oauth_subject: Some("auth0|shared".to_string()),
             oauth_identity_provider: Some("google-oauth2".to_string()),
             email_verified: Some(true),
@@ -310,7 +321,7 @@ impl OAuthTokenClient for SharedAccountIdRecordingOAuthClient {
             chatgpt_subscription_active_start: None,
             chatgpt_subscription_active_until: None,
             chatgpt_subscription_last_checked: None,
-            chatgpt_account_user_id: Some("acct_user_shared".to_string()),
+            chatgpt_account_user_id: Some(account_user_id.to_string()),
             chatgpt_compute_residency: Some("us".to_string()),
             organizations: Some(vec![json!({
                 "id": "org_shared",
@@ -681,10 +692,10 @@ async fn postgres_repo_rate_limit_refresh_respects_global_max_rps() {
 }
 
 #[tokio::test]
-async fn postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_id() {
+async fn postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_user_id() {
     let Some(db_url) = test_db_url() else {
         eprintln!(
-            "skip postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_id: set CONTROL_PLANE_DATABASE_URL"
+            "skip postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_user_id: set CONTROL_PLANE_DATABASE_URL"
         );
         return;
     };
@@ -700,7 +711,7 @@ async fn postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_id() {
         .upsert_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
             label: format!("oauth-shared-a-{}", Uuid::new_v4().simple()),
             base_url: "https://chatgpt.com/backend-api/codex".to_string(),
-            refresh_token: format!("rt-shared-a-{}", Uuid::new_v4().simple()),
+            refresh_token: format!("rt-shared-workspace-a-{}", Uuid::new_v4().simple()),
             chatgpt_account_id: None,
             mode: Some(UpstreamMode::CodexOauth),
             enabled: Some(true),
@@ -714,7 +725,7 @@ async fn postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_id() {
         .upsert_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
             label: format!("oauth-shared-b-{}", Uuid::new_v4().simple()),
             base_url: "https://chatgpt.com/backend-api/codex".to_string(),
-            refresh_token: format!("rt-shared-b-{}", Uuid::new_v4().simple()),
+            refresh_token: format!("rt-shared-workspace-a-{}", Uuid::new_v4().simple()),
             chatgpt_account_id: None,
             mode: Some(UpstreamMode::CodexOauth),
             enabled: Some(true),
@@ -740,10 +751,11 @@ async fn postgres_repo_oauth_upsert_dedupes_by_chatgpt_account_id() {
 }
 
 #[tokio::test]
-async fn postgres_repo_cleanup_removes_duplicate_chatgpt_account_ids() {
+async fn postgres_repo_oauth_upsert_keeps_distinct_accounts_with_shared_chatgpt_account_id_but_different_account_user_id(
+) {
     let Some(db_url) = test_db_url() else {
         eprintln!(
-            "skip postgres_repo_cleanup_removes_duplicate_chatgpt_account_ids: set CONTROL_PLANE_DATABASE_URL"
+            "skip postgres_repo_oauth_upsert_keeps_distinct_accounts_with_shared_chatgpt_account_id_but_different_account_user_id: set CONTROL_PLANE_DATABASE_URL"
         );
         return;
     };
@@ -756,41 +768,37 @@ async fn postgres_repo_cleanup_removes_duplicate_chatgpt_account_ids() {
         .unwrap();
 
     let first = repo
-        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+        .upsert_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
             label: format!("oauth-dup-a-{}", Uuid::new_v4().simple()),
             base_url: "https://chatgpt.com/backend-api/codex".to_string(),
-            refresh_token: format!("rt-dup-a-{}", Uuid::new_v4().simple()),
-            chatgpt_account_id: Some("acct-shared-workspace".to_string()),
+            refresh_token: format!("rt-shared-workspace-a-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: None,
             mode: Some(UpstreamMode::CodexOauth),
             enabled: Some(true),
             priority: Some(100),
-            chatgpt_plan_type: Some("team".to_string()),
+            chatgpt_plan_type: None,
             source_type: Some("codex".to_string()),
         })
         .await
         .unwrap();
     let second = repo
-        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+        .upsert_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
             label: format!("oauth-dup-b-{}", Uuid::new_v4().simple()),
             base_url: "https://chatgpt.com/backend-api/codex".to_string(),
-            refresh_token: format!("rt-dup-b-{}", Uuid::new_v4().simple()),
-            chatgpt_account_id: Some("acct-shared-workspace".to_string()),
+            refresh_token: format!("rt-shared-workspace-b-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: None,
             mode: Some(UpstreamMode::CodexOauth),
             enabled: Some(true),
             priority: Some(100),
-            chatgpt_plan_type: Some("team".to_string()),
+            chatgpt_plan_type: None,
             source_type: Some("codex".to_string()),
         })
         .await
         .unwrap();
 
-    assert_ne!(first.id, second.id);
-
-    let removed = repo
-        .dedupe_oauth_accounts_by_chatgpt_account_id()
-        .await
-        .unwrap();
-    assert_eq!(removed, 1);
+    assert!(first.created);
+    assert!(second.created);
+    assert_ne!(first.account.id, second.account.id);
 
     let snapshot = repo.snapshot().await.unwrap();
     let shared_accounts = snapshot
@@ -799,8 +807,7 @@ async fn postgres_repo_cleanup_removes_duplicate_chatgpt_account_ids() {
         .filter(|account| account.chatgpt_account_id.as_deref() == Some("acct-shared-workspace"))
         .collect::<Vec<_>>();
 
-    assert_eq!(shared_accounts.len(), 1);
-    assert_eq!(shared_accounts[0].id, second.id);
+    assert_eq!(shared_accounts.len(), 2);
 }
 
 #[tokio::test]

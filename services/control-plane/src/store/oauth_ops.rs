@@ -1,10 +1,28 @@
 impl InMemoryStore {
-    fn canonical_oauth_account_id_by_chatgpt_account_id(
+    fn canonical_oauth_account_id_by_identity(
         &self,
-        target_chatgpt_account_id: &str,
+        target_chatgpt_account_user_id: Option<&str>,
+        target_chatgpt_user_id: Option<&str>,
+        target_chatgpt_account_id: Option<&str>,
     ) -> Option<Uuid> {
+        let normalized_target_account_user_id = target_chatgpt_account_user_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let normalized_target_user_id = target_chatgpt_user_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let normalized_target_account_id = target_chatgpt_account_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if normalized_target_account_user_id.is_none()
+            && (normalized_target_user_id.is_none() || normalized_target_account_id.is_none())
+        {
+            return None;
+        }
+
         let providers = self.account_auth_providers.read().unwrap();
         let accounts = self.accounts.read().unwrap();
+        let profiles = self.session_profiles.read().unwrap();
 
         accounts
             .values()
@@ -12,7 +30,24 @@ impl InMemoryStore {
                 providers
                     .get(&account.id)
                     .is_some_and(|provider| *provider == UpstreamAuthProvider::OAuthRefreshToken)
-                    && account.chatgpt_account_id.as_deref() == Some(target_chatgpt_account_id)
+                    && profiles.get(&account.id).is_some_and(|profile| {
+                        if let Some(target_account_user_id) = normalized_target_account_user_id {
+                            return profile.chatgpt_account_user_id.as_deref().map(str::trim)
+                                == Some(target_account_user_id);
+                        }
+
+                        if let (Some(target_user_id), Some(target_account_id)) = (
+                            normalized_target_user_id,
+                            normalized_target_account_id,
+                        ) {
+                            return profile.chatgpt_user_id.as_deref().map(str::trim)
+                                == Some(target_user_id)
+                                && account.chatgpt_account_id.as_deref().map(str::trim)
+                                    == Some(target_account_id);
+                        }
+
+                        false
+                    })
             })
             .max_by(|left, right| {
                 left.created_at
@@ -22,12 +57,31 @@ impl InMemoryStore {
             .map(|account| account.id)
     }
 
-    fn dedupe_oauth_accounts_by_chatgpt_account_id_inner(
+    fn dedupe_oauth_accounts_by_identity_inner(
         &self,
+        target_chatgpt_account_user_id: Option<&str>,
+        target_chatgpt_user_id: Option<&str>,
         target_chatgpt_account_id: Option<&str>,
     ) -> u64 {
         let providers = self.account_auth_providers.read().unwrap().clone();
         let accounts = self.accounts.read().unwrap().clone();
+        let profiles = self.session_profiles.read().unwrap().clone();
+
+        let target_key = target_chatgpt_account_user_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("account_user:{value}"))
+            .or_else(|| {
+                target_chatgpt_user_id
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .zip(
+                        target_chatgpt_account_id
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty()),
+                    )
+                    .map(|(user_id, account_id)| format!("user_account:{user_id}:{account_id}"))
+            });
 
         let mut grouped: std::collections::HashMap<String, Vec<UpstreamAccount>> =
             std::collections::HashMap::new();
@@ -38,21 +92,40 @@ impl InMemoryStore {
             {
                 continue;
             }
-            let Some(chatgpt_account_id) = account
-                .chatgpt_account_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            else {
+            let Some(identity_key) = profiles.get(&account.id).and_then(|profile| {
+                profile
+                    .chatgpt_account_user_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| format!("account_user:{value}"))
+                    .or_else(|| {
+                        profile
+                            .chatgpt_user_id
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .zip(
+                                account
+                                    .chatgpt_account_id
+                                    .as_deref()
+                                    .map(str::trim)
+                                    .filter(|value| !value.is_empty()),
+                            )
+                            .map(|(user_id, account_id)| {
+                                format!("user_account:{user_id}:{account_id}")
+                            })
+                    })
+            }) else {
                 continue;
             };
-            if target_chatgpt_account_id.is_some_and(|target| target != chatgpt_account_id) {
+            if target_key
+                .as_deref()
+                .is_some_and(|target| target != identity_key.as_str())
+            {
                 continue;
             }
-            grouped
-                .entry(chatgpt_account_id.to_string())
-                .or_default()
-                .push(account.clone());
+            grouped.entry(identity_key).or_default().push(account.clone());
         }
 
         let mut duplicate_ids = Vec::new();
@@ -105,6 +178,8 @@ impl InMemoryStore {
             token_type: token_info.token_type,
             scope: token_info.scope,
             chatgpt_account_id: token_info.chatgpt_account_id,
+            chatgpt_user_id: token_info.chatgpt_user_id,
+            chatgpt_account_user_id: token_info.chatgpt_account_user_id,
         })
     }
 
@@ -196,11 +271,11 @@ impl InMemoryStore {
                     .filter(|credential| credential.refresh_token_sha256 == normalized_refresh_hash)
                     .map(|_| *account_id)
             }).or_else(|| {
-                normalized_chatgpt_account_id
-                    .as_deref()
-                    .and_then(|chatgpt_account_id| {
-                        self.canonical_oauth_account_id_by_chatgpt_account_id(chatgpt_account_id)
-                    })
+                self.canonical_oauth_account_id_by_identity(
+                    token_info.chatgpt_account_user_id.as_deref(),
+                    token_info.chatgpt_user_id.as_deref(),
+                    normalized_chatgpt_account_id.as_deref(),
+                )
             })
         };
 
@@ -213,7 +288,7 @@ impl InMemoryStore {
             account.mode = resolved_mode;
             account.base_url = req.base_url;
             account.bearer_token = OAUTH_MANAGED_BEARER_SENTINEL.to_string();
-            account.chatgpt_account_id = normalized_chatgpt_account_id;
+            account.chatgpt_account_id = normalized_chatgpt_account_id.clone();
             account.enabled = req.enabled.unwrap_or(true);
             account.priority = req.priority.unwrap_or(100);
 
@@ -261,9 +336,11 @@ impl InMemoryStore {
                 .get(&account_id)
                 .cloned()
                 .ok_or_else(|| anyhow!("updated oauth account not found"))?;
-            if let Some(chatgpt_account_id) = account.chatgpt_account_id.as_deref() {
-                self.dedupe_oauth_accounts_by_chatgpt_account_id_inner(Some(chatgpt_account_id));
-            }
+            self.dedupe_oauth_accounts_by_identity_inner(
+                token_info.chatgpt_account_user_id.as_deref(),
+                token_info.chatgpt_user_id.as_deref(),
+                normalized_chatgpt_account_id.as_deref(),
+            );
             return Ok(OAuthUpsertResult {
                 account,
                 created: false,
@@ -271,6 +348,11 @@ impl InMemoryStore {
         }
 
         let account = self.import_oauth_refresh_token_inner(req).await?;
+        self.dedupe_oauth_accounts_by_identity_inner(
+            token_info.chatgpt_account_user_id.as_deref(),
+            token_info.chatgpt_user_id.as_deref(),
+            normalized_chatgpt_account_id.as_deref(),
+        );
         Ok(OAuthUpsertResult {
             account,
             created: true,

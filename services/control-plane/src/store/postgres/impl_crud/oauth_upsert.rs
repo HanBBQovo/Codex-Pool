@@ -1,12 +1,47 @@
 impl PostgresStore {
-    async fn canonical_oauth_account_id_by_chatgpt_account_id(
+    async fn canonical_oauth_account_id_by_identity(
         &self,
-        chatgpt_account_id: &str,
+        chatgpt_account_user_id: Option<&str>,
+        chatgpt_user_id: Option<&str>,
+        chatgpt_account_id: Option<&str>,
     ) -> Result<Option<Uuid>> {
-        let normalized = chatgpt_account_id.trim();
-        if normalized.is_empty() {
-            return Ok(None);
+        let normalized_account_user_id = chatgpt_account_user_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let normalized_user_id = chatgpt_user_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let normalized_account_id = chatgpt_account_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        if let Some(account_user_id) = normalized_account_user_id {
+            return Ok(sqlx::query_scalar::<_, Uuid>(
+                r#"
+                SELECT a.id
+                FROM upstream_accounts a
+                LEFT JOIN upstream_account_oauth_credentials c ON c.account_id = a.id
+                LEFT JOIN upstream_account_session_profiles p ON p.account_id = a.id
+                WHERE
+                    a.auth_provider = $1
+                    AND p.chatgpt_account_user_id = $2
+                ORDER BY
+                    COALESCE(c.updated_at, p.updated_at, a.created_at) DESC,
+                    a.created_at DESC,
+                    a.id DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(AUTH_PROVIDER_OAUTH_REFRESH_TOKEN)
+            .bind(account_user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("failed to query oauth account by chatgpt_account_user_id")?);
         }
+
+        let (Some(user_id), Some(account_id)) = (normalized_user_id, normalized_account_id) else {
+            return Ok(None);
+        };
 
         sqlx::query_scalar::<_, Uuid>(
             r#"
@@ -16,7 +51,8 @@ impl PostgresStore {
             LEFT JOIN upstream_account_session_profiles p ON p.account_id = a.id
             WHERE
                 a.auth_provider = $1
-                AND a.chatgpt_account_id = $2
+                AND p.chatgpt_user_id = $2
+                AND a.chatgpt_account_id = $3
             ORDER BY
                 COALESCE(c.updated_at, p.updated_at, a.created_at) DESC,
                 a.created_at DESC,
@@ -25,19 +61,34 @@ impl PostgresStore {
             "#,
         )
         .bind(AUTH_PROVIDER_OAUTH_REFRESH_TOKEN)
-        .bind(normalized)
+        .bind(user_id)
+        .bind(account_id)
         .fetch_optional(&self.pool)
         .await
-        .context("failed to query oauth account by chatgpt_account_id")
+        .context("failed to query oauth account by chatgpt_user_id + chatgpt_account_id")
     }
 
-    async fn dedupe_oauth_accounts_by_chatgpt_account_id_inner(
+    async fn dedupe_oauth_accounts_by_identity_inner(
         &self,
+        target_chatgpt_account_user_id: Option<&str>,
+        target_chatgpt_user_id: Option<&str>,
         target_chatgpt_account_id: Option<&str>,
     ) -> Result<u64> {
-        let normalized_target = target_chatgpt_account_id
+        let normalized_target = target_chatgpt_account_user_id
             .map(str::trim)
-            .filter(|value| !value.is_empty());
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("account_user:{value}"))
+            .or_else(|| {
+                target_chatgpt_user_id
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .zip(
+                        target_chatgpt_account_id
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty()),
+                    )
+                    .map(|(user_id, account_id)| format!("user_account:{user_id}:{account_id}"))
+            });
         let mut tx = self
             .pool
             .begin()
@@ -49,8 +100,24 @@ impl PostgresStore {
             WITH ranked AS (
                 SELECT
                     a.id,
+                    CASE
+                        WHEN NULLIF(BTRIM(COALESCE(p.chatgpt_account_user_id, '')), '') IS NOT NULL
+                            THEN 'account_user:' || BTRIM(p.chatgpt_account_user_id)
+                        WHEN NULLIF(BTRIM(COALESCE(p.chatgpt_user_id, '')), '') IS NOT NULL
+                             AND NULLIF(BTRIM(COALESCE(a.chatgpt_account_id, '')), '') IS NOT NULL
+                            THEN 'user_account:' || BTRIM(p.chatgpt_user_id) || ':' || BTRIM(a.chatgpt_account_id)
+                        ELSE NULL
+                    END AS identity_key,
                     ROW_NUMBER() OVER (
-                        PARTITION BY a.chatgpt_account_id
+                        PARTITION BY
+                            CASE
+                                WHEN NULLIF(BTRIM(COALESCE(p.chatgpt_account_user_id, '')), '') IS NOT NULL
+                                    THEN 'account_user:' || BTRIM(p.chatgpt_account_user_id)
+                                WHEN NULLIF(BTRIM(COALESCE(p.chatgpt_user_id, '')), '') IS NOT NULL
+                                     AND NULLIF(BTRIM(COALESCE(a.chatgpt_account_id, '')), '') IS NOT NULL
+                                    THEN 'user_account:' || BTRIM(p.chatgpt_user_id) || ':' || BTRIM(a.chatgpt_account_id)
+                                ELSE NULL
+                            END
                         ORDER BY COALESCE(c.updated_at, p.updated_at, a.created_at) DESC,
                                  a.created_at DESC,
                                  a.id DESC
@@ -60,12 +127,19 @@ impl PostgresStore {
                 LEFT JOIN upstream_account_session_profiles p ON p.account_id = a.id
                 WHERE
                     a.auth_provider = $1
-                    AND NULLIF(BTRIM(COALESCE(a.chatgpt_account_id, '')), '') IS NOT NULL
-                    AND ($2::text IS NULL OR a.chatgpt_account_id = $2)
+                    AND (
+                        NULLIF(BTRIM(COALESCE(p.chatgpt_account_user_id, '')), '') IS NOT NULL
+                        OR (
+                            NULLIF(BTRIM(COALESCE(p.chatgpt_user_id, '')), '') IS NOT NULL
+                            AND NULLIF(BTRIM(COALESCE(a.chatgpt_account_id, '')), '') IS NOT NULL
+                        )
+                    )
             )
             DELETE FROM upstream_accounts doomed
             USING ranked
             WHERE doomed.id = ranked.id
+              AND ranked.identity_key IS NOT NULL
+              AND ($2::text IS NULL OR ranked.identity_key = $2)
               AND ranked.duplicate_rank > 1
             RETURNING doomed.id
             "#,
@@ -74,7 +148,7 @@ impl PostgresStore {
         .bind(normalized_target)
         .fetch_all(tx.as_mut())
         .await
-        .context("failed to delete duplicate oauth accounts by chatgpt_account_id")?;
+        .context("failed to delete duplicate oauth accounts by identity")?;
 
         if rows.is_empty() {
             tx.commit()
@@ -280,6 +354,8 @@ impl PostgresStore {
             token_type: token_info.token_type,
             scope: token_info.scope,
             chatgpt_account_id: token_info.chatgpt_account_id,
+            chatgpt_user_id: token_info.chatgpt_user_id,
+            chatgpt_account_user_id: token_info.chatgpt_account_user_id,
         })
     }
 
@@ -292,34 +368,34 @@ impl PostgresStore {
         if refresh_token.is_empty() {
             return Err(anyhow!("refresh token is empty"));
         }
-        let resolved_chatgpt_account_id = if let Some(chatgpt_account_id) = req
+        let validated = self
+            .validate_oauth_refresh_token_inner(ValidateOAuthRefreshTokenRequest {
+                refresh_token: refresh_token.to_string(),
+                base_url: Some(req.base_url.clone()),
+            })
+            .await?;
+        let resolved_chatgpt_account_id = req
             .chatgpt_account_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-        {
-            Some(chatgpt_account_id.to_string())
-        } else {
-            self.validate_oauth_refresh_token_inner(ValidateOAuthRefreshTokenRequest {
-                refresh_token: refresh_token.to_string(),
-                base_url: Some(req.base_url.clone()),
-            })
+            .map(str::to_owned)
+            .or(validated.chatgpt_account_id.clone());
+        if self
+            .canonical_oauth_account_id_by_identity(
+                validated.chatgpt_account_user_id.as_deref(),
+                validated.chatgpt_user_id.as_deref(),
+                resolved_chatgpt_account_id.as_deref(),
+            )
             .await?
-            .chatgpt_account_id
-        };
-        if let Some(chatgpt_account_id) = resolved_chatgpt_account_id.as_deref() {
-            if self
-                .canonical_oauth_account_id_by_chatgpt_account_id(chatgpt_account_id)
-                .await?
-                .is_some()
-            {
-                self.upsert_oauth_account(ImportOAuthRefreshTokenRequest {
-                    chatgpt_account_id: Some(chatgpt_account_id.to_string()),
-                    ..req
-                })
-                .await?;
-                return Ok(false);
-            }
+            .is_some()
+        {
+            self.upsert_oauth_account(ImportOAuthRefreshTokenRequest {
+                chatgpt_account_id: resolved_chatgpt_account_id.clone(),
+                ..req
+            })
+            .await?;
+            return Ok(false);
         }
         let refresh_token_enc = cipher.encrypt(refresh_token)?;
         let refresh_token_sha256 = refresh_token_sha256(refresh_token);
@@ -564,8 +640,8 @@ impl PostgresStore {
             .chatgpt_plan_type
             .clone()
             .or(token_info.chatgpt_plan_type.clone());
-        // Only treat the exact refresh token family as the same account. The same ChatGPT
-        // account id can legitimately appear in multiple workspaces/team contexts.
+        // Only exact refresh-token reuse or a stable account identity should collapse into the
+        // same upstream account. Bare chatgpt_account_id is not unique across workspaces.
         let matched_account_id = sqlx::query(
             r#"
             SELECT c.account_id
@@ -585,12 +661,12 @@ impl PostgresStore {
         let matched_account_id = match matched_account_id {
             Some(account_id) => Some(account_id),
             None => {
-                if let Some(chatgpt_account_id) = target_chatgpt_account_id.as_deref() {
-                    self.canonical_oauth_account_id_by_chatgpt_account_id(chatgpt_account_id)
-                        .await?
-                } else {
-                    None
-                }
+                self.canonical_oauth_account_id_by_identity(
+                    token_info.chatgpt_account_user_id.as_deref(),
+                    token_info.chatgpt_user_id.as_deref(),
+                    target_chatgpt_account_id.as_deref(),
+                )
+                .await?
             }
         };
 
@@ -716,7 +792,7 @@ impl PostgresStore {
                 account_id,
                 &token_info.access_token,
                 &req.base_url,
-                target_chatgpt_account_id,
+                target_chatgpt_account_id.clone(),
             )
             .await;
 
@@ -743,11 +819,13 @@ impl PostgresStore {
                 priority: row.try_get("priority")?,
                 created_at: row.try_get::<DateTime<Utc>, _>("created_at")?,
             };
-            if let Some(chatgpt_account_id) = account.chatgpt_account_id.as_deref() {
-                let _ = self
-                    .dedupe_oauth_accounts_by_chatgpt_account_id_inner(Some(chatgpt_account_id))
-                    .await?;
-            }
+            let _ = self
+                .dedupe_oauth_accounts_by_identity_inner(
+                    token_info.chatgpt_account_user_id.as_deref(),
+                    token_info.chatgpt_user_id.as_deref(),
+                    target_chatgpt_account_id.as_deref(),
+                )
+                .await?;
 
             return Ok(OAuthUpsertResult {
                 account,
@@ -756,11 +834,13 @@ impl PostgresStore {
         }
 
         let account = self.insert_oauth_account(req).await?;
-        if let Some(chatgpt_account_id) = account.chatgpt_account_id.as_deref() {
-            let _ = self
-                .dedupe_oauth_accounts_by_chatgpt_account_id_inner(Some(chatgpt_account_id))
-                .await?;
-        }
+        let _ = self
+            .dedupe_oauth_accounts_by_identity_inner(
+                token_info.chatgpt_account_user_id.as_deref(),
+                token_info.chatgpt_user_id.as_deref(),
+                target_chatgpt_account_id.as_deref(),
+            )
+            .await?;
         Ok(OAuthUpsertResult {
             account,
             created: true,
