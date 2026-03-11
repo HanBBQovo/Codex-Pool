@@ -421,10 +421,7 @@ async fn adapts_openai_non_stream_responses_request_for_codex_profile() {
     assert_eq!(payload["id"], "resp_compat");
     assert_eq!(payload["status"], "completed");
     assert_eq!(payload["usage"]["input_tokens"], 3);
-    assert_eq!(
-        payload["output"][0]["content"][0]["text"],
-        "OK"
-    );
+    assert_eq!(payload["output"][0]["content"][0]["text"], "OK");
 
     let requests = upstream.received_requests().await.unwrap();
     assert_eq!(requests.len(), 1);
@@ -1817,6 +1814,47 @@ async fn fails_over_on_stream_prelude_quota_error_event() {
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(bytes.as_ref(), success_payload.as_bytes());
+}
+
+#[tokio::test]
+async fn fails_over_on_http_402_payment_required_response() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(402).set_body_json(json!({
+            "message": "Upgrade to Plus to continue using Codex"
+        })))
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["account"], "b");
 }
 
 #[tokio::test]

@@ -440,7 +440,6 @@ pub async fn proxy_handler(
                         Some(account_id),
                         Some(status),
                         None,
-                        "none",
                         "failover_exhausted",
                         "none",
                         "none",
@@ -480,7 +479,6 @@ pub async fn proxy_handler(
                     None,
                     Some(StatusCode::SERVICE_UNAVAILABLE),
                     None,
-                    "none",
                     "no_upstream_account",
                     "none",
                     "none",
@@ -657,7 +655,6 @@ pub async fn proxy_handler(
                             Some(account.id),
                             Some(StatusCode::BAD_GATEWAY),
                             None,
-                            "none",
                             "transport_error",
                             "none",
                             "none",
@@ -701,7 +698,6 @@ pub async fn proxy_handler(
                             Some(account.id),
                             Some(StatusCode::BAD_GATEWAY),
                             None,
-                            "none",
                             "transport_error",
                             "none",
                             "none",
@@ -730,7 +726,6 @@ pub async fn proxy_handler(
                         Some(account.id),
                         Some(StatusCode::BAD_GATEWAY),
                         None,
-                        "none",
                         "transport_error",
                         "none",
                         "none",
@@ -981,10 +976,7 @@ pub async fn proxy_handler(
                     log_failover_decision(
                         Some(account.id),
                         Some(status),
-                        upstream_error_context
-                            .as_ref()
-                            .and_then(|context| context.error_code.as_deref()),
-                        upstream_error_class_label(upstream_error_context.as_ref()),
+                        upstream_error_context.as_ref(),
                         "retryable_status",
                         recovery_action_label(upstream_error_context.as_ref()),
                         "not_applied",
@@ -1052,10 +1044,7 @@ pub async fn proxy_handler(
                     log_failover_decision(
                         Some(account.id),
                         Some(status),
-                        upstream_error_context
-                            .as_ref()
-                            .and_then(|context| context.error_code.as_deref()),
-                        upstream_error_class_label(upstream_error_context.as_ref()),
+                        upstream_error_context.as_ref(),
                         "retryable_status",
                         recovery_action_label(upstream_error_context.as_ref()),
                         recovery_outcome_label(recovery_outcome),
@@ -1083,10 +1072,7 @@ pub async fn proxy_handler(
                 log_failover_decision(
                     Some(account.id),
                     Some(status),
-                    upstream_error_context
-                        .as_ref()
-                        .and_then(|context| context.error_code.as_deref()),
-                    upstream_error_class_label(upstream_error_context.as_ref()),
+                    upstream_error_context.as_ref(),
                     "non_retryable_or_budget_exhausted",
                     recovery_action_label(upstream_error_context.as_ref()),
                     recovery_outcome_label(recovery_outcome),
@@ -1212,10 +1198,7 @@ pub async fn proxy_handler(
                             log_failover_decision(
                                 Some(account.id),
                                 Some(status),
-                                error_context
-                                    .as_ref()
-                                    .and_then(|context| context.error_code.as_deref()),
-                                upstream_error_class_label(error_context.as_ref()),
+                                error_context.as_ref(),
                                 reason_class,
                                 recovery_action_label(error_context.as_ref()),
                                 "none",
@@ -1262,10 +1245,7 @@ pub async fn proxy_handler(
                             log_failover_decision(
                                 Some(account.id),
                                 Some(status),
-                                error_context
-                                    .as_ref()
-                                    .and_then(|context| context.error_code.as_deref()),
-                                upstream_error_class_label(error_context.as_ref()),
+                                error_context.as_ref(),
                                 reason_class,
                                 recovery_action_label(error_context.as_ref()),
                                 recovery_outcome_label(recovery_outcome),
@@ -1293,10 +1273,7 @@ pub async fn proxy_handler(
                         log_failover_decision(
                             Some(account.id),
                             Some(status),
-                            error_context
-                                .as_ref()
-                                .and_then(|context| context.error_code.as_deref()),
-                            upstream_error_class_label(error_context.as_ref()),
+                            error_context.as_ref(),
                             reason_class,
                             recovery_action_label(error_context.as_ref()),
                             recovery_outcome_label(recovery_outcome),
@@ -1558,10 +1535,7 @@ pub async fn proxy_handler(
                 log_failover_decision(
                     Some(account.id),
                     Some(status),
-                    upstream_error_context
-                        .as_ref()
-                        .and_then(|context| context.error_code.as_deref()),
-                    upstream_error_class_label(upstream_error_context.as_ref()),
+                    upstream_error_context.as_ref(),
                     "retryable_status",
                     recovery_action_label(upstream_error_context.as_ref()),
                     "not_applied",
@@ -1629,10 +1603,7 @@ pub async fn proxy_handler(
                 log_failover_decision(
                     Some(account.id),
                     Some(status),
-                    upstream_error_context
-                        .as_ref()
-                        .and_then(|context| context.error_code.as_deref()),
-                    upstream_error_class_label(upstream_error_context.as_ref()),
+                    upstream_error_context.as_ref(),
                     "retryable_status",
                     recovery_action_label(upstream_error_context.as_ref()),
                     recovery_outcome_label(recovery_outcome),
@@ -1660,10 +1631,7 @@ pub async fn proxy_handler(
             log_failover_decision(
                 Some(account.id),
                 Some(status),
-                upstream_error_context
-                    .as_ref()
-                    .and_then(|context| context.error_code.as_deref()),
-                upstream_error_class_label(upstream_error_context.as_ref()),
+                upstream_error_context.as_ref(),
                 "non_retryable_or_budget_exhausted",
                 recovery_action_label(upstream_error_context.as_ref()),
                 recovery_outcome_label(recovery_outcome),
@@ -2067,10 +2035,7 @@ pub async fn proxy_websocket_handler(
                         log_failover_decision(
                             Some(account.id),
                             Some(status),
-                            error_context
-                                .as_ref()
-                                .and_then(|context| context.error_code.as_deref()),
-                            upstream_error_class_label(error_context.as_ref()),
+                            error_context.as_ref(),
                             if is_http_handshake_error {
                                 "websocket_handshake_error"
                             } else {
@@ -2149,10 +2114,7 @@ pub async fn proxy_websocket_handler(
                         log_failover_decision(
                             Some(account.id),
                             Some(status),
-                            error_context
-                                .as_ref()
-                                .and_then(|context| context.error_code.as_deref()),
-                            upstream_error_class_label(error_context.as_ref()),
+                            error_context.as_ref(),
                             failover_reason_class,
                             recovery_action_label(error_context.as_ref()),
                             recovery_outcome_label(recovery_outcome),
@@ -2171,10 +2133,7 @@ pub async fn proxy_websocket_handler(
                     log_failover_decision(
                         Some(account.id),
                         Some(status),
-                        error_context
-                            .as_ref()
-                            .and_then(|context| context.error_code.as_deref()),
-                        upstream_error_class_label(error_context.as_ref()),
+                        error_context.as_ref(),
                         failover_reason_class,
                         recovery_action_label(error_context.as_ref()),
                         recovery_outcome_label(recovery_outcome),

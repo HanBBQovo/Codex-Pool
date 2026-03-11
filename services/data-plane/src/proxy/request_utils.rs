@@ -554,8 +554,7 @@ fn recovery_outcome_label(outcome: ProxyRecoveryOutcome) -> &'static str {
 fn log_failover_decision(
     account_id: Option<Uuid>,
     status: Option<StatusCode>,
-    upstream_error_code: Option<&str>,
-    upstream_error_class: &str,
+    error_context: Option<&UpstreamErrorContext>,
     reason_class: &str,
     recovery_action: &str,
     recovery_outcome: &str,
@@ -564,8 +563,13 @@ fn log_failover_decision(
     warn!(
         account_id = ?account_id,
         status_code = ?status.map(|item| item.as_u16()),
-        upstream_error_code = upstream_error_code.unwrap_or("none"),
-        upstream_error_class,
+        upstream_error_code = error_context
+            .and_then(|context| context.error_code.as_deref())
+            .unwrap_or("none"),
+        upstream_error_message = error_context
+            .and_then(|context| context.error_message.as_deref())
+            .unwrap_or("none"),
+        upstream_error_class = upstream_error_class_label(error_context),
         reason_class,
         recovery_action,
         recovery_outcome,
@@ -832,6 +836,9 @@ fn classify_upstream_error(
 
     if status == StatusCode::UNAUTHORIZED {
         return UpstreamErrorClass::AuthExpired;
+    }
+    if status == StatusCode::PAYMENT_REQUIRED {
+        return UpstreamErrorClass::QuotaExhausted;
     }
     if status == StatusCode::FORBIDDEN {
         return UpstreamErrorClass::NonRetryableClient;
@@ -1714,6 +1721,16 @@ mod request_utils_tests {
             Some("Failed to extract accountId from token"),
         );
         assert_eq!(class, UpstreamErrorClass::AuthExpired);
+    }
+
+    #[test]
+    fn classifies_402_payment_required_as_quota_exhausted() {
+        let class = classify_upstream_error(
+            StatusCode::PAYMENT_REQUIRED,
+            None,
+            Some("Upgrade to Plus to continue using Codex"),
+        );
+        assert_eq!(class, UpstreamErrorClass::QuotaExhausted);
     }
 
     #[test]
