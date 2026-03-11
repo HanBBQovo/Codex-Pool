@@ -1858,6 +1858,49 @@ async fn fails_over_on_http_402_payment_required_response() {
 }
 
 #[tokio::test]
+async fn fails_over_on_official_429_quota_response() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "error": {
+                "message": "You exceeded your current quota, please check your plan and billing details"
+            }
+        })))
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["account"], "b");
+}
+
+#[tokio::test]
 async fn stream_prelude_auth_error_event_maps_to_consistent_error_envelope() {
     let upstream = MockServer::start().await;
     let auth_error_payload = "data: {\"type\":\"error\",\"error\":{\"message\":\"Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again.\"}}\n\n";

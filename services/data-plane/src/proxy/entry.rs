@@ -437,6 +437,7 @@ pub async fn proxy_handler(
 
                 if let Some((response, status, account_id)) = last_failure.take() {
                     log_failover_decision(
+                        UpstreamErrorSource::Http,
                         Some(account_id),
                         Some(status),
                         None,
@@ -476,6 +477,7 @@ pub async fn proxy_handler(
                 }
 
                 log_failover_decision(
+                    UpstreamErrorSource::Http,
                     None,
                     Some(StatusCode::SERVICE_UNAVAILABLE),
                     None,
@@ -652,6 +654,7 @@ pub async fn proxy_handler(
                         && Instant::now() < failover_deadline
                     {
                         log_failover_decision(
+                            UpstreamErrorSource::Http,
                             Some(account.id),
                             Some(StatusCode::BAD_GATEWAY),
                             None,
@@ -695,6 +698,7 @@ pub async fn proxy_handler(
                         true,
                     ) {
                         log_failover_decision(
+                            UpstreamErrorSource::Http,
                             Some(account.id),
                             Some(StatusCode::BAD_GATEWAY),
                             None,
@@ -723,6 +727,7 @@ pub async fn proxy_handler(
                     }
 
                     log_failover_decision(
+                        UpstreamErrorSource::Http,
                         Some(account.id),
                         Some(StatusCode::BAD_GATEWAY),
                         None,
@@ -959,9 +964,13 @@ pub async fn proxy_handler(
                     return response;
                 }
 
-                let retryable =
-                    is_failover_retryable_error(status, upstream_error_context.as_ref());
+                let retryable = is_failover_retryable_error(
+                    UpstreamErrorSource::Http,
+                    status,
+                    upstream_error_context.as_ref(),
+                );
                 let same_account_retryable = should_retry_same_account_on_status(
+                    UpstreamErrorSource::Http,
                     status,
                     is_503_overloaded,
                     same_account_retry_attempt,
@@ -974,6 +983,7 @@ pub async fn proxy_handler(
                     && Instant::now() < failover_deadline
                 {
                     log_failover_decision(
+                        UpstreamErrorSource::Http,
                         Some(account.id),
                         Some(status),
                         upstream_error_context.as_ref(),
@@ -1036,12 +1046,14 @@ pub async fn proxy_handler(
                 record_invalid_request_guard_failure(
                     &state,
                     principal.as_ref(),
+                    UpstreamErrorSource::Http,
                     status,
                     upstream_error_context.as_ref(),
                 );
 
                 if should_failover_across_accounts {
                     log_failover_decision(
+                        UpstreamErrorSource::Http,
                         Some(account.id),
                         Some(status),
                         upstream_error_context.as_ref(),
@@ -1070,6 +1082,7 @@ pub async fn proxy_handler(
                 }
 
                 log_failover_decision(
+                    UpstreamErrorSource::Http,
                     Some(account.id),
                     Some(status),
                     upstream_error_context.as_ref(),
@@ -1173,10 +1186,14 @@ pub async fn proxy_handler(
                             StreamPreludeError::UpstreamReadFailed(message) => message,
                             StreamPreludeError::UpstreamErrorResponse(context) => {
                                 status = context.status;
-                                response = normalize_upstream_error_response(&context);
+                                response = normalize_upstream_error_response(
+                                    UpstreamErrorSource::SsePrelude,
+                                    &context,
+                                );
                                 reason_class = "stream_upstream_error";
                                 error_context = Some(context);
                                 should_retry_same_account = should_retry_same_account_on_status(
+                                    UpstreamErrorSource::SsePrelude,
                                     status,
                                     false,
                                     same_account_retry_attempt,
@@ -1196,6 +1213,7 @@ pub async fn proxy_handler(
                             && Instant::now() < failover_deadline
                         {
                             log_failover_decision(
+                                UpstreamErrorSource::SsePrelude,
                                 Some(account.id),
                                 Some(status),
                                 error_context.as_ref(),
@@ -1233,7 +1251,11 @@ pub async fn proxy_handler(
                                 .await;
                         }
 
-                        let retryable = is_failover_retryable_error(status, error_context.as_ref());
+                        let retryable = is_failover_retryable_error(
+                            UpstreamErrorSource::SsePrelude,
+                            status,
+                            error_context.as_ref(),
+                        );
                         if should_cross_account_failover(
                             &state,
                             sticky_key.as_deref(),
@@ -1243,6 +1265,7 @@ pub async fn proxy_handler(
                             retryable,
                         ) {
                             log_failover_decision(
+                                UpstreamErrorSource::SsePrelude,
                                 Some(account.id),
                                 Some(status),
                                 error_context.as_ref(),
@@ -1271,6 +1294,7 @@ pub async fn proxy_handler(
                         }
 
                         log_failover_decision(
+                            UpstreamErrorSource::SsePrelude,
                             Some(account.id),
                             Some(status),
                             error_context.as_ref(),
@@ -1519,8 +1543,13 @@ pub async fn proxy_handler(
                 return response;
             }
 
-            let retryable = is_failover_retryable_error(status, upstream_error_context.as_ref());
+            let retryable = is_failover_retryable_error(
+                UpstreamErrorSource::Http,
+                status,
+                upstream_error_context.as_ref(),
+            );
             let same_account_retryable = should_retry_same_account_on_status(
+                UpstreamErrorSource::Http,
                 status,
                 is_503_overloaded,
                 same_account_retry_attempt,
@@ -1533,6 +1562,7 @@ pub async fn proxy_handler(
                 && Instant::now() < failover_deadline
             {
                 log_failover_decision(
+                    UpstreamErrorSource::Http,
                     Some(account.id),
                     Some(status),
                     upstream_error_context.as_ref(),
@@ -1595,12 +1625,14 @@ pub async fn proxy_handler(
             record_invalid_request_guard_failure(
                 &state,
                 principal.as_ref(),
+                UpstreamErrorSource::Http,
                 status,
                 upstream_error_context.as_ref(),
             );
 
             if should_failover_across_accounts {
                 log_failover_decision(
+                    UpstreamErrorSource::Http,
                     Some(account.id),
                     Some(status),
                     upstream_error_context.as_ref(),
@@ -1629,6 +1661,7 @@ pub async fn proxy_handler(
             }
 
             log_failover_decision(
+                UpstreamErrorSource::Http,
                 Some(account.id),
                 Some(status),
                 upstream_error_context.as_ref(),
@@ -1990,6 +2023,7 @@ pub async fn proxy_websocket_handler(
                                     "upstream websocket upgrade is required",
                                 );
                                 should_retry_same_account_on_status(
+                                    UpstreamErrorSource::WsHandshake,
                                     status,
                                     false,
                                     same_account_retry_attempt,
@@ -2003,10 +2037,14 @@ pub async fn proxy_websocket_handler(
                                     &upstream_body,
                                 ) {
                                     status = context.status;
-                                    response = normalize_upstream_error_response(&context);
+                                    response = normalize_upstream_error_response(
+                                        UpstreamErrorSource::WsHandshake,
+                                        &context,
+                                    );
                                     error_context = Some(context);
                                 }
                                 should_retry_same_account_on_status(
+                                    UpstreamErrorSource::WsHandshake,
                                     status,
                                     false,
                                     same_account_retry_attempt,
@@ -2033,6 +2071,7 @@ pub async fn proxy_websocket_handler(
                         && Instant::now() < failover_deadline
                     {
                         log_failover_decision(
+                            UpstreamErrorSource::WsHandshake,
                             Some(account.id),
                             Some(status),
                             error_context.as_ref(),
@@ -2059,7 +2098,11 @@ pub async fn proxy_websocket_handler(
                         "transport_error"
                     };
                     let can_cross_account_failover = if is_http_handshake_error {
-                        is_failover_retryable_error(status, error_context.as_ref())
+                        is_failover_retryable_error(
+                            UpstreamErrorSource::WsHandshake,
+                            status,
+                            error_context.as_ref(),
+                        )
                     } else {
                         true
                     };
@@ -2112,6 +2155,7 @@ pub async fn proxy_websocket_handler(
 
                     if should_failover_across_accounts {
                         log_failover_decision(
+                            UpstreamErrorSource::WsHandshake,
                             Some(account.id),
                             Some(status),
                             error_context.as_ref(),
@@ -2131,6 +2175,7 @@ pub async fn proxy_websocket_handler(
                     }
 
                     log_failover_decision(
+                        UpstreamErrorSource::WsHandshake,
                         Some(account.id),
                         Some(status),
                         error_context.as_ref(),

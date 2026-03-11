@@ -954,14 +954,9 @@ fn build_ws_failover_error_context(value: &Value) -> Option<UpstreamErrorContext
 }
 
 fn should_rotate_ws_session_on_error(error_context: &UpstreamErrorContext) -> bool {
-    matches!(
-        error_context.class,
-        UpstreamErrorClass::QuotaExhausted
-            | UpstreamErrorClass::RateLimited
-            | UpstreamErrorClass::TokenInvalidated
-            | UpstreamErrorClass::AuthExpired
-            | UpstreamErrorClass::AccountDeactivated
-    )
+    let decision = decide_upstream_error(UpstreamErrorSource::WsPrelude, Some(error_context));
+    decision.allow_cross_account_failover
+        && matches!(decision.retry_scope, RetryScope::CrossAccount)
 }
 
 async fn connect_failover_upstream_for_ws_session(

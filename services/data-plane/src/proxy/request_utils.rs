@@ -248,32 +248,311 @@ enum UpstreamErrorClass {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UpstreamErrorContext {
+    upstream_status: StatusCode,
     status: StatusCode,
     error_code: Option<String>,
     error_message: Option<String>,
     retry_after: Option<Duration>,
+    upstream_request_id: Option<String>,
     class: UpstreamErrorClass,
 }
 
-fn is_failover_retryable_status(status: StatusCode) -> bool {
-    status == StatusCode::UNAUTHORIZED
-        || status == StatusCode::FORBIDDEN
-        || status == StatusCode::TOO_MANY_REQUESTS
-        || status.is_server_error()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpstreamErrorSource {
+    Http,
+    WsHandshake,
+    WsPrelude,
+    SsePrelude,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryScope {
+    None,
+    SameAccount,
+    CrossAccount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UpstreamErrorDecision {
+    retry_scope: RetryScope,
+    allow_cross_account_failover: bool,
+    track_invalid_request: bool,
+    outward_code: &'static str,
+    outward_message: &'static str,
+    recovery_action: Option<ProxyRecoveryAction>,
+    decision_rule: &'static str,
+}
+
+fn upstream_error_source_supports_server_retries(source: UpstreamErrorSource) -> bool {
+    matches!(
+        source,
+        UpstreamErrorSource::Http
+            | UpstreamErrorSource::WsHandshake
+            | UpstreamErrorSource::SsePrelude
+    )
+}
+
+fn recovery_action_for_upstream_error_class(class: UpstreamErrorClass) -> Option<ProxyRecoveryAction> {
+    match class {
+        UpstreamErrorClass::TokenInvalidated | UpstreamErrorClass::AuthExpired => {
+            Some(ProxyRecoveryAction::RotateRefreshToken)
+        }
+        UpstreamErrorClass::AccountDeactivated => Some(ProxyRecoveryAction::DisableAccount),
+        _ => None,
+    }
+}
+
+fn build_upstream_error_decision(
+    retry_scope: RetryScope,
+    allow_cross_account_failover: bool,
+    track_invalid_request: bool,
+    outward_code: &'static str,
+    outward_message: &'static str,
+    recovery_action: Option<ProxyRecoveryAction>,
+    decision_rule: &'static str,
+) -> UpstreamErrorDecision {
+    UpstreamErrorDecision {
+        retry_scope,
+        allow_cross_account_failover,
+        track_invalid_request,
+        outward_code,
+        outward_message,
+        recovery_action,
+        decision_rule,
+    }
+}
+
+fn decide_upstream_status(
+    source: UpstreamErrorSource,
+    status: StatusCode,
+) -> UpstreamErrorDecision {
+    match status {
+        StatusCode::UNAUTHORIZED => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "auth_expired",
+            "upstream account authentication expired; retry later with another account",
+            None,
+            "status_401_cross_account",
+        ),
+        StatusCode::PAYMENT_REQUIRED => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "quota_exhausted",
+            "upstream account quota is exhausted; retry later",
+            None,
+            "status_402_cross_account",
+        ),
+        StatusCode::TOO_MANY_REQUESTS => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "rate_limited",
+            "upstream account is rate limited; retry later",
+            None,
+            "status_429_cross_account",
+        ),
+        StatusCode::SERVICE_UNAVAILABLE if upstream_error_source_supports_server_retries(source) => {
+            build_upstream_error_decision(
+                RetryScope::SameAccount,
+                true,
+                false,
+                "upstream_unavailable",
+                "upstream service is unavailable",
+                None,
+                "status_503_same_then_cross",
+            )
+        }
+        status if status.is_server_error() && upstream_error_source_supports_server_retries(source) => {
+            build_upstream_error_decision(
+                RetryScope::SameAccount,
+                true,
+                false,
+                "upstream_request_failed",
+                "upstream request failed",
+                None,
+                "status_5xx_same_then_cross",
+            )
+        }
+        status if status.is_client_error() => build_upstream_error_decision(
+            RetryScope::None,
+            false,
+            true,
+            "upstream_request_failed",
+            "upstream request failed",
+            None,
+            "status_4xx_no_failover",
+        ),
+        _ => build_upstream_error_decision(
+            RetryScope::None,
+            false,
+            false,
+            "upstream_request_failed",
+            "upstream request failed",
+            None,
+            "status_default_no_failover",
+        ),
+    }
+}
+
+fn decide_upstream_error(
+    source: UpstreamErrorSource,
+    error_context: Option<&UpstreamErrorContext>,
+) -> UpstreamErrorDecision {
+    let Some(context) = error_context else {
+        return decide_upstream_status(source, StatusCode::BAD_GATEWAY);
+    };
+
+    let recovery_action = recovery_action_for_upstream_error_code(context.error_code.as_deref())
+        .or_else(|| recovery_action_for_upstream_error_class(context.class));
+
+    match context.class {
+        UpstreamErrorClass::TokenInvalidated => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "token_invalidated",
+            "upstream account token has been invalidated",
+            recovery_action,
+            "token_invalidated_cross_account",
+        ),
+        UpstreamErrorClass::AuthExpired => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "auth_expired",
+            "upstream account authentication expired; retry later with another account",
+            recovery_action,
+            "auth_expired_cross_account",
+        ),
+        UpstreamErrorClass::AccountDeactivated => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "account_deactivated",
+            "upstream account is deactivated",
+            recovery_action,
+            "account_deactivated_cross_account",
+        ),
+        UpstreamErrorClass::QuotaExhausted => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "quota_exhausted",
+            "upstream account quota is exhausted; retry later",
+            recovery_action,
+            "quota_exhausted_cross_account",
+        ),
+        UpstreamErrorClass::RateLimited => build_upstream_error_decision(
+            RetryScope::CrossAccount,
+            true,
+            false,
+            "rate_limited",
+            "upstream account is rate limited; retry later",
+            recovery_action,
+            "rate_limited_cross_account",
+        ),
+        UpstreamErrorClass::Overloaded if upstream_error_source_supports_server_retries(source) => {
+            build_upstream_error_decision(
+                RetryScope::SameAccount,
+                true,
+                false,
+                "server_overloaded",
+                "upstream service is overloaded",
+                recovery_action,
+                "overloaded_same_then_cross",
+            )
+        }
+        UpstreamErrorClass::UpstreamUnavailable
+            if upstream_error_source_supports_server_retries(source) =>
+        {
+            build_upstream_error_decision(
+                RetryScope::SameAccount,
+                true,
+                false,
+                "upstream_unavailable",
+                "upstream service is unavailable",
+                recovery_action,
+                "unavailable_same_then_cross",
+            )
+        }
+        UpstreamErrorClass::TransientServer
+            if upstream_error_source_supports_server_retries(source) =>
+        {
+            build_upstream_error_decision(
+                RetryScope::SameAccount,
+                true,
+                false,
+                "upstream_request_failed",
+                "upstream request failed",
+                recovery_action,
+                "transient_same_then_cross",
+            )
+        }
+        UpstreamErrorClass::Overloaded => build_upstream_error_decision(
+            RetryScope::None,
+            false,
+            false,
+            "server_overloaded",
+            "upstream service is overloaded",
+            recovery_action,
+            "overloaded_no_ws_session_rotation",
+        ),
+        UpstreamErrorClass::UpstreamUnavailable => build_upstream_error_decision(
+            RetryScope::None,
+            false,
+            false,
+            "upstream_unavailable",
+            "upstream service is unavailable",
+            recovery_action,
+            "unavailable_no_ws_session_rotation",
+        ),
+        UpstreamErrorClass::TransientServer => build_upstream_error_decision(
+            RetryScope::None,
+            false,
+            false,
+            "upstream_request_failed",
+            "upstream request failed",
+            recovery_action,
+            "transient_no_ws_session_rotation",
+        ),
+        UpstreamErrorClass::NonRetryableClient => build_upstream_error_decision(
+            RetryScope::None,
+            false,
+            true,
+            "upstream_request_failed",
+            "upstream request failed",
+            recovery_action,
+            "non_retryable_client",
+        ),
+        UpstreamErrorClass::Unknown => {
+            let mut decision = decide_upstream_status(source, context.status);
+            decision.recovery_action = recovery_action;
+            decision.decision_rule = "unknown_class_fallback_to_status";
+            decision
+        }
+    }
+}
+
+fn retry_scope_label(retry_scope: RetryScope) -> &'static str {
+    match retry_scope {
+        RetryScope::None => "none",
+        RetryScope::SameAccount => "same_account",
+        RetryScope::CrossAccount => "cross_account",
+    }
 }
 
 fn is_failover_retryable_error(
+    source: UpstreamErrorSource,
     status: StatusCode,
     error_context: Option<&UpstreamErrorContext>,
 ) -> bool {
-    let Some(context) = error_context else {
-        return is_failover_retryable_status(status);
-    };
-    match context.class {
-        UpstreamErrorClass::NonRetryableClient => false,
-        UpstreamErrorClass::Unknown => is_failover_retryable_status(status),
-        _ => true,
-    }
+    let decision = error_context
+        .map(|context| decide_upstream_error(source, Some(context)))
+        .unwrap_or_else(|| decide_upstream_status(source, status));
+    decision.allow_cross_account_failover || matches!(decision.retry_scope, RetryScope::SameAccount)
 }
 
 fn should_retry_same_account_on_transport(
@@ -284,6 +563,7 @@ fn should_retry_same_account_on_transport(
 }
 
 fn should_retry_same_account_on_status(
+    source: UpstreamErrorSource,
     status: StatusCode,
     _is_503_overloaded: bool,
     same_account_retry_attempt: u32,
@@ -293,13 +573,11 @@ fn should_retry_same_account_on_status(
     if same_account_retry_attempt >= state.same_account_quick_retry_max {
         return false;
     }
-    if let Some(context) = error_context {
-        if !matches!(
-            context.class,
-            UpstreamErrorClass::TransientServer | UpstreamErrorClass::Overloaded
-        ) {
-            return false;
-        }
+    let decision = error_context
+        .map(|context| decide_upstream_error(source, Some(context)))
+        .unwrap_or_else(|| decide_upstream_status(source, status));
+    if !matches!(decision.retry_scope, RetryScope::SameAccount) {
+        return false;
     }
     status.is_server_error()
         && status != StatusCode::UNAUTHORIZED
@@ -456,25 +734,27 @@ fn enforce_invalid_request_guard(
 }
 
 fn should_track_invalid_request_failure(
+    source: UpstreamErrorSource,
     status: StatusCode,
     error_context: Option<&UpstreamErrorContext>,
 ) -> bool {
-    match error_context {
-        Some(context) => matches!(context.class, UpstreamErrorClass::NonRetryableClient),
-        None => status.is_client_error(),
-    }
+    let decision = error_context
+        .map(|context| decide_upstream_error(source, Some(context)))
+        .unwrap_or_else(|| decide_upstream_status(source, status));
+    decision.track_invalid_request
 }
 
 fn record_invalid_request_guard_failure(
     state: &AppState,
     principal: Option<&ApiPrincipal>,
+    source: UpstreamErrorSource,
     status: StatusCode,
     error_context: Option<&UpstreamErrorContext>,
 ) {
     if !state.invalid_request_guard_enabled {
         return;
     }
-    if !should_track_invalid_request_failure(status, error_context) {
+    if !should_track_invalid_request_failure(source, status, error_context) {
         return;
     }
     let Some(key) = invalid_request_guard_key(principal) else {
@@ -552,6 +832,7 @@ fn recovery_outcome_label(outcome: ProxyRecoveryOutcome) -> &'static str {
 
 #[allow(clippy::too_many_arguments)]
 fn log_failover_decision(
+    source: UpstreamErrorSource,
     account_id: Option<Uuid>,
     status: Option<StatusCode>,
     error_context: Option<&UpstreamErrorContext>,
@@ -560,16 +841,36 @@ fn log_failover_decision(
     recovery_outcome: &str,
     action: &str,
 ) {
+    let decision = error_context.map(|context| decide_upstream_error(source, Some(context)));
     warn!(
         account_id = ?account_id,
         status_code = ?status.map(|item| item.as_u16()),
+        upstream_status_code = ?error_context.map(|context| context.upstream_status.as_u16()),
+        normalized_status_code = ?error_context.map(|context| context.status.as_u16()),
         upstream_error_code = error_context
             .and_then(|context| context.error_code.as_deref())
             .unwrap_or("none"),
         upstream_error_message = error_context
             .and_then(|context| context.error_message.as_deref())
             .unwrap_or("none"),
+        upstream_error_message_preview = error_context
+            .and_then(|context| context.error_message.as_deref())
+            .unwrap_or("none"),
         upstream_error_class = upstream_error_class_label(error_context),
+        upstream_request_id = error_context
+            .and_then(|context| context.upstream_request_id.as_deref())
+            .unwrap_or("none"),
+        retry_after_seconds = error_context.and_then(|context| context.retry_after.map(|value| value.as_secs())),
+        retry_scope = decision
+            .map(|value| retry_scope_label(value.retry_scope))
+            .unwrap_or("none"),
+        allow_cross_account_failover = decision
+            .map(|value| value.allow_cross_account_failover)
+            .unwrap_or(false),
+        track_invalid_request = decision
+            .map(|value| value.track_invalid_request)
+            .unwrap_or(false),
+        decision_rule = decision.map(|value| value.decision_rule).unwrap_or("none"),
         reason_class,
         recovery_action,
         recovery_outcome,
@@ -714,14 +1015,7 @@ fn recovery_action_for_upstream_error_code(code: Option<&str>) -> Option<ProxyRe
 fn recovery_action_for_error_context(
     error_context: Option<&UpstreamErrorContext>,
 ) -> Option<ProxyRecoveryAction> {
-    let context = error_context?;
-    recovery_action_for_upstream_error_code(context.error_code.as_deref()).or(match context.class {
-        UpstreamErrorClass::TokenInvalidated | UpstreamErrorClass::AuthExpired => {
-            Some(ProxyRecoveryAction::RotateRefreshToken)
-        }
-        UpstreamErrorClass::AccountDeactivated => Some(ProxyRecoveryAction::DisableAccount),
-        _ => None,
-    })
+    decide_upstream_error(UpstreamErrorSource::Http, error_context).recovery_action
 }
 
 #[cfg(test)]
@@ -776,10 +1070,12 @@ fn build_upstream_error_context(
     };
 
     Some(UpstreamErrorContext {
+        upstream_status: status,
         status: normalized_status,
         error_code,
         error_message,
         retry_after: extract_retry_after(headers),
+        upstream_request_id: extract_upstream_request_id(headers),
         class,
     })
 }
@@ -815,13 +1111,32 @@ fn classify_upstream_error(
     ) {
         return UpstreamErrorClass::QuotaExhausted;
     }
+    if matches!(code.as_str(), "rate_limited" | "rate_limit_exceeded") {
+        return UpstreamErrorClass::RateLimited;
+    }
+    if matches!(
+        code.as_str(),
+        "server_is_overloaded" | "server_overloaded" | "engine_overloaded" | "slow_down"
+    ) {
+        return UpstreamErrorClass::Overloaded;
+    }
+    if matches!(
+        code.as_str(),
+        "previous_response_not_found" | "websocket_connection_limit_reached"
+    ) {
+        return UpstreamErrorClass::NonRetryableClient;
+    }
 
     if message.contains("usage limit")
         || message.contains("insufficient quota")
         || message.contains("quota")
+        || message.contains("billing details")
         || message.contains("start a free trial of plus")
     {
         return UpstreamErrorClass::QuotaExhausted;
+    }
+    if message.contains("rate limit") {
+        return UpstreamErrorClass::RateLimited;
     }
     if message.contains("access token could not be refreshed")
         || message.contains("logged out")
@@ -830,7 +1145,10 @@ fn classify_upstream_error(
     {
         return UpstreamErrorClass::AuthExpired;
     }
-    if message.contains("server is overloaded") || message.contains("slow_down") {
+    if message.contains("server is overloaded")
+        || message.contains("engine is currently overloaded")
+        || message.contains("slow_down")
+    {
         return UpstreamErrorClass::Overloaded;
     }
 
@@ -878,38 +1196,16 @@ fn status_for_error_class(class: UpstreamErrorClass, fallback: StatusCode) -> St
     }
 }
 
-fn normalize_upstream_error_response(error_context: &UpstreamErrorContext) -> Response {
-    let (code, message) = match error_context.class {
-        UpstreamErrorClass::TokenInvalidated => (
-            "token_invalidated",
-            "upstream account token has been invalidated",
-        ),
-        UpstreamErrorClass::AuthExpired => (
-            "auth_expired",
-            "upstream account authentication expired; retry later with another account",
-        ),
-        UpstreamErrorClass::AccountDeactivated => {
-            ("account_deactivated", "upstream account is deactivated")
-        }
-        UpstreamErrorClass::QuotaExhausted => (
-            "quota_exhausted",
-            "upstream account quota is exhausted; retry later",
-        ),
-        UpstreamErrorClass::RateLimited => {
-            ("rate_limited", "upstream account is rate limited; retry later")
-        }
-        UpstreamErrorClass::Overloaded => ("server_overloaded", "upstream service is overloaded"),
-        UpstreamErrorClass::UpstreamUnavailable => {
-            ("upstream_unavailable", "upstream service is unavailable")
-        }
-        UpstreamErrorClass::TransientServer => {
-            ("upstream_request_failed", "upstream request failed")
-        }
-        UpstreamErrorClass::NonRetryableClient | UpstreamErrorClass::Unknown => {
-            ("upstream_request_failed", "upstream request failed")
-        }
-    };
-    json_error(error_context.status, code, message)
+fn normalize_upstream_error_response(
+    source: UpstreamErrorSource,
+    error_context: &UpstreamErrorContext,
+) -> Response {
+    let decision = decide_upstream_error(source, Some(error_context));
+    json_error(
+        error_context.status,
+        decision.outward_code,
+        decision.outward_message,
+    )
 }
 
 fn extract_retry_after(headers: &HeaderMap) -> Option<Duration> {
@@ -929,6 +1225,15 @@ fn extract_retry_after(headers: &HeaderMap) -> Option<Duration> {
     }
     let delta = target - now;
     Some(Duration::from_secs(delta.num_seconds().max(0) as u64))
+}
+
+fn extract_upstream_request_id(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn auth_expired_ejection_ttl(base_ttl: Duration) -> Duration {
@@ -1200,13 +1505,18 @@ async fn map_service_unavailable(
     let body = upstream_response.bytes().await.unwrap_or_default();
     let context = build_upstream_error_context(StatusCode::SERVICE_UNAVAILABLE, headers, &body)
         .unwrap_or(UpstreamErrorContext {
+            upstream_status: StatusCode::SERVICE_UNAVAILABLE,
             status: StatusCode::SERVICE_UNAVAILABLE,
             error_code: None,
             error_message: None,
             retry_after: extract_retry_after(headers),
+            upstream_request_id: extract_upstream_request_id(headers),
             class: UpstreamErrorClass::UpstreamUnavailable,
         });
-    (normalize_upstream_error_response(&context), context)
+    (
+        normalize_upstream_error_response(UpstreamErrorSource::Http, &context),
+        context,
+    )
 }
 
 async fn buffered_response(
@@ -1221,7 +1531,7 @@ async fn buffered_response(
         None
     };
     let response = match error_context.as_ref() {
-        Some(context) => normalize_upstream_error_response(context),
+        Some(context) => normalize_upstream_error_response(UpstreamErrorSource::Http, context),
         None => response_with_bytes(status, headers, body.clone()),
     };
     (
@@ -1240,7 +1550,7 @@ async fn buffered_codex_compat_response(
     if status.as_u16() >= 400 {
         let error_context = build_upstream_error_context(status, headers, &body);
         let response = match error_context.as_ref() {
-            Some(context) => normalize_upstream_error_response(context),
+            Some(context) => normalize_upstream_error_response(UpstreamErrorSource::Http, context),
             None => response_with_bytes(status, headers, body.clone()),
         };
         return (response, error_context, body);
@@ -1265,14 +1575,16 @@ async fn buffered_codex_compat_response(
     }
 
     let error_context = UpstreamErrorContext {
+        upstream_status: StatusCode::BAD_GATEWAY,
         status: StatusCode::BAD_GATEWAY,
         error_code: None,
         error_message: Some("codex upstream stream missing completion event".to_string()),
         retry_after: None,
+        upstream_request_id: extract_upstream_request_id(headers),
         class: UpstreamErrorClass::TransientServer,
     };
     (
-        normalize_upstream_error_response(&error_context),
+        normalize_upstream_error_response(UpstreamErrorSource::Http, &error_context),
         Some(error_context),
         body,
     )
@@ -1690,7 +2002,10 @@ struct UsageTokens {
 
 #[cfg(test)]
 mod request_utils_tests {
-    use super::{build_upstream_error_context, classify_upstream_error, UpstreamErrorClass};
+    use super::{
+        build_upstream_error_context, classify_upstream_error, decide_upstream_error, RetryScope,
+        UpstreamErrorClass, UpstreamErrorSource,
+    };
     use http::{HeaderMap, StatusCode};
 
     #[test]
@@ -1734,6 +2049,16 @@ mod request_utils_tests {
     }
 
     #[test]
+    fn classifies_official_503_engine_overloaded_message_as_overloaded() {
+        let class = classify_upstream_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            None,
+            Some("The engine is currently overloaded, please try again later"),
+        );
+        assert_eq!(class, UpstreamErrorClass::Overloaded);
+    }
+
+    #[test]
     fn builds_error_context_from_plain_text_accountid_failure() {
         let headers = HeaderMap::new();
         let context = build_upstream_error_context(
@@ -1748,5 +2073,73 @@ mod request_utils_tests {
             context.error_message.as_deref(),
             Some("Failed to extract accountId from token")
         );
+    }
+
+    #[test]
+    fn http_overloaded_errors_prefer_same_account_retry_before_cross_account_failover() {
+        let headers = HeaderMap::new();
+        let context = build_upstream_error_context(
+            StatusCode::SERVICE_UNAVAILABLE,
+            &headers,
+            br#"{"error":{"message":"The engine is currently overloaded, please try again later"}}"#,
+        )
+        .expect("official overloaded payload should build context");
+        let decision = decide_upstream_error(UpstreamErrorSource::Http, Some(&context));
+
+        assert_eq!(decision.retry_scope, RetryScope::SameAccount);
+        assert!(decision.allow_cross_account_failover);
+        assert!(!decision.track_invalid_request);
+        assert_eq!(decision.outward_code, "server_overloaded");
+    }
+
+    #[test]
+    fn http_quota_errors_prefer_cross_account_failover() {
+        let headers = HeaderMap::new();
+        let context = build_upstream_error_context(
+            StatusCode::TOO_MANY_REQUESTS,
+            &headers,
+            br#"{"error":{"message":"You exceeded your current quota, please check your plan and billing details"}}"#,
+        )
+        .expect("official quota payload should build context");
+        let decision = decide_upstream_error(UpstreamErrorSource::Http, Some(&context));
+
+        assert_eq!(decision.retry_scope, RetryScope::CrossAccount);
+        assert!(decision.allow_cross_account_failover);
+        assert!(!decision.track_invalid_request);
+        assert_eq!(decision.outward_code, "quota_exhausted");
+    }
+
+    #[test]
+    fn ws_previous_response_not_found_does_not_trigger_failover() {
+        let headers = HeaderMap::new();
+        let context = build_upstream_error_context(
+            StatusCode::BAD_REQUEST,
+            &headers,
+            br#"{"type":"error","error":{"code":"previous_response_not_found","message":"previous response was not found"}}"#,
+        )
+        .expect("ws error payload should build context");
+        let decision = decide_upstream_error(UpstreamErrorSource::WsPrelude, Some(&context));
+
+        assert_eq!(decision.retry_scope, RetryScope::None);
+        assert!(!decision.allow_cross_account_failover);
+        assert!(decision.track_invalid_request);
+        assert_eq!(decision.outward_code, "upstream_request_failed");
+    }
+
+    #[test]
+    fn ws_connection_limit_reached_does_not_trigger_failover() {
+        let headers = HeaderMap::new();
+        let context = build_upstream_error_context(
+            StatusCode::BAD_REQUEST,
+            &headers,
+            br#"{"type":"error","error":{"code":"websocket_connection_limit_reached","message":"The connection hit the 60-minute limit."}}"#,
+        )
+        .expect("ws connection-limit payload should build context");
+        let decision = decide_upstream_error(UpstreamErrorSource::WsPrelude, Some(&context));
+
+        assert_eq!(decision.retry_scope, RetryScope::None);
+        assert!(!decision.allow_cross_account_failover);
+        assert!(decision.track_invalid_request);
+        assert_eq!(decision.outward_code, "upstream_request_failed");
     }
 }
