@@ -14,6 +14,8 @@ const DEFAULT_OPENAI_OAUTH_TIMEOUT_SEC: u64 = 15;
 const DEFAULT_OAUTH_EXPIRES_IN_SEC: i64 = 3600;
 const CODEX_DEFAULT_USER_AGENT: &str = "codex-cli";
 const CHATGPT_ACCOUNT_ID_HEADER: &str = "ChatGPT-Account-Id";
+const CHATGPT_ACCOUNTS_CHECK_PATH: &str =
+    "/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=0";
 const OPENAI_AUTH_NESTED_CLAIM_KEY: &str = "https://api.openai.com/auth";
 const OPENAI_PROFILE_NESTED_CLAIM_KEY: &str = "https://api.openai.com/profile";
 
@@ -69,6 +71,7 @@ pub struct OAuthTokenInfo {
     pub chatgpt_subscription_last_checked: Option<DateTime<Utc>>,
     pub chatgpt_account_user_id: Option<String>,
     pub chatgpt_compute_residency: Option<String>,
+    pub workspace_name: Option<String>,
     pub organizations: Option<Vec<Value>>,
     pub groups: Option<Vec<Value>>,
 }
@@ -109,6 +112,15 @@ pub trait OAuthTokenClient: Send + Sync {
         refresh_token: &str,
         base_url: Option<&str>,
     ) -> Result<OAuthTokenInfo, OAuthTokenClientError>;
+
+    async fn fetch_workspace_name(
+        &self,
+        _access_token: &str,
+        _base_url: Option<&str>,
+        _chatgpt_account_id: Option<&str>,
+    ) -> Result<Option<String>, OAuthTokenClientError> {
+        Ok(None)
+    }
 
     async fn fetch_rate_limits(
         &self,
@@ -404,7 +416,7 @@ impl OAuthTokenClient for OpenAiOAuthClient {
     async fn refresh_token(
         &self,
         refresh_token: &str,
-        _base_url: Option<&str>,
+        base_url: Option<&str>,
     ) -> Result<OAuthTokenInfo, OAuthTokenClientError> {
         if self.token_url.trim().is_empty() {
             return Err(OAuthTokenClientError::NotConfigured);
@@ -502,8 +514,25 @@ impl OAuthTokenClient for OpenAiOAuthClient {
                     .and_then(|claims| claims.email.clone())
             });
 
+        let access_token = payload.access_token;
+        let workspace_name = if chatgpt_plan_type
+            .as_deref()
+            .is_some_and(|plan| plan.trim().eq_ignore_ascii_case("team"))
+        {
+            self.fetch_workspace_name_from_backend_api(
+                &access_token,
+                base_url,
+                chatgpt_account_id.as_deref(),
+            )
+            .await
+            .ok()
+            .flatten()
+        } else {
+            None
+        };
+
         Ok(OAuthTokenInfo {
-            access_token: payload.access_token,
+            access_token,
             refresh_token: payload
                 .refresh_token
                 .unwrap_or_else(|| refresh_token.to_string()),
@@ -555,6 +584,7 @@ impl OAuthTokenClient for OpenAiOAuthClient {
             chatgpt_compute_residency: access_token_claims
                 .as_ref()
                 .and_then(|claims| claims.chatgpt_compute_residency.clone()),
+            workspace_name,
             organizations: id_token_claims
                 .as_ref()
                 .and_then(|claims| claims.organizations.clone()),
@@ -622,6 +652,82 @@ impl OAuthTokenClient for OpenAiOAuthClient {
             .map_err(|_| OAuthTokenClientError::Parse)?;
         Ok(rate_limit_snapshots_from_payload(payload))
     }
+
+    async fn fetch_workspace_name(
+        &self,
+        access_token: &str,
+        base_url: Option<&str>,
+        chatgpt_account_id: Option<&str>,
+    ) -> Result<Option<String>, OAuthTokenClientError> {
+        self.fetch_workspace_name_from_backend_api(
+            access_token,
+            base_url,
+            chatgpt_account_id,
+        )
+        .await
+    }
+}
+
+impl OpenAiOAuthClient {
+    async fn fetch_workspace_name_from_backend_api(
+        &self,
+        access_token: &str,
+        base_url: Option<&str>,
+        chatgpt_account_id: Option<&str>,
+    ) -> Result<Option<String>, OAuthTokenClientError> {
+        let trimmed_access_token = access_token.trim();
+        let trimmed_account_id = chatgpt_account_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if trimmed_access_token.is_empty() || trimmed_account_id.is_none() {
+            return Ok(None);
+        }
+        let Some(endpoint) = resolve_workspace_check_endpoint(base_url) else {
+            return Ok(None);
+        };
+
+        let response = self
+            .http_client
+            .get(endpoint)
+            .bearer_auth(trimmed_access_token)
+            .header(reqwest::header::USER_AGENT, CODEX_DEFAULT_USER_AGENT)
+            .header(CHATGPT_ACCOUNT_ID_HEADER, trimmed_account_id.unwrap())
+            .send()
+            .await
+            .map_err(|err| OAuthTokenClientError::Upstream {
+                code: OAuthRefreshErrorCode::UpstreamUnavailable,
+                message: err.to_string(),
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let raw_body = response.text().await.unwrap_or_default();
+            let parsed_error = serde_json::from_str::<OAuthTokenEndpointError>(&raw_body).ok();
+            let error_code = classify_oauth_error_code(status, parsed_error.as_ref(), &raw_body);
+            let message = parsed_error
+                .as_ref()
+                .and_then(|item| {
+                    item.error_description
+                        .clone()
+                        .or_else(|| item.message.clone())
+                })
+                .or_else(|| parsed_error.and_then(|item| item.error))
+                .unwrap_or_else(|| truncate_message(&raw_body, 256));
+            return Err(OAuthTokenClientError::Upstream {
+                code: error_code,
+                message: format!("status={status} message={message}"),
+            });
+        }
+
+        let payload = response
+            .json::<Value>()
+            .await
+            .map_err(|_| OAuthTokenClientError::Parse)?;
+        Ok(parse_workspace_name_from_accounts_check(
+            &payload,
+            trimmed_account_id.unwrap(),
+        ))
+    }
 }
 
 fn resolve_usage_endpoint(base_url: Option<&str>) -> String {
@@ -643,6 +749,23 @@ fn normalize_chatgpt_base_url(base_url: Option<&str>) -> String {
         normalized.pop();
     }
     normalized
+}
+
+fn resolve_workspace_check_endpoint(base_url: Option<&str>) -> Option<String> {
+    let normalized = normalize_chatgpt_base_url(base_url);
+    if let Some((prefix, _)) = normalized.split_once("/backend-api") {
+        return Some(format!("{prefix}{CHATGPT_ACCOUNTS_CHECK_PATH}"));
+    }
+
+    let parsed = reqwest::Url::parse(&normalized).ok()?;
+    let host = parsed.host_str()?.trim();
+    let is_chatgpt_host =
+        host.eq_ignore_ascii_case("chatgpt.com") || host.ends_with(".chatgpt.com");
+    if !is_chatgpt_host {
+        return None;
+    }
+
+    Some(format!("{}://{}{}", parsed.scheme(), host, CHATGPT_ACCOUNTS_CHECK_PATH))
 }
 
 fn rate_limit_snapshots_from_payload(
@@ -933,6 +1056,96 @@ fn claim_array(claims: &Value, keys: &[&str]) -> Option<Vec<Value>> {
     None
 }
 
+fn parse_workspace_name_from_accounts_check(
+    payload: &Value,
+    target_account_id: &str,
+) -> Option<String> {
+    let trimmed_target = target_account_id.trim();
+    if trimmed_target.is_empty() {
+        return None;
+    }
+
+    find_workspace_name_in_value(payload, trimmed_target)
+}
+
+fn find_workspace_name_in_value(value: &Value, target_account_id: &str) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            if object_matches_workspace_id(value, target_account_id) {
+                if let Some(name) = claim_string(
+                    value,
+                    &[
+                        "workspace_name",
+                        "workspaceName",
+                        "display_name",
+                        "displayName",
+                        "name",
+                        "title",
+                        "label",
+                    ],
+                ) {
+                    return Some(name);
+                }
+
+                for nested_key in ["workspace", "account", "current_workspace", "current_account"] {
+                    if let Some(name) = map.get(nested_key).and_then(extract_workspace_name_label)
+                    {
+                        return Some(name);
+                    }
+                }
+            }
+
+            if let Some(name) = map
+                .get(target_account_id)
+                .and_then(extract_workspace_name_label)
+            {
+                return Some(name);
+            }
+
+            for child in map.values() {
+                if let Some(name) = find_workspace_name_in_value(child, target_account_id) {
+                    return Some(name);
+                }
+            }
+            None
+        }
+        Value::Array(items) => items
+            .iter()
+            .find_map(|item| find_workspace_name_in_value(item, target_account_id)),
+        _ => None,
+    }
+}
+
+fn object_matches_workspace_id(value: &Value, target_account_id: &str) -> bool {
+    claim_string(
+        value,
+        &[
+            "workspace_id",
+            "workspaceId",
+            "account_id",
+            "accountId",
+            "id",
+        ],
+    )
+    .as_deref()
+        == Some(target_account_id)
+}
+
+fn extract_workspace_name_label(value: &Value) -> Option<String> {
+    claim_string(
+        value,
+        &[
+            "workspace_name",
+            "workspaceName",
+            "display_name",
+            "displayName",
+            "name",
+            "title",
+            "label",
+        ],
+    )
+}
+
 fn classify_oauth_error_code(
     status: StatusCode,
     parsed_error: Option<&OAuthTokenEndpointError>,
@@ -999,7 +1212,8 @@ fn classify_oauth_error_code(
 mod tests {
     use super::{
         classify_oauth_error_code, parse_access_token_claims, parse_id_token_claims,
-        resolve_usage_endpoint,
+        parse_workspace_name_from_accounts_check, resolve_usage_endpoint,
+        resolve_workspace_check_endpoint,
         OAuthRefreshErrorCode, OAuthTokenEndpointError,
     };
     use base64::Engine;
@@ -1056,6 +1270,22 @@ mod tests {
     fn resolve_usage_endpoint_falls_back_for_non_backend_api_base() {
         let endpoint = resolve_usage_endpoint(Some("https://example.com/codex"));
         assert_eq!(endpoint, "https://example.com/codex/api/codex/usage");
+    }
+
+    #[test]
+    fn resolve_workspace_check_endpoint_uses_backend_api_root_for_codex_base() {
+        let endpoint =
+            resolve_workspace_check_endpoint(Some("https://chatgpt.com/backend-api/codex"));
+        assert_eq!(
+            endpoint.as_deref(),
+            Some("https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=0")
+        );
+    }
+
+    #[test]
+    fn resolve_workspace_check_endpoint_skips_non_chatgpt_base() {
+        let endpoint = resolve_workspace_check_endpoint(Some("https://example.com/codex"));
+        assert_eq!(endpoint, None);
     }
 
     #[test]
@@ -1188,5 +1418,27 @@ mod tests {
         );
         assert_eq!(claims.chatgpt_plan_type.as_deref(), Some("team"));
         assert_eq!(claims.chatgpt_user_id.as_deref(), Some("user_shared"));
+    }
+
+    #[test]
+    fn parse_workspace_name_from_accounts_check_matches_target_workspace() {
+        let payload = json!({
+            "accounts": [
+                {
+                    "account_id": "acct-free",
+                    "name": "OAI-01.01"
+                },
+                {
+                    "workspace": {
+                        "workspace_id": "acct-team",
+                        "name": "OAI-03.09"
+                    }
+                }
+            ]
+        });
+
+        let workspace_name =
+            parse_workspace_name_from_accounts_check(&payload, "acct-team");
+        assert_eq!(workspace_name.as_deref(), Some("OAI-03.09"));
     }
 }

@@ -56,6 +56,7 @@ export interface OAuthAccountStatusResponse {
     chatgpt_subscription_last_checked?: string
     chatgpt_account_user_id?: string
     chatgpt_compute_residency?: string
+    workspace_name?: string
     organizations?: unknown[]
     groups?: unknown[]
     source_type?: string

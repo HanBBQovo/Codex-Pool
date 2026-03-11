@@ -126,9 +126,9 @@ export function useAccountsColumns({
         cell: ({ row }) => {
           const status = oauthStatusMap.get(row.original.id)
           const primaryIdentity = status?.email?.trim() || row.original.label
-          const secondaryIdentity =
-            status?.email?.trim() && row.original.label.trim() !== primaryIdentity
-              ? row.original.label
+          const workspaceName =
+            normalizePlanValue(status?.chatgpt_plan_type) === 'team'
+              ? status?.workspace_name?.trim() || null
               : null
 
           return (
@@ -136,12 +136,15 @@ export function useAccountsColumns({
               <div className="font-medium text-foreground truncate" title={primaryIdentity}>
                 {primaryIdentity}
               </div>
-              {secondaryIdentity ? (
-                <div
-                  className="mt-0.5 truncate text-xs text-muted-foreground"
-                  title={secondaryIdentity}
-                >
-                  {secondaryIdentity}
+              {workspaceName ? (
+                <div className="mt-1">
+                  <Badge
+                    variant="secondary"
+                    className="max-w-full truncate text-[11px] font-normal"
+                    title={workspaceName}
+                  >
+                    {workspaceName}
+                  </Badge>
                 </div>
               ) : null}
             </div>

@@ -276,6 +276,7 @@ fn sample_cached_oauth_status(account_id: Uuid) -> OAuthAccountStatusResponse {
         chatgpt_subscription_last_checked: None,
         chatgpt_account_user_id: None,
         chatgpt_compute_residency: None,
+        workspace_name: None,
         organizations: None,
         groups: None,
         source_type: Some("codex".to_string()),
@@ -826,6 +827,7 @@ impl OAuthTokenClient for StaticOAuthTokenClient {
             chatgpt_subscription_last_checked: None,
             chatgpt_account_user_id: Some("acct_user_api".to_string()),
             chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: None,
             organizations: None,
             groups: None,
         })

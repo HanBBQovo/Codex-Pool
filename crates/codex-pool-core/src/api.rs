@@ -116,6 +116,8 @@ pub struct OAuthAccountStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chatgpt_compute_residency: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub organizations: Option<Vec<Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub groups: Option<Vec<Value>>,

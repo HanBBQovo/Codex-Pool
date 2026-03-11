@@ -1001,6 +1001,7 @@ impl PostgresStore {
                 chatgpt_subscription_last_checked TIMESTAMPTZ NULL,
                 chatgpt_account_user_id TEXT NULL,
                 chatgpt_compute_residency TEXT NULL,
+                workspace_name TEXT NULL,
                 organizations_json JSONB NULL,
                 groups_json JSONB NULL,
                 source_type TEXT NULL,
@@ -1123,6 +1124,16 @@ impl PostgresStore {
         .context(
             "failed to add upstream_account_session_profiles.chatgpt_compute_residency column",
         )?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE upstream_account_session_profiles
+            ADD COLUMN IF NOT EXISTS workspace_name TEXT NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add upstream_account_session_profiles.workspace_name column")?;
 
         sqlx::query(
             r#"

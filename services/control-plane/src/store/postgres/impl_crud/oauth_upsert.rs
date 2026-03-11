@@ -245,12 +245,13 @@ impl PostgresStore {
                 chatgpt_subscription_last_checked,
                 chatgpt_account_user_id,
                 chatgpt_compute_residency,
+                workspace_name,
                 organizations_json,
                 groups_json,
                 source_type,
                 updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             ON CONFLICT (account_id) DO UPDATE
             SET
                 credential_kind = EXCLUDED.credential_kind,
@@ -266,6 +267,7 @@ impl PostgresStore {
                 chatgpt_subscription_last_checked = COALESCE(EXCLUDED.chatgpt_subscription_last_checked, upstream_account_session_profiles.chatgpt_subscription_last_checked),
                 chatgpt_account_user_id = COALESCE(EXCLUDED.chatgpt_account_user_id, upstream_account_session_profiles.chatgpt_account_user_id),
                 chatgpt_compute_residency = COALESCE(EXCLUDED.chatgpt_compute_residency, upstream_account_session_profiles.chatgpt_compute_residency),
+                workspace_name = COALESCE(EXCLUDED.workspace_name, upstream_account_session_profiles.workspace_name),
                 organizations_json = COALESCE(EXCLUDED.organizations_json, upstream_account_session_profiles.organizations_json),
                 groups_json = COALESCE(EXCLUDED.groups_json, upstream_account_session_profiles.groups_json),
                 source_type = COALESCE(EXCLUDED.source_type, upstream_account_session_profiles.source_type),
@@ -286,6 +288,7 @@ impl PostgresStore {
         .bind(profile.chatgpt_subscription_last_checked.as_ref().cloned())
         .bind(profile.chatgpt_account_user_id.clone())
         .bind(profile.chatgpt_compute_residency.clone())
+        .bind(profile.workspace_name.clone())
         .bind(organizations_json)
         .bind(groups_json)
         .bind(profile.source_type.clone())

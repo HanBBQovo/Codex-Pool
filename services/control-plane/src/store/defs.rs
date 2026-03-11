@@ -336,6 +336,7 @@ struct SessionProfileRecord {
     chatgpt_subscription_last_checked: Option<DateTime<Utc>>,
     chatgpt_account_user_id: Option<String>,
     chatgpt_compute_residency: Option<String>,
+    workspace_name: Option<String>,
     organizations: Option<Vec<Value>>,
     groups: Option<Vec<Value>>,
     source_type: Option<String>,
@@ -371,6 +372,7 @@ impl SessionProfileRecord {
                 .cloned(),
             chatgpt_account_user_id: token_info.chatgpt_account_user_id.clone(),
             chatgpt_compute_residency: token_info.chatgpt_compute_residency.clone(),
+            workspace_name: token_info.workspace_name.clone(),
             organizations: token_info.organizations.clone(),
             groups: token_info.groups.clone(),
             source_type,
@@ -396,6 +398,7 @@ impl SessionProfileRecord {
             chatgpt_subscription_last_checked: None,
             chatgpt_account_user_id: None,
             chatgpt_compute_residency: None,
+            workspace_name: None,
             organizations: None,
             groups: None,
             source_type,
@@ -445,6 +448,7 @@ impl SessionProfileRecord {
             .chatgpt_compute_residency
             .clone()
             .or(self.chatgpt_compute_residency);
+        self.workspace_name = token_info.workspace_name.clone().or(self.workspace_name);
         self.organizations = token_info.organizations.clone().or(self.organizations);
         self.groups = token_info.groups.clone().or(self.groups);
         self.source_type = source_type.or(self.source_type);

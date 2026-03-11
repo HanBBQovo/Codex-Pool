@@ -1,4 +1,116 @@
 impl PostgresStore {
+    async fn maybe_backfill_workspace_name_for_status(
+        &self,
+        account_id: Uuid,
+        base_url: &str,
+        chatgpt_account_id: Option<&str>,
+        chatgpt_plan_type: Option<&str>,
+        workspace_name: Option<&str>,
+        access_token_enc: Option<&str>,
+    ) -> Option<String> {
+        if !chatgpt_plan_type
+            .is_some_and(|plan| plan.trim().eq_ignore_ascii_case("team"))
+        {
+            return workspace_name
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+        if let Some(existing) = workspace_name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+        {
+            return Some(existing);
+        }
+        let trimmed_account_id = chatgpt_account_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        let cipher = match self.require_credential_cipher() {
+            Ok(cipher) => cipher,
+            Err(err) => {
+                tracing::warn!(
+                    account_id = %account_id,
+                    error = %err,
+                    "workspace name probe skipped because credential cipher is unavailable"
+                );
+                return None;
+            }
+        };
+        let access_token = match access_token_enc {
+            Some(raw) if !raw.trim().is_empty() => match cipher.decrypt(raw) {
+                Ok(token) if !token.trim().is_empty() => token,
+                Ok(_) => return None,
+                Err(err) => {
+                    tracing::warn!(
+                        account_id = %account_id,
+                        error = %err,
+                        "workspace name probe skipped because access token decrypt failed"
+                    );
+                    return None;
+                }
+            },
+            _ => return None,
+        };
+
+        let workspace_name = match self
+            .oauth_client
+            .fetch_workspace_name(&access_token, Some(base_url), Some(trimmed_account_id))
+            .await
+        {
+            Ok(Some(name)) if !name.trim().is_empty() => name.trim().to_string(),
+            Ok(_) => return None,
+            Err(err) => {
+                tracing::warn!(
+                    account_id = %account_id,
+                    error = %err,
+                    "workspace name probe failed during oauth status lookup"
+                );
+                return None;
+            }
+        };
+
+        if let Err(err) = self
+            .persist_workspace_name_for_account(account_id, &workspace_name)
+            .await
+        {
+            tracing::warn!(
+                account_id = %account_id,
+                error = %err,
+                "failed to persist backfilled workspace name"
+            );
+        }
+
+        Some(workspace_name)
+    }
+
+    async fn persist_workspace_name_for_account(
+        &self,
+        account_id: Uuid,
+        workspace_name: &str,
+    ) -> Result<()> {
+        let trimmed_workspace_name = workspace_name.trim();
+        if trimmed_workspace_name.is_empty() {
+            return Ok(());
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE upstream_account_session_profiles
+            SET workspace_name = $2, updated_at = $3
+            WHERE account_id = $1
+            "#,
+        )
+        .bind(account_id)
+        .bind(trimmed_workspace_name)
+        .bind(Utc::now())
+        .execute(&self.pool)
+        .await
+        .context("failed to persist workspace name backfill")?;
+
+        Ok(())
+    }
+
     async fn fetch_oauth_account_status(
         &self,
         account_id: Uuid,
@@ -25,6 +137,7 @@ impl PostgresStore {
                 p.chatgpt_subscription_last_checked,
                 p.chatgpt_account_user_id,
                 p.chatgpt_compute_residency,
+                p.workspace_name,
                 p.organizations_json::text AS organizations_json_text,
                 p.groups_json::text AS groups_json_text,
                 p.source_type,
@@ -120,6 +233,17 @@ impl PostgresStore {
             _ => None,
         };
 
+        let workspace_name = self
+            .maybe_backfill_workspace_name_for_status(
+                account_id,
+                row.try_get::<String, _>("base_url")?.as_str(),
+                row.try_get::<Option<String>, _>("chatgpt_account_id")?.as_deref(),
+                row.try_get::<Option<String>, _>("chatgpt_plan_type")?.as_deref(),
+                row.try_get::<Option<String>, _>("workspace_name")?.as_deref(),
+                row.try_get::<Option<String>, _>("access_token_enc")?.as_deref(),
+            )
+            .await;
+
         Ok(OAuthAccountStatusResponse {
             account_id,
             auth_provider,
@@ -141,6 +265,7 @@ impl PostgresStore {
                 .try_get::<Option<String>, _>("chatgpt_account_user_id")?,
             chatgpt_compute_residency: row
                 .try_get::<Option<String>, _>("chatgpt_compute_residency")?,
+            workspace_name,
             organizations: parse_json_array(
                 row.try_get::<Option<String>, _>("organizations_json_text")?,
             ),
@@ -195,6 +320,7 @@ impl PostgresStore {
                 p.chatgpt_subscription_last_checked,
                 p.chatgpt_account_user_id,
                 p.chatgpt_compute_residency,
+                p.workspace_name,
                 p.organizations_json::text AS organizations_json_text,
                 p.groups_json::text AS groups_json_text,
                 p.source_type,
@@ -227,6 +353,9 @@ impl PostgresStore {
         let now = Utc::now();
         struct PendingOAuthStatus {
             account_id: Uuid,
+            base_url: String,
+            chatgpt_account_id: Option<String>,
+            access_token_enc: Option<String>,
             auth_provider: UpstreamAuthProvider,
             credential_kind: Option<SessionCredentialKind>,
             email: Option<String>,
@@ -240,6 +369,7 @@ impl PostgresStore {
             chatgpt_subscription_last_checked: Option<DateTime<Utc>>,
             chatgpt_account_user_id: Option<String>,
             chatgpt_compute_residency: Option<String>,
+            workspace_name: Option<String>,
             organizations: Option<Vec<serde_json::Value>>,
             groups: Option<Vec<serde_json::Value>>,
             source_type: Option<String>,
@@ -328,6 +458,9 @@ impl PostgresStore {
             };
             pending.push(PendingOAuthStatus {
                 account_id,
+                base_url: row.try_get::<String, _>("base_url")?,
+                chatgpt_account_id: row.try_get::<Option<String>, _>("chatgpt_account_id")?,
+                access_token_enc: row.try_get::<Option<String>, _>("access_token_enc")?,
                 auth_provider,
                 credential_kind,
                 email: row.try_get::<Option<String>, _>("email")?,
@@ -347,6 +480,7 @@ impl PostgresStore {
                     .try_get::<Option<String>, _>("chatgpt_account_user_id")?,
                 chatgpt_compute_residency: row
                     .try_get::<Option<String>, _>("chatgpt_compute_residency")?,
+                workspace_name: row.try_get::<Option<String>, _>("workspace_name")?,
                 organizations: parse_json_array(
                     row.try_get::<Option<String>, _>("organizations_json_text")?,
                 ),
@@ -373,7 +507,17 @@ impl PostgresStore {
         }
 
         let mut status_by_id = std::collections::HashMap::with_capacity(pending.len());
-        for item in pending {
+        for mut item in pending {
+            item.workspace_name = self
+                .maybe_backfill_workspace_name_for_status(
+                    item.account_id,
+                    &item.base_url,
+                    item.chatgpt_account_id.as_deref(),
+                    item.chatgpt_plan_type.as_deref(),
+                    item.workspace_name.as_deref(),
+                    item.access_token_enc.as_deref(),
+                )
+                .await;
             status_by_id.insert(
                 item.account_id,
                 OAuthAccountStatusResponse {
@@ -392,6 +536,7 @@ impl PostgresStore {
                         .chatgpt_subscription_last_checked,
                     chatgpt_account_user_id: item.chatgpt_account_user_id,
                     chatgpt_compute_residency: item.chatgpt_compute_residency,
+                    workspace_name: item.workspace_name,
                     organizations: item.organizations,
                     groups: item.groups,
                     source_type: item.source_type,

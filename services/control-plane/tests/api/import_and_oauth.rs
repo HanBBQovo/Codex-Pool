@@ -149,6 +149,14 @@ impl control_plane::oauth::OAuthTokenClient for SharedAccountIdOAuthTokenClient 
             chatgpt_subscription_last_checked: None,
             chatgpt_account_user_id: Some(account_user_id.to_string()),
             chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: Some(
+                if refresh_token.contains("workspace-a") {
+                    "OAI-03.09"
+                } else {
+                    "OAI-07.11"
+                }
+                .to_string(),
+            ),
             organizations: Some(vec![json!({
                 "id": "org_shared",
                 "title": "Personal",
@@ -186,6 +194,7 @@ impl control_plane::oauth::OAuthTokenClient for FixedAccountIdOAuthTokenClient {
             chatgpt_subscription_last_checked: None,
             chatgpt_account_user_id: Some(self.account_user_id.to_string()),
             chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: Some("OAI-03.09".to_string()),
             organizations: Some(vec![json!({
                 "id": "org_shared",
                 "title": "Personal",

@@ -616,7 +616,10 @@ impl InMemoryStore {
         ))
     }
 
-    fn oauth_account_status_inner(&self, account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
+    async fn oauth_account_status_inner(
+        &self,
+        account_id: Uuid,
+    ) -> Result<OAuthAccountStatusResponse> {
         let account = self
             .accounts
             .read()
@@ -638,12 +641,108 @@ impl InMemoryStore {
             .get(&account_id)
             .cloned();
 
+        let session_profile = self
+            .maybe_backfill_workspace_name_from_probe_inner(
+                &account,
+                provider.clone(),
+                oauth_credential.as_ref(),
+                session_profile,
+            )
+            .await;
+
         Ok(self.oauth_status_from(
             &account,
             provider,
             oauth_credential.as_ref(),
             session_profile.as_ref(),
         ))
+    }
+
+    async fn maybe_backfill_workspace_name_from_probe_inner(
+        &self,
+        account: &UpstreamAccount,
+        provider: UpstreamAuthProvider,
+        oauth_credential: Option<&OAuthCredentialRecord>,
+        session_profile: Option<SessionProfileRecord>,
+    ) -> Option<SessionProfileRecord> {
+        let Some(mut profile) = session_profile else {
+            return None;
+        };
+        if provider != UpstreamAuthProvider::OAuthRefreshToken {
+            return Some(profile);
+        }
+        if !profile
+            .chatgpt_plan_type
+            .as_deref()
+            .is_some_and(|plan| plan.trim().eq_ignore_ascii_case("team"))
+        {
+            return Some(profile);
+        }
+        if profile
+            .workspace_name
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return Some(profile);
+        }
+        let Some(chatgpt_account_id) = account
+            .chatgpt_account_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Some(profile);
+        };
+        let Some(credential) = oauth_credential else {
+            return Some(profile);
+        };
+        let cipher = match self.require_credential_cipher() {
+            Ok(cipher) => cipher,
+            Err(err) => {
+                tracing::warn!(
+                    account_id = %account.id,
+                    error = %err,
+                    "workspace name probe skipped because credential cipher is unavailable"
+                );
+                return Some(profile);
+            }
+        };
+        let access_token = match cipher.decrypt(&credential.access_token_enc) {
+            Ok(token) if !token.trim().is_empty() => token,
+            Ok(_) => return Some(profile),
+            Err(err) => {
+                tracing::warn!(
+                    account_id = %account.id,
+                    error = %err,
+                    "workspace name probe skipped because access token decrypt failed"
+                );
+                return Some(profile);
+            }
+        };
+        let workspace_name = match self
+            .oauth_client
+            .fetch_workspace_name(
+                &access_token,
+                Some(&account.base_url),
+                Some(chatgpt_account_id),
+            )
+            .await
+        {
+            Ok(Some(name)) if !name.trim().is_empty() => name.trim().to_string(),
+            Ok(_) => return Some(profile),
+            Err(err) => {
+                tracing::warn!(
+                    account_id = %account.id,
+                    error = %err,
+                    "workspace name probe failed during oauth status lookup"
+                );
+                return Some(profile);
+            }
+        };
+
+        profile.workspace_name = Some(workspace_name);
+        self.upsert_session_profile(account.id, profile.clone());
+        Some(profile)
     }
 
     async fn refresh_expiring_oauth_accounts_inner(&self) {

@@ -84,7 +84,7 @@ impl ControlPlaneStore for InMemoryStore {
     }
 
     async fn oauth_account_status(&self, account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
-        self.oauth_account_status_inner(account_id)
+        self.oauth_account_status_inner(account_id).await
     }
 
     async fn upsert_routing_policy(
@@ -285,6 +285,7 @@ mod tests {
                 ),
                 chatgpt_account_user_id: Some("acct_user_demo".to_string()),
                 chatgpt_compute_residency: Some("us".to_string()),
+                workspace_name: None,
                 organizations: Some(vec![json!({
                     "id": "org_demo",
                     "title": "Personal",
@@ -307,10 +308,18 @@ mod tests {
             refresh_token: &str,
             _base_url: Option<&str>,
         ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
-            let (email, account_user_id) = if refresh_token.contains("workspace-b") {
-                ("shared-workspace-b@example.com", "acct_user_shared_workspace_b")
+            let (email, account_user_id, workspace_name) = if refresh_token.contains("workspace-b") {
+                (
+                    "shared-workspace-b@example.com",
+                    "acct_user_shared_workspace_b",
+                    "OAI-07.11",
+                )
             } else {
-                ("shared-workspace-a@example.com", "acct_user_shared_workspace_a")
+                (
+                    "shared-workspace-a@example.com",
+                    "acct_user_shared_workspace_a",
+                    "OAI-03.09",
+                )
             };
             Ok(OAuthTokenInfo {
                 access_token: format!("access-{refresh_token}"),
@@ -330,12 +339,66 @@ mod tests {
                 chatgpt_subscription_last_checked: None,
                 chatgpt_account_user_id: Some(account_user_id.to_string()),
                 chatgpt_compute_residency: Some("us".to_string()),
+                workspace_name: Some(workspace_name.to_string()),
                 organizations: Some(vec![json!({
                     "id": "org_shared",
                     "title": "Personal",
                 })]),
                 groups: Some(vec![]),
             })
+        }
+    }
+
+    #[derive(Clone)]
+    struct TeamWorkspaceProbeOAuthTokenClient;
+
+    #[async_trait]
+    impl OAuthTokenClient for TeamWorkspaceProbeOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            _refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            Ok(OAuthTokenInfo {
+                access_token: "probe-access".to_string(),
+                refresh_token: "probe-refresh".to_string(),
+                expires_at: Utc::now() + Duration::seconds(3600),
+                token_type: Some("Bearer".to_string()),
+                scope: Some("model.read".to_string()),
+                email: Some("team-probe@example.com".to_string()),
+                oauth_subject: Some("auth0|team-probe".to_string()),
+                oauth_identity_provider: Some("google-oauth2".to_string()),
+                email_verified: Some(true),
+                chatgpt_account_id: Some("acct_probe_team".to_string()),
+                chatgpt_user_id: Some("user_probe_team".to_string()),
+                chatgpt_plan_type: Some("team".to_string()),
+                chatgpt_subscription_active_start: None,
+                chatgpt_subscription_active_until: None,
+                chatgpt_subscription_last_checked: None,
+                chatgpt_account_user_id: Some("acct_user_probe_team".to_string()),
+                chatgpt_compute_residency: Some("us".to_string()),
+                workspace_name: None,
+                organizations: Some(vec![json!({
+                    "id": "org_probe_team",
+                    "title": "Personal",
+                })]),
+                groups: Some(vec![]),
+            })
+        }
+
+        async fn fetch_workspace_name(
+            &self,
+            access_token: &str,
+            _base_url: Option<&str>,
+            chatgpt_account_id: Option<&str>,
+        ) -> Result<Option<String>, crate::oauth::OAuthTokenClientError> {
+            if access_token == "probe-access"
+                && chatgpt_account_id == Some("acct_probe_team")
+            {
+                return Ok(Some("OAI-03.09".to_string()));
+            }
+
+            Ok(None)
         }
     }
 
@@ -418,6 +481,68 @@ mod tests {
         );
         assert_eq!(status.organizations.as_ref().map(Vec::len), Some(1));
         assert_eq!(status.groups.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn in_memory_oauth_status_exposes_team_workspace_name() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([10_u8; 32]),
+        )
+        .unwrap();
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(SharedAccountIdOAuthTokenClient),
+            Some(cipher),
+        );
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-team-workspace".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-shared-workspace-a".to_string(),
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let status = store.oauth_account_status(account.id).await.unwrap();
+        assert_eq!(status.chatgpt_plan_type.as_deref(), Some("team"));
+        assert_eq!(status.workspace_name.as_deref(), Some("OAI-03.09"));
+    }
+
+    #[tokio::test]
+    async fn in_memory_oauth_status_backfills_team_workspace_name_from_probe() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([11_u8; 32]),
+        )
+        .unwrap();
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(TeamWorkspaceProbeOAuthTokenClient),
+            Some(cipher),
+        );
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-team-probe".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-team-probe".to_string(),
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let status = store.oauth_account_status(account.id).await.unwrap();
+        assert_eq!(status.chatgpt_plan_type.as_deref(), Some("team"));
+        assert_eq!(status.workspace_name.as_deref(), Some("OAI-03.09"));
     }
 
     #[tokio::test]

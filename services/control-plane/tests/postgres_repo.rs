@@ -152,6 +152,7 @@ impl OAuthTokenClient for RefreshThenRateLimitOAuthClient {
             ),
             chatgpt_account_user_id: Some("acct_user_rate_limit".to_string()),
             chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: Some("OAI-03.09".to_string()),
             organizations: Some(vec![json!({
                 "id": "org_rate_limit",
                 "title": "Personal",
@@ -225,6 +226,7 @@ impl OAuthTokenClient for SuccessThenQuotaOAuthClient {
             chatgpt_subscription_last_checked: None,
             chatgpt_account_user_id: Some("acct_user_outbox".to_string()),
             chatgpt_compute_residency: Some("eu".to_string()),
+            workspace_name: None,
             organizations: Some(vec![json!({
                 "id": "org_outbox",
                 "title": "Personal",
@@ -323,12 +325,77 @@ impl OAuthTokenClient for SharedAccountIdRecordingOAuthClient {
             chatgpt_subscription_last_checked: None,
             chatgpt_account_user_id: Some(account_user_id.to_string()),
             chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: Some(
+                if refresh_token.contains("workspace-b") {
+                    "OAI-07.11"
+                } else {
+                    "OAI-03.09"
+                }
+                .to_string(),
+            ),
             organizations: Some(vec![json!({
                 "id": "org_shared",
                 "title": "Personal",
             })]),
             groups: Some(vec![]),
         })
+    }
+}
+
+#[derive(Default)]
+struct WorkspaceProbeOAuthClient {
+    fetch_workspace_name_calls: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl OAuthTokenClient for WorkspaceProbeOAuthClient {
+    async fn refresh_token(
+        &self,
+        _refresh_token: &str,
+        _base_url: Option<&str>,
+    ) -> Result<OAuthTokenInfo, OAuthTokenClientError> {
+        Ok(OAuthTokenInfo {
+            access_token: "workspace-probe-access".to_string(),
+            refresh_token: "workspace-probe-refresh".to_string(),
+            expires_at: Utc::now() + Duration::hours(1),
+            token_type: Some("Bearer".to_string()),
+            scope: Some("model.read".to_string()),
+            email: Some("workspace-probe@example.com".to_string()),
+            oauth_subject: Some("auth0|workspace-probe".to_string()),
+            oauth_identity_provider: Some("google-oauth2".to_string()),
+            email_verified: Some(true),
+            chatgpt_account_id: Some("acct-workspace-probe".to_string()),
+            chatgpt_user_id: Some("user-workspace-probe".to_string()),
+            chatgpt_plan_type: Some("team".to_string()),
+            chatgpt_subscription_active_start: None,
+            chatgpt_subscription_active_until: None,
+            chatgpt_subscription_last_checked: None,
+            chatgpt_account_user_id: Some("acct_user_workspace_probe".to_string()),
+            chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: None,
+            organizations: Some(vec![json!({
+                "id": "org_workspace_probe",
+                "title": "Personal",
+            })]),
+            groups: Some(vec![]),
+        })
+    }
+
+    async fn fetch_workspace_name(
+        &self,
+        access_token: &str,
+        _base_url: Option<&str>,
+        chatgpt_account_id: Option<&str>,
+    ) -> Result<Option<String>, OAuthTokenClientError> {
+        self.fetch_workspace_name_calls
+            .fetch_add(1, Ordering::SeqCst);
+        if access_token == "workspace-probe-access"
+            && chatgpt_account_id == Some("acct-workspace-probe")
+        {
+            return Ok(Some("OAI-03.09".to_string()));
+        }
+
+        Ok(None)
     }
 }
 
@@ -358,6 +425,7 @@ impl OAuthTokenClient for RecordingOAuthClient {
             chatgpt_subscription_last_checked: None,
             chatgpt_account_user_id: Some("acct_user_recording".to_string()),
             chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: Some("OAI-REC".to_string()),
             organizations: Some(vec![json!({
                 "id": "org_recording",
                 "title": "Personal",
@@ -499,8 +567,52 @@ async fn postgres_repo_oauth_status_exposes_email() {
         status.chatgpt_compute_residency.as_deref(),
         Some("us")
     );
+    assert_eq!(status.workspace_name.as_deref(), Some("OAI-03.09"));
     assert_eq!(status.organizations.as_ref().map(Vec::len), Some(1));
     assert_eq!(status.groups.as_ref().map(Vec::len), Some(1));
+}
+
+#[tokio::test]
+async fn postgres_repo_oauth_statuses_backfill_team_workspace_name_from_probe() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_oauth_statuses_backfill_team_workspace_name_from_probe: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([14_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let oauth_client = Arc::new(WorkspaceProbeOAuthClient::default());
+    let repo = PostgresStore::connect_with_oauth(&db_url, oauth_client.clone(), Some(cipher))
+        .await
+        .unwrap();
+
+    let account = repo
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: format!("oauth-workspace-probe-{}", Uuid::new_v4().simple()),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: format!("rt-workspace-probe-{}", Uuid::new_v4().simple()),
+            chatgpt_account_id: None,
+            mode: Some(UpstreamMode::CodexOauth),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: None,
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+
+    let statuses = repo.oauth_account_statuses(vec![account.id]).await.unwrap();
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0].chatgpt_plan_type.as_deref(), Some("team"));
+    assert_eq!(statuses[0].workspace_name.as_deref(), Some("OAI-03.09"));
+    assert_eq!(
+        oauth_client
+            .fetch_workspace_name_calls
+            .load(Ordering::SeqCst),
+        1
+    );
 }
 
 #[tokio::test]

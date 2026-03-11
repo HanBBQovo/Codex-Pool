@@ -406,6 +406,7 @@ impl InMemoryStore {
                 .and_then(|item| item.chatgpt_account_user_id.clone()),
             chatgpt_compute_residency: session_profile
                 .and_then(|item| item.chatgpt_compute_residency.clone()),
+            workspace_name: session_profile.and_then(|item| item.workspace_name.clone()),
             organizations: session_profile.and_then(|item| item.organizations.clone()),
             groups: session_profile.and_then(|item| item.groups.clone()),
             source_type: session_profile.and_then(|item| item.source_type.clone()),
