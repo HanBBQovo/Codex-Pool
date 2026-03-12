@@ -393,6 +393,7 @@ export default function ModelRouting() {
   const [editingBuiltinTemplateDraft, setEditingBuiltinTemplateDraft] =
     useState<BuiltinErrorTemplateDraft | null>(null)
   const [versionsExpanded, setVersionsExpanded] = useState(false)
+  const [builtinTemplatesExpanded, setBuiltinTemplatesExpanded] = useState(false)
 
   const resolveErrorLabel = useCallback(
     (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
@@ -489,6 +490,10 @@ export default function ModelRouting() {
   const visibleVersions = useMemo(
     () => getPublishedVersionWindow(versions, versionsExpanded, 5),
     [versions, versionsExpanded],
+  )
+  const visibleBuiltinTemplates = useMemo(
+    () => getPublishedVersionWindow(builtinErrorTemplates, builtinTemplatesExpanded, 5),
+    [builtinErrorTemplates, builtinTemplatesExpanded],
   )
   const modelSelectorLabels = useMemo(
     () => ({
@@ -1495,7 +1500,7 @@ export default function ModelRouting() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/60">
+        <Card className="border-border/60 xl:col-span-2">
           <CardHeader>
             <CardTitle>{t('modelRoutingPage.errorLearning.builtinTemplates.title')}</CardTitle>
             <CardDescription>
@@ -1508,212 +1513,243 @@ export default function ModelRouting() {
                 {t('modelRoutingPage.errorLearning.builtinTemplates.empty')}
               </div>
             ) : (
-              builtinErrorTemplates.map((template) => {
-                const templateKey = builtinErrorTemplateKey(template)
-                const isEditing =
-                  editingBuiltinTemplateKey === templateKey && editingBuiltinTemplateDraft !== null
+              <>
+                <div
+                  className={
+                    builtinTemplatesExpanded
+                      ? 'max-h-[30rem] space-y-4 overflow-y-auto pr-2'
+                      : 'space-y-4'
+                  }
+                >
+                  {visibleBuiltinTemplates.visibleItems.map((template) => {
+                    const templateKey = builtinErrorTemplateKey(template)
+                    const isEditing =
+                      editingBuiltinTemplateKey === templateKey && editingBuiltinTemplateDraft !== null
 
-                return (
-                  <div key={templateKey} className={POOL_SECTION_CLASS_NAME}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">
-                            {builtinErrorTemplateKindLabel(template.kind, t)}
-                          </Badge>
-                          <Badge variant={template.is_overridden ? 'warning' : 'secondary'}>
-                            {template.is_overridden
-                              ? t('modelRoutingPage.errorLearning.builtinTemplates.overridden')
-                              : t('modelRoutingPage.errorLearning.builtinTemplates.defaultState')}
-                          </Badge>
-                          <Badge variant="secondary">{template.code}</Badge>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {t('modelRoutingPage.errorLearning.builtinTemplates.updatedAt', {
-                            value: formatDateTime(template.updated_at),
-                          })}
-                        </div>
-                      </div>
+                    return (
+                      <div key={templateKey} className={POOL_SECTION_CLASS_NAME}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="outline">
+                                {builtinErrorTemplateKindLabel(template.kind, t)}
+                              </Badge>
+                              <Badge variant={template.is_overridden ? 'warning' : 'secondary'}>
+                                {template.is_overridden
+                                  ? t('modelRoutingPage.errorLearning.builtinTemplates.overridden')
+                                  : t('modelRoutingPage.errorLearning.builtinTemplates.defaultState')}
+                              </Badge>
+                              <Badge variant="secondary">{template.code}</Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {t('modelRoutingPage.errorLearning.builtinTemplates.updatedAt', {
+                                value: formatDateTime(template.updated_at),
+                              })}
+                            </div>
+                          </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openBuiltinTemplateEditor(template)}
-                          disabled={anyBuiltinTemplateMutationPending}
-                        >
-                          <SquarePen className="mr-2 h-4 w-4" />
-                          {t('modelRoutingPage.actions.edit')}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            rewriteBuiltinTemplateMutation.mutate({
-                              kind: template.kind,
-                              code: template.code,
-                            })
-                          }
-                          disabled={anyBuiltinTemplateMutationPending}
-                        >
-                          <Sparkles className="mr-2 h-4 w-4" />
-                          {t('modelRoutingPage.errorLearning.actions.rewrite')}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            resetBuiltinTemplateMutation.mutate({
-                              kind: template.kind,
-                              code: template.code,
-                            })
-                          }
-                          disabled={anyBuiltinTemplateMutationPending || !template.is_overridden}
-                        >
-                          <RotateCw className="mr-2 h-4 w-4" />
-                          {t('modelRoutingPage.errorLearning.builtinTemplates.reset')}
-                        </Button>
-                      </div>
-                    </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openBuiltinTemplateEditor(template)}
+                              disabled={anyBuiltinTemplateMutationPending}
+                            >
+                              <SquarePen className="mr-2 h-4 w-4" />
+                              {t('modelRoutingPage.actions.edit')}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                rewriteBuiltinTemplateMutation.mutate({
+                                  kind: template.kind,
+                                  code: template.code,
+                                })
+                              }
+                              disabled={anyBuiltinTemplateMutationPending}
+                            >
+                              <Sparkles className="mr-2 h-4 w-4" />
+                              {t('modelRoutingPage.errorLearning.actions.rewrite')}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                resetBuiltinTemplateMutation.mutate({
+                                  kind: template.kind,
+                                  code: template.code,
+                                })
+                              }
+                              disabled={anyBuiltinTemplateMutationPending || !template.is_overridden}
+                            >
+                              <RotateCw className="mr-2 h-4 w-4" />
+                              {t('modelRoutingPage.errorLearning.builtinTemplates.reset')}
+                            </Button>
+                          </div>
+                        </div>
 
-                    <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
-                      <div>
-                        <div className="text-xs font-medium uppercase tracking-wide">
-                          {t('modelRoutingPage.errorLearning.builtinTemplates.kind')}
-                        </div>
-                        <div className="mt-1 text-foreground">
-                          {builtinErrorTemplateKindLabel(template.kind, t)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium uppercase tracking-wide">
-                          {t('modelRoutingPage.errorLearning.builtinTemplates.code')}
-                        </div>
-                        <div className="mt-1 font-mono text-foreground">{template.code}</div>
-                      </div>
-                      {template.kind === 'heuristic_upstream' ? (
-                        <div className="grid gap-3 md:grid-cols-2 md:col-span-1">
+                        <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
                           <div>
                             <div className="text-xs font-medium uppercase tracking-wide">
-                              {t('modelRoutingPage.errorLearning.templates.action')}
+                              {t('modelRoutingPage.errorLearning.builtinTemplates.kind')}
                             </div>
                             <div className="mt-1 text-foreground">
-                              {template.action
-                                ? upstreamErrorActionLabel(template.action, t)
-                                : t('modelRoutingPage.common.none')}
+                              {builtinErrorTemplateKindLabel(template.kind, t)}
                             </div>
                           </div>
                           <div>
                             <div className="text-xs font-medium uppercase tracking-wide">
-                              {t('modelRoutingPage.errorLearning.templates.retryScope')}
+                              {t('modelRoutingPage.errorLearning.builtinTemplates.code')}
                             </div>
-                            <div className="mt-1 text-foreground">
-                              {template.retry_scope
-                                ? upstreamErrorRetryScopeLabel(template.retry_scope, t)
-                                : t('modelRoutingPage.common.none')}
-                            </div>
+                            <div className="mt-1 font-mono text-foreground">{template.code}</div>
                           </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="text-xs font-medium uppercase tracking-wide">
-                            {t('modelRoutingPage.errorLearning.builtinTemplates.scope')}
-                          </div>
-                          <div className="mt-1 text-foreground">
-                            {t('modelRoutingPage.errorLearning.builtinTemplates.gatewayOnly')}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t('modelRoutingPage.errorLearning.builtinTemplates.localizedTemplates')}
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {ERROR_TEMPLATE_LOCALES.map((key) => (
-                          <div key={`${templateKey}-${key}`} className="space-y-2">
-                            <div className="text-xs font-medium text-muted-foreground">
-                              {localeLabel(key, t)}
-                            </div>
-                            {isEditing ? (
-                              <Textarea
-                                rows={3}
-                                value={editingBuiltinTemplateDraft.templates[key]}
-                                onChange={(event) =>
-                                  updateBuiltinTemplateDraft((prev) => ({
-                                    ...prev,
-                                    templates: {
-                                      ...prev.templates,
-                                      [key]: event.target.value,
-                                    },
-                                  }))
-                                }
-                              />
-                            ) : (
-                              <div className="min-h-24 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
-                                {template.templates[key]?.trim() ||
-                                  t('modelRoutingPage.errorLearning.templates.localeEmpty')}
+                          {template.kind === 'heuristic_upstream' ? (
+                            <div className="grid gap-3 md:col-span-1 md:grid-cols-2">
+                              <div>
+                                <div className="text-xs font-medium uppercase tracking-wide">
+                                  {t('modelRoutingPage.errorLearning.templates.action')}
+                                </div>
+                                <div className="mt-1 text-foreground">
+                                  {template.action
+                                    ? upstreamErrorActionLabel(template.action, t)
+                                    : t('modelRoutingPage.common.none')}
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t('modelRoutingPage.errorLearning.builtinTemplates.defaultTemplates')}
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {ERROR_TEMPLATE_LOCALES.map((key) => (
-                          <div key={`${templateKey}-default-${key}`} className="space-y-2">
-                            <div className="text-xs font-medium text-muted-foreground">
-                              {localeLabel(key, t)}
+                              <div>
+                                <div className="text-xs font-medium uppercase tracking-wide">
+                                  {t('modelRoutingPage.errorLearning.templates.retryScope')}
+                                </div>
+                                <div className="mt-1 text-foreground">
+                                  {template.retry_scope
+                                    ? upstreamErrorRetryScopeLabel(template.retry_scope, t)
+                                    : t('modelRoutingPage.common.none')}
+                                </div>
+                              </div>
                             </div>
-                            <div className="min-h-24 whitespace-pre-wrap rounded-lg border border-dashed bg-muted/20 p-3 text-sm text-foreground">
-                              {template.default_templates[key]?.trim() ||
-                                t('modelRoutingPage.errorLearning.templates.localeEmpty')}
+                          ) : (
+                            <div>
+                              <div className="text-xs font-medium uppercase tracking-wide">
+                                {t('modelRoutingPage.errorLearning.builtinTemplates.scope')}
+                              </div>
+                              <div className="mt-1 text-foreground">
+                                {t('modelRoutingPage.errorLearning.builtinTemplates.gatewayOnly')}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                          )}
+                        </div>
 
-                    {isEditing ? (
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={cancelBuiltinTemplateEditor}
-                          disabled={updateBuiltinTemplateMutation.isPending}
-                        >
-                          <X className="mr-2 h-4 w-4" />
-                          {t('modelRoutingPage.errorLearning.actions.cancel')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            updateBuiltinTemplateMutation.mutate({
-                              kind: template.kind,
-                              code: template.code,
-                              payload: {
-                                templates: createLocalizedErrorTemplatesPayload(
-                                  editingBuiltinTemplateDraft.templates,
-                                ),
-                              },
-                            })
-                          }
-                          disabled={updateBuiltinTemplateMutation.isPending}
-                        >
-                          <Save className="mr-2 h-4 w-4" />
-                          {t('modelRoutingPage.errorLearning.builtinTemplates.save')}
-                        </Button>
+                        <div className="space-y-3">
+                          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {t('modelRoutingPage.errorLearning.builtinTemplates.localizedTemplates')}
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {ERROR_TEMPLATE_LOCALES.map((key) => (
+                              <div key={`${templateKey}-${key}`} className="space-y-2">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  {localeLabel(key, t)}
+                                </div>
+                                {isEditing ? (
+                                  <Textarea
+                                    rows={3}
+                                    value={editingBuiltinTemplateDraft.templates[key]}
+                                    onChange={(event) =>
+                                      updateBuiltinTemplateDraft((prev) => ({
+                                        ...prev,
+                                        templates: {
+                                          ...prev.templates,
+                                          [key]: event.target.value,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                ) : (
+                                  <div className="min-h-24 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
+                                    {template.templates[key]?.trim() ||
+                                      t('modelRoutingPage.errorLearning.templates.localeEmpty')}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {t('modelRoutingPage.errorLearning.builtinTemplates.defaultTemplates')}
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {ERROR_TEMPLATE_LOCALES.map((key) => (
+                              <div key={`${templateKey}-default-${key}`} className="space-y-2">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  {localeLabel(key, t)}
+                                </div>
+                                <div className="min-h-24 whitespace-pre-wrap rounded-lg border border-dashed bg-muted/20 p-3 text-sm text-foreground">
+                                  {template.default_templates[key]?.trim() ||
+                                    t('modelRoutingPage.errorLearning.templates.localeEmpty')}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {isEditing ? (
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={cancelBuiltinTemplateEditor}
+                              disabled={updateBuiltinTemplateMutation.isPending}
+                            >
+                              <X className="mr-2 h-4 w-4" />
+                              {t('modelRoutingPage.errorLearning.actions.cancel')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                updateBuiltinTemplateMutation.mutate({
+                                  kind: template.kind,
+                                  code: template.code,
+                                  payload: {
+                                    templates: createLocalizedErrorTemplatesPayload(
+                                      editingBuiltinTemplateDraft.templates,
+                                    ),
+                                  },
+                                })
+                              }
+                              disabled={updateBuiltinTemplateMutation.isPending}
+                            >
+                              <Save className="mr-2 h-4 w-4" />
+                              {t('modelRoutingPage.errorLearning.builtinTemplates.save')}
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
+                    )
+                  })}
+                </div>
+                {visibleBuiltinTemplates.canToggle ? (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setBuiltinTemplatesExpanded((current) => !current)}
+                    >
+                      {builtinTemplatesExpanded ? (
+                        <ChevronUp className="mr-2 h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="mr-2 h-4 w-4" />
+                      )}
+                      {builtinTemplatesExpanded
+                        ? t('modelRoutingPage.versions.showLess')
+                        : t('modelRoutingPage.versions.showMore', {
+                            count: visibleBuiltinTemplates.hiddenCount,
+                          })}
+                    </Button>
                   </div>
-                )
-              })
+                ) : null}
+              </>
             )}
           </CardContent>
         </Card>

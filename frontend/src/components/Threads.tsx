@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { Renderer, Program, Mesh, Triangle, Color } from 'ogl';
 import { useReducedMotion } from 'framer-motion';
 
+import { initializeThreadsRenderer } from '@/components/threads-utils';
+
 interface ThreadsProps {
   color?: [number, number, number];
   amplitude?: number;
@@ -142,11 +144,10 @@ const Threads: React.FC<ThreadsProps> = ({
     if (!containerRef.current) return;
     const container = containerRef.current;
 
-    const renderer = new Renderer({ alpha: true });
-    const gl = renderer.gl;
-    gl.clearColor(0, 0, 0, 0);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    const renderer = initializeThreadsRenderer(() => new Renderer({ alpha: true }));
+    if (!renderer) return;
+    const activeRenderer = renderer;
+    const gl = activeRenderer.gl;
     container.appendChild(gl.canvas);
 
     const geometry = new Triangle(gl);
@@ -169,7 +170,7 @@ const Threads: React.FC<ThreadsProps> = ({
 
     function resize() {
       const { clientWidth, clientHeight } = container;
-      renderer.setSize(clientWidth, clientHeight);
+      activeRenderer.setSize(clientWidth, clientHeight);
       program.uniforms.iResolution.value.r = clientWidth;
       program.uniforms.iResolution.value.g = clientHeight;
       program.uniforms.iResolution.value.b = clientWidth / clientHeight;
@@ -207,7 +208,7 @@ const Threads: React.FC<ThreadsProps> = ({
       }
       program.uniforms.iTime.value = t * 0.001;
 
-      renderer.render({ scene: mesh });
+      activeRenderer.render({ scene: mesh });
       animationFrameId.current = requestAnimationFrame(update);
     }
     animationFrameId.current = requestAnimationFrame(update);
