@@ -2278,6 +2278,10 @@ pub async fn proxy_websocket_handler(
                 tenant_id: principal.as_ref().and_then(|item| item.tenant_id),
                 api_key_id: principal.as_ref().and_then(|item| item.api_key_id),
                 principal: principal.clone(),
+                adapt_codex_responses_request: is_chatgpt_codex_profile(
+                    &account.mode,
+                    &account.base_url,
+                ),
                 request_headers: parts.headers.clone(),
                 request_path: path.clone(),
                 request_query: query.clone(),

@@ -147,9 +147,9 @@ fn maybe_adapt_openai_responses_request_for_codex_profile(
     let is_compact = normalized_path == "/v1/responses/compact";
 
     let mut value = parse_request_json_body(headers, body)?;
+    let mut changed = adapt_codex_service_tier_fields_in_value(&mut value);
     let object = value.as_object_mut()?;
     let original_stream = object.get("stream").and_then(Value::as_bool).unwrap_or(false);
-    let mut changed = false;
 
     if !matches!(object.get("instructions"), Some(Value::String(_))) {
         object.insert("instructions".to_string(), Value::String(String::new()));
@@ -211,6 +211,29 @@ fn adapt_codex_input_value(input: Value) -> Value {
         Value::Null => Value::Array(Vec::new()),
         other => Value::Array(vec![other]),
     }
+}
+
+fn adapt_codex_service_tier_fields_in_value(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else {
+        return false;
+    };
+
+    let mut changed = adapt_codex_service_tier_field(object.get_mut("service_tier"));
+    if let Some(response_object) = object.get_mut("response").and_then(Value::as_object_mut) {
+        changed |= adapt_codex_service_tier_field(response_object.get_mut("service_tier"));
+    }
+    changed
+}
+
+fn adapt_codex_service_tier_field(field: Option<&mut Value>) -> bool {
+    let Some(Value::String(service_tier)) = field else {
+        return false;
+    };
+    if service_tier.eq_ignore_ascii_case("fast") {
+        *service_tier = "priority".to_string();
+        return true;
+    }
+    false
 }
 
 fn sticky_session_key_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -2111,11 +2134,13 @@ struct UsageTokens {
 mod request_utils_tests {
     use super::{
         build_upstream_error_context, classify_upstream_error, decide_upstream_error,
-        parse_request_policy_context, LearnedTemplateResolution, RetryScope,
-        UpstreamErrorClass, UpstreamErrorContext, UpstreamErrorSource,
+        maybe_adapt_openai_responses_request_for_codex_profile, parse_request_policy_context,
+        LearnedTemplateResolution, RetryScope, UpstreamErrorClass, UpstreamErrorContext,
+        UpstreamErrorSource,
     };
-    use codex_pool_core::model::{UpstreamErrorAction, UpstreamErrorRetryScope};
+    use codex_pool_core::model::{UpstreamErrorAction, UpstreamErrorRetryScope, UpstreamMode};
     use http::{HeaderMap, HeaderValue, StatusCode};
+    use serde_json::json;
     use std::io::Cursor;
 
     #[test]
@@ -2314,5 +2339,44 @@ mod request_utils_tests {
 
         assert_eq!(context.model.as_deref(), Some("gpt-5.4"));
         assert_eq!(context.detected_locale, "zh-CN");
+    }
+
+    #[test]
+    fn codex_profile_responses_request_maps_fast_service_tier_to_priority() {
+        let headers = HeaderMap::new();
+        let body = bytes::Bytes::from(
+            json!({
+                "model": "gpt-5.4",
+                "instructions": "",
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "hello"
+                            }
+                        ]
+                    }
+                ],
+                "store": false,
+                "stream": true,
+                "service_tier": "fast"
+            })
+            .to_string(),
+        );
+
+        let adapted = maybe_adapt_openai_responses_request_for_codex_profile(
+            &UpstreamMode::ChatGptSession,
+            "https://chatgpt.com/backend-api/codex",
+            "/v1/responses",
+            &headers,
+            &body,
+        )
+        .expect("fast service tier should be adapted for codex profile");
+
+        let value: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("adapted body should stay json");
+        assert_eq!(value["service_tier"], "priority");
     }
 }

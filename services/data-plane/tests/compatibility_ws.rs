@@ -1814,6 +1814,47 @@ async fn ws_upgrade_v1_responses_forwards_headers_and_frames() {
 }
 
 #[tokio::test]
+async fn ws_upgrade_v1_responses_maps_fast_service_tier_to_priority_for_codex_profile() {
+    let (upstream_base, _records) = spawn_ws_upstream().await;
+    let codex_profile_base = format!("{}/backend-api/codex", upstream_base.trim_end_matches('/'));
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(codex_profile_base, "upstream-token")]).await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    let first = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(first, Message::Text("upstream-ready".to_string().into()));
+
+    ws_client
+        .send(Message::Text(
+            json!({
+                "type": "response.create",
+                "model": "gpt-5.4",
+                "service_tier": "fast",
+                "input": []
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let echoed_text = ws_client.next().await.unwrap().unwrap();
+    let echoed_payload = match echoed_text {
+        Message::Text(text) => serde_json::from_str::<Value>(text.as_ref()).unwrap(),
+        other => panic!("expected echoed text frame, got {other:?}"),
+    };
+
+    assert_eq!(echoed_payload["service_tier"], "priority");
+
+    ws_client.close(None).await.unwrap();
+}
+
+#[tokio::test]
 async fn ws_upgrade_supports_backend_api_codex_responses_path() {
     let (upstream_base, records) = spawn_ws_upstream().await;
     let data_plane_base =

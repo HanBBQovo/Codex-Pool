@@ -61,6 +61,7 @@ struct WsLogicalUsageConnectionContext {
     tenant_id: Option<Uuid>,
     api_key_id: Option<Uuid>,
     principal: Option<ApiPrincipal>,
+    adapt_codex_responses_request: bool,
     request_headers: HeaderMap,
     request_path: String,
     request_query: Option<String>,
@@ -542,6 +543,12 @@ async fn proxy_websocket_streams(
                     break WS_RELEASE_REASON_CONNECTION_CLOSED;
                 };
 
+                let message = maybe_adapt_ws_downstream_message_for_codex_profile(
+                    message,
+                    ws_usage_context.adapt_codex_responses_request,
+                    ws_usage_context.request_path.as_str(),
+                );
+
                 if let AxumWsMessage::Text(text) = &message {
                     if let Some(value) = parse_ws_json_text(text.as_ref()) {
                         if let Some(seed) = extract_ws_logical_request_seed(&value) {
@@ -945,6 +952,40 @@ async fn build_retried_ws_tracked_request(
 
 fn parse_ws_json_text(text: &str) -> Option<Value> {
     serde_json::from_str::<Value>(text).ok()
+}
+
+fn maybe_adapt_ws_downstream_message_for_codex_profile(
+    message: AxumWsMessage,
+    adapt_codex_responses_request: bool,
+    request_path: &str,
+) -> AxumWsMessage {
+    if !adapt_codex_responses_request {
+        return message;
+    }
+    if !matches!(
+        normalize_input_path(request_path).as_str(),
+        "/v1/responses" | "/v1/responses/compact"
+    ) {
+        return message;
+    }
+
+    let AxumWsMessage::Text(text) = message else {
+        return message;
+    };
+    let Some(mut value) = parse_ws_json_text(text.as_ref()) else {
+        return AxumWsMessage::Text(text);
+    };
+    if !matches!(extract_ws_event_type(&value), Some("response.create")) {
+        return AxumWsMessage::Text(text);
+    }
+    if !adapt_codex_service_tier_fields_in_value(&mut value) {
+        return AxumWsMessage::Text(text);
+    }
+
+    match serde_json::to_string(&value) {
+        Ok(adapted_text) => AxumWsMessage::Text(adapted_text.into()),
+        Err(_) => AxumWsMessage::Text(text),
+    }
 }
 
 fn build_ws_failover_error_context(value: &Value) -> Option<UpstreamErrorContext> {
@@ -1403,9 +1444,10 @@ mod tests {
         build_upstream_url, build_upstream_ws_url, compose_upstream_path, ejection_ttl_for_status,
         ensure_client_version_query, extract_upstream_error_code, is_body_too_large_error,
         is_compatibility_passthrough_header, is_websocket_passthrough_header,
-        parse_request_policy_context, recovery_action_for_upstream_error_code,
+        maybe_adapt_ws_downstream_message_for_codex_profile, parse_request_policy_context,
+        recovery_action_for_upstream_error_code,
         sticky_session_key_from_headers, WsLogicalResponseTracker,
-        WsLogicalUsageConnectionContext,
+        AxumWsMessage, WsLogicalUsageConnectionContext,
         ProxyRecoveryAction,
     };
     use uuid::Uuid;
@@ -1659,6 +1701,7 @@ mod tests {
             tenant_id: None,
             api_key_id: None,
             principal: None,
+            adapt_codex_responses_request: false,
             request_headers: HeaderMap::new(),
             request_path: "/v1/responses".to_string(),
             request_query: None,
@@ -1832,5 +1875,23 @@ mod tests {
 
         assert_eq!(context.sticky_key_hint.as_deref(), Some("resp-prev-1"));
         assert_eq!(context.session_key_hint.as_deref(), Some("resp-prev-1"));
+    }
+
+    #[test]
+    fn ws_codex_profile_adapts_fast_service_tier_to_priority() {
+        let adapted = maybe_adapt_ws_downstream_message_for_codex_profile(
+            AxumWsMessage::Text(
+                r#"{"type":"response.create","model":"gpt-5.4","service_tier":"fast","input":[]}"#
+                    .into(),
+            ),
+            true,
+            "/v1/responses",
+        );
+
+        let AxumWsMessage::Text(text) = adapted else {
+            panic!("expected text websocket message");
+        };
+        let value = serde_json::from_str::<Value>(text.as_ref()).unwrap();
+        assert_eq!(value["service_tier"], "priority");
     }
 }
