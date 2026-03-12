@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 const ALIVE_RING_REDIS_PREFIX_ENV: &str = "DATA_PLANE_HEALTH_REDIS_PREFIX";
 const DEFAULT_ALIVE_RING_REDIS_PREFIX: &str = "codex_pool:health";
+const SEEN_OK_FAILURE_BODY_PREVIEW_LIMIT: usize = 512;
 
 #[derive(Debug, Clone)]
 pub struct AliveRingConfig {
@@ -218,15 +219,10 @@ impl SeenOkReporter {
         );
         let request = self
             .client
-            .post(endpoint)
+            .post(&endpoint)
             .bearer_auth(self.internal_auth_token.as_ref());
-        if let Err(err) = request.send().await {
-            tracing::warn!(
-                error = %err,
-                account_id = %account_id,
-                "failed to report seen_ok signal to control plane"
-            );
-        }
+        self.log_if_report_failed(request, &endpoint, account_id, None)
+            .await;
     }
 
     pub async fn report_model_seen_ok(&self, account_id: Uuid, model: &str) {
@@ -241,20 +237,89 @@ impl SeenOkReporter {
         );
         let request = self
             .client
-            .post(endpoint)
+            .post(&endpoint)
             .bearer_auth(self.internal_auth_token.as_ref())
             .json(&ModelSeenOkReportRequest {
                 model: model.to_string(),
                 status_code: Some(200),
             });
-        if let Err(err) = request.send().await {
-            tracing::warn!(
-                error = %err,
-                account_id = %account_id,
-                model,
-                "failed to report model seen_ok signal to control plane"
-            );
+        self.log_if_report_failed(request, &endpoint, account_id, Some(model))
+            .await;
+    }
+
+    async fn log_if_report_failed(
+        &self,
+        request: reqwest::RequestBuilder,
+        endpoint: &str,
+        account_id: Uuid,
+        model: Option<&str>,
+    ) {
+        match request.send().await {
+            Ok(response) => {
+                let status = response.status();
+                if status.is_success() {
+                    return;
+                }
+                let response_body = match response.text().await {
+                    Ok(body) => sanitize_seen_ok_failure_body_for_log(&body),
+                    Err(err) => format!("<failed to read response body: {err}>"),
+                };
+                if let Some(model) = model {
+                    tracing::warn!(
+                        account_id = %account_id,
+                        model,
+                        endpoint,
+                        status_code = status.as_u16(),
+                        response_body,
+                        "failed to report model seen_ok signal to control plane"
+                    );
+                } else {
+                    tracing::warn!(
+                        account_id = %account_id,
+                        endpoint,
+                        status_code = status.as_u16(),
+                        response_body,
+                        "failed to report seen_ok signal to control plane"
+                    );
+                }
+            }
+            Err(err) => {
+                if let Some(model) = model {
+                    tracing::warn!(
+                        error = %err,
+                        account_id = %account_id,
+                        model,
+                        endpoint,
+                        "failed to report model seen_ok signal to control plane"
+                    );
+                } else {
+                    tracing::warn!(
+                        error = %err,
+                        account_id = %account_id,
+                        endpoint,
+                        "failed to report seen_ok signal to control plane"
+                    );
+                }
+            }
         }
+    }
+}
+
+fn sanitize_seen_ok_failure_body_for_log(raw: &str) -> String {
+    let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return "<empty>".to_string();
+    }
+
+    let mut chars = collapsed.chars();
+    let preview: String = chars
+        .by_ref()
+        .take(SEEN_OK_FAILURE_BODY_PREVIEW_LIMIT)
+        .collect();
+    if chars.next().is_some() {
+        format!("{preview}...")
+    } else {
+        preview
     }
 }
 
@@ -317,6 +382,52 @@ pub fn seen_ok_report_config_from_env() -> SeenOkReportConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::fmt::writer::MakeWriter;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[derive(Clone, Default)]
+    struct TestLogWriter {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl TestLogWriter {
+        fn contents(&self) -> String {
+            let bytes = self.buffer.lock().expect("test log writer lock poisoned");
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+    }
+
+    struct TestLogGuard {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl io::Write for TestLogGuard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer
+                .lock()
+                .expect("test log writer lock poisoned")
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for TestLogWriter {
+        type Writer = TestLogGuard;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            TestLogGuard {
+                buffer: Arc::clone(&self.buffer),
+            }
+        }
+    }
 
     #[test]
     fn seen_ok_reporter_rate_limits_per_account_and_model() {
@@ -334,6 +445,51 @@ mod tests {
         assert!(reporter.should_report_model(account_id, "gpt-5.4"));
         assert!(reporter.should_report_model(Uuid::new_v4(), "gpt-5.3-codex"));
         assert!(!reporter.should_report_model(account_id, "   "));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn seen_ok_reporter_logs_non_success_http_responses() {
+        let control_plane = MockServer::start().await;
+        let account_id = Uuid::new_v4();
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/internal/v1/upstream-accounts/{account_id}/health/seen-ok"
+            )))
+            .respond_with(ResponseTemplate::new(503).set_body_string("control plane unavailable"))
+            .mount(&control_plane)
+            .await;
+
+        let reporter = SeenOkReporter::new(
+            control_plane.uri(),
+            Arc::<str>::from("internal-token"),
+            Duration::from_millis(250),
+            Duration::from_secs(60),
+        )
+        .expect("reporter must build");
+        let logs = TestLogWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_target(false)
+            .with_writer(logs.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        reporter.report_seen_ok(account_id).await;
+
+        let logged = logs.contents();
+        assert!(
+            logged.contains("failed to report seen_ok signal to control plane"),
+            "expected reporter failure log, got: {logged}"
+        );
+        assert!(
+            logged.contains("503"),
+            "expected reporter failure log to include status code, got: {logged}"
+        );
+        assert!(
+            logged.contains("control plane unavailable"),
+            "expected reporter failure log to include response body, got: {logged}"
+        );
     }
 }
 
