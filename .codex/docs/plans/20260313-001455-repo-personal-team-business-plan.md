@@ -125,6 +125,9 @@
 - [x] 为 `personal` 补齐单容器 Docker Compose 与环境变量示例
 - [x] 明确 `business` 的全功能 Compose 交付方式并补示例环境变量
 - [x] 第十二阶段 edition deployment packaging 验证通过，并准备进入下一阶段
+- [x] 编写三档版本的运维与迁移文档
+- [x] 在 README 接入升级/降级与扩容指南入口
+- [x] 第十三阶段 edition operations docs 验证通过，并准备进入下一阶段
 
 ## Progress Notes
 
@@ -244,3 +247,9 @@
   - `docker compose --env-file docker/.env.personal.example -f docker-compose.personal.yml config`
   - `docker compose --env-file docker/.env.team.example -f docker-compose.team.yml config`
   - `docker compose --env-file docker/.env.business.example -f docker-compose.yml config`
+- 第十三阶段已把迁移/部署能力补成可操作文档：
+  - 新增 `docs/editions-and-migration.md`，覆盖三档版本部署矩阵、升级/降级命令、archive/shrink 用法和 `business` 扩容建议
+  - `README.md` 已新增“版本与迁移”章节，直接挂出运维指南入口
+  - 迁移链路的关键命令现在有统一文档，不再需要靠读源码或计划笔记来拼装操作步骤
+- 第十三阶段验证已覆盖：
+  - `git -C /Users/wangnov/Codex-Pool/.worktrees/edition-foundation diff --check`

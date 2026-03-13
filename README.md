@@ -41,6 +41,7 @@ Codex-Pool 用于把多个上游账号池化成一个统一入口，对外提供
 - [架构总览](#架构总览)
 - [5 分钟快速开始](#5-分钟快速开始)
 - [生产部署](#生产部署)
+- [版本与迁移](#版本与迁移)
 - [Docker 常见问题](#docker-常见问题)
 - [安全基线](#安全基线)
 - [CI/CD](#cicd)
@@ -214,6 +215,16 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 | `personal` | `docker-compose.personal.yml` | 单个 `app` 容器 + SQLite volume |
 | `team` | `docker-compose.team.yml` | `app + postgres` |
 | `business` | `docker-compose.yml` | `control-plane + data-plane + usage-worker + frontend + postgres + pgbouncer + redis + clickhouse` |
+
+## 版本与迁移
+
+- 运维指南：[`docs/editions-and-migration.md`](./docs/editions-and-migration.md)
+- 覆盖内容：
+  - `personal / team / business` 部署矩阵
+  - `edition-migrate export / preflight / import / archive inspect / shrink` 命令
+  - 升级路径：`personal -> team/business`、`team -> business`
+  - 降级路径：`business -> team`、`team/business -> personal`
+  - `business` 的横向扩容建议
 
 ---
 
