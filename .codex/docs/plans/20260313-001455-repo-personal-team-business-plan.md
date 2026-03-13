@@ -119,6 +119,9 @@
 - [x] 放宽 `business -> personal` 的单 tenant archive-backed 受限降级
 - [x] 补齐 `business -> personal` 的 SQLite 导入回归
 - [x] 第十阶段 single-tenant business downgrade 验证通过，并准备进入下一阶段
+- [x] 设计 multi-tenant `team/business -> personal` 的 tenant selection shrink 流程
+- [x] 为 `edition-migrate` 新增 `shrink` 命令，支持按 tenant 生成 personal 兼容包
+- [x] 第十一阶段 tenant selection shrink 验证通过，并准备进入下一阶段
 
 ## Progress Notes
 
@@ -219,4 +222,13 @@
   - 新增 `business -> personal` SQLite 导入回归，确保 archive warning 不会阻塞核心 control-plane state 落地
 - 第十阶段验证已覆盖：
   - `cargo test -p control-plane edition_migration::tests -- --nocapture`
+  - `cargo test -p control-plane --lib --bins`
+- 第十一阶段已补齐 multi-tenant 到 `personal` 的正式收缩通道：
+  - `edition_migration` 新增 `shrink_package_to_tenant`，可从原始迁移包派生出“只保留一个 tenant”的 personal 兼容包
+  - shrink 逻辑会过滤 tenant、api keys、api key tokens、tenant routing policies、request logs，以及 archive rows 中属于其他 tenant 的数据
+  - 原始导出 package 继续充当完整归档，shrink 产物只承载目标 `personal` 运行态需要的数据子集
+  - `edition-migrate` 新增 `shrink --input ... --target-edition personal --tenant-id ... --output ...`，并在写出前自动跑一次 personal preflight
+- 第十一阶段验证已覆盖：
+  - `cargo test -p control-plane edition_migration::tests -- --nocapture`
+  - `cargo test -p control-plane --bin edition-migrate -- --nocapture`
   - `cargo test -p control-plane --lib --bins`

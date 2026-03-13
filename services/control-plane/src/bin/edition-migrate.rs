@@ -6,10 +6,12 @@ use codex_pool_core::api::ProductEdition;
 use control_plane::edition_migration::{
     build_postgres_package, build_sqlite_package, import_package_into_postgres,
     import_package_into_sqlite, inspect_archive_manifest, preflight_package,
-    read_archive_manifest_from_file, read_package_from_file, write_package_to_file,
+    read_archive_manifest_from_file, read_package_from_file, shrink_package_to_tenant,
+    write_package_to_file,
 };
 use control_plane::store::postgres::PostgresStore;
 use control_plane::store::SqliteBackedStore;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Command {
@@ -29,6 +31,12 @@ enum Command {
     },
     ArchiveInspect {
         input: PathBuf,
+    },
+    Shrink {
+        input: PathBuf,
+        target_edition: ProductEdition,
+        tenant_id: Uuid,
+        output: PathBuf,
     },
     Help,
 }
@@ -107,6 +115,26 @@ fn parse_command(mut args: VecDeque<String>) -> Result<Command> {
             let input = PathBuf::from(pop_flag(&mut args, "--input")?);
             Ok(Command::ArchiveInspect { input })
         }
+        "shrink" => {
+            let input = PathBuf::from(pop_flag(&mut args, "--input")?);
+            let target_edition = parse_product_edition(
+                &pop_flag(&mut args, "--target-edition")?,
+                "--target-edition",
+            )?;
+            if target_edition != ProductEdition::Personal {
+                bail!("shrink currently only supports --target-edition personal");
+            }
+            let tenant_id_raw = pop_flag(&mut args, "--tenant-id")?;
+            let tenant_id = Uuid::parse_str(&tenant_id_raw)
+                .with_context(|| format!("invalid --tenant-id value: {tenant_id_raw}"))?;
+            let output = PathBuf::from(pop_flag(&mut args, "--output")?);
+            Ok(Command::Shrink {
+                input,
+                target_edition,
+                tenant_id,
+                output,
+            })
+        }
         _ => bail!("unsupported command: {command}"),
     }
 }
@@ -117,6 +145,7 @@ fn help_text() -> &'static str {
   preflight --input <package.json> --target-edition <personal|team|business>
   import --input <package.json> --target-edition <personal|team|business> --target-database-url <url>
   archive inspect --input <package.json|archive.json>
+  shrink --input <package.json> --target-edition personal --tenant-id <uuid> --output <path>
 "#
 }
 
@@ -212,6 +241,43 @@ async fn main() -> Result<()> {
             );
             Ok(())
         }
+        Command::Shrink {
+            input,
+            target_edition,
+            tenant_id,
+            output,
+        } => {
+            let package = read_package_from_file(&input)?;
+            let shrunk = shrink_package_to_tenant(&package, tenant_id)?;
+            let report = preflight_package(&shrunk, target_edition);
+            if !report.allowed {
+                bail!(
+                    "shrink 后的迁移包未通过预检: {}",
+                    report
+                        .blockers
+                        .iter()
+                        .map(|item| item.message.as_str())
+                        .collect::<Vec<_>>()
+                        .join("；")
+                );
+            }
+            write_package_to_file(&output, &shrunk)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "input": input,
+                    "output": output,
+                    "target_edition": target_edition,
+                    "tenant_id": tenant_id,
+                    "tenant_count": shrunk.control_plane.tenants.len(),
+                    "api_key_count": shrunk.control_plane.api_keys.len(),
+                    "request_log_count": shrunk.usage.request_logs.len(),
+                    "archive_item_count": shrunk.archive.non_empty_items().len()
+                }))
+                .context("failed to encode shrink summary")?
+            );
+            Ok(())
+        }
     }
 }
 
@@ -219,6 +285,7 @@ async fn main() -> Result<()> {
 mod tests {
     use super::{parse_command, Command};
     use std::collections::VecDeque;
+    use uuid::Uuid;
 
     #[test]
     fn parse_export_command() {
@@ -250,5 +317,30 @@ mod tests {
         .expect("parse archive inspect command");
 
         assert!(matches!(command, Command::ArchiveInspect { .. }));
+    }
+
+    #[test]
+    fn parse_shrink_command() {
+        let tenant_id = Uuid::new_v4();
+        let command = parse_command(VecDeque::from(vec![
+            "shrink".to_string(),
+            "--input".to_string(),
+            "/tmp/package.json".to_string(),
+            "--target-edition".to_string(),
+            "personal".to_string(),
+            "--tenant-id".to_string(),
+            tenant_id.to_string(),
+            "--output".to_string(),
+            "/tmp/personal.json".to_string(),
+        ]))
+        .expect("parse shrink command");
+
+        assert!(matches!(
+            command,
+            Command::Shrink {
+                tenant_id: parsed_tenant_id,
+                ..
+            } if parsed_tenant_id == tenant_id
+        ));
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -417,6 +418,88 @@ pub fn inspect_archive_manifest(
             }
         })
         .collect()
+}
+
+fn archive_row_matches_tenant(row: &Value, tenant_id: Uuid) -> bool {
+    row.get("tenant_id")
+        .and_then(Value::as_str)
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+        .map(|row_tenant_id| row_tenant_id == tenant_id)
+        .unwrap_or(true)
+}
+
+pub fn shrink_package_to_tenant(
+    package: &EditionMigrationPackage,
+    tenant_id: Uuid,
+) -> Result<EditionMigrationPackage> {
+    let tenant = package
+        .control_plane
+        .tenants
+        .iter()
+        .find(|item| item.id == tenant_id)
+        .cloned()
+        .with_context(|| format!("tenant {tenant_id} not found in migration package"))?;
+
+    let retained_api_keys = package
+        .control_plane
+        .api_keys
+        .iter()
+        .filter(|item| item.tenant_id == tenant_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    let retained_api_key_ids = retained_api_keys
+        .iter()
+        .map(|item| item.id)
+        .collect::<HashSet<_>>();
+
+    let mut shrunk = package.clone();
+    shrunk.exported_at = Utc::now();
+    shrunk.control_plane.tenants = vec![tenant];
+    shrunk.control_plane.api_keys = retained_api_keys;
+    shrunk.control_plane.api_key_tokens = package
+        .control_plane
+        .api_key_tokens
+        .iter()
+        .filter(|item| retained_api_key_ids.contains(&item.api_key_id))
+        .cloned()
+        .collect();
+    shrunk.control_plane.routing_policies = package
+        .control_plane
+        .routing_policies
+        .iter()
+        .filter(|item| item.tenant_id == tenant_id)
+        .cloned()
+        .collect();
+    shrunk.usage.request_logs = package
+        .usage
+        .request_logs
+        .iter()
+        .filter(|item| {
+            item.tenant_id == Some(tenant_id)
+                || item
+                    .api_key_id
+                    .map(|api_key_id| retained_api_key_ids.contains(&api_key_id))
+                    .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    shrunk.archive.items = package
+        .archive
+        .items
+        .iter()
+        .cloned()
+        .map(|mut item| {
+            item.rows = item
+                .rows
+                .into_iter()
+                .filter(|row| archive_row_matches_tenant(row, tenant_id))
+                .collect();
+            item.count = item.rows.len() as u64;
+            item
+        })
+        .collect();
+
+    Ok(shrunk)
 }
 
 pub fn query_window() -> (i64, i64) {
@@ -872,5 +955,188 @@ mod tests {
         assert_eq!(inspection.len(), 1);
         assert_eq!(inspection[0].sample_rows.len(), 3);
         assert_eq!(inspection[0].omitted_row_count, 1);
+    }
+
+    #[test]
+    fn shrink_package_to_tenant_filters_core_and_archive_state() {
+        let retained_tenant_id = Uuid::new_v4();
+        let dropped_tenant_id = Uuid::new_v4();
+        let retained_api_key_id = Uuid::new_v4();
+        let dropped_api_key_id = Uuid::new_v4();
+        let package = super::EditionMigrationPackage {
+            schema_version: super::EDITION_MIGRATION_SCHEMA_VERSION,
+            source_edition: ProductEdition::Business,
+            exported_at: Utc::now(),
+            control_plane: super::ControlPlaneMigrationBundle {
+                tenants: vec![
+                    codex_pool_core::model::Tenant {
+                        id: retained_tenant_id,
+                        name: "Keep".to_string(),
+                        created_at: Utc::now(),
+                    },
+                    codex_pool_core::model::Tenant {
+                        id: dropped_tenant_id,
+                        name: "Drop".to_string(),
+                        created_at: Utc::now(),
+                    },
+                ],
+                api_keys: vec![
+                    codex_pool_core::model::ApiKey {
+                        id: retained_api_key_id,
+                        tenant_id: retained_tenant_id,
+                        name: "keep-key".to_string(),
+                        key_prefix: "cpk_keep".to_string(),
+                        key_hash: "hash-keep".to_string(),
+                        enabled: true,
+                        created_at: Utc::now(),
+                    },
+                    codex_pool_core::model::ApiKey {
+                        id: dropped_api_key_id,
+                        tenant_id: dropped_tenant_id,
+                        name: "drop-key".to_string(),
+                        key_prefix: "cpk_drop".to_string(),
+                        key_hash: "hash-drop".to_string(),
+                        enabled: true,
+                        created_at: Utc::now(),
+                    },
+                ],
+                api_key_tokens: vec![
+                    super::ApiKeyTokenMigrationRecord {
+                        token: "tok-keep".to_string(),
+                        api_key_id: retained_api_key_id,
+                    },
+                    super::ApiKeyTokenMigrationRecord {
+                        token: "tok-drop".to_string(),
+                        api_key_id: dropped_api_key_id,
+                    },
+                ],
+                routing_policies: vec![
+                    codex_pool_core::model::RoutingPolicy {
+                        tenant_id: retained_tenant_id,
+                        strategy: codex_pool_core::model::RoutingStrategy::RoundRobin,
+                        max_retries: 1,
+                        stream_max_retries: 1,
+                        updated_at: Utc::now(),
+                    },
+                    codex_pool_core::model::RoutingPolicy {
+                        tenant_id: dropped_tenant_id,
+                        strategy: codex_pool_core::model::RoutingStrategy::FillFirst,
+                        max_retries: 2,
+                        stream_max_retries: 2,
+                        updated_at: Utc::now(),
+                    },
+                ],
+                ..Default::default()
+            },
+            usage: super::UsageMigrationBundle {
+                request_logs: vec![
+                    crate::usage::RequestLogRow {
+                        id: Uuid::new_v4(),
+                        account_id: Uuid::new_v4(),
+                        tenant_id: Some(retained_tenant_id),
+                        api_key_id: Some(retained_api_key_id),
+                        request_id: Some("req-keep".to_string()),
+                        path: "/v1/responses".to_string(),
+                        method: "POST".to_string(),
+                        model: Some("gpt-5-mini".to_string()),
+                        service_tier: None,
+                        input_tokens: Some(1),
+                        cached_input_tokens: None,
+                        output_tokens: Some(1),
+                        reasoning_tokens: None,
+                        first_token_latency_ms: None,
+                        status_code: 200,
+                        latency_ms: 100,
+                        is_stream: false,
+                        error_code: None,
+                        billing_phase: None,
+                        authorization_id: None,
+                        capture_status: None,
+                        estimated_cost_microusd: Some(1),
+                        created_at: Utc::now(),
+                        event_version: 2,
+                    },
+                    crate::usage::RequestLogRow {
+                        id: Uuid::new_v4(),
+                        account_id: Uuid::new_v4(),
+                        tenant_id: Some(dropped_tenant_id),
+                        api_key_id: Some(dropped_api_key_id),
+                        request_id: Some("req-drop".to_string()),
+                        path: "/v1/responses".to_string(),
+                        method: "POST".to_string(),
+                        model: Some("gpt-5-mini".to_string()),
+                        service_tier: None,
+                        input_tokens: Some(1),
+                        cached_input_tokens: None,
+                        output_tokens: Some(1),
+                        reasoning_tokens: None,
+                        first_token_latency_ms: None,
+                        status_code: 200,
+                        latency_ms: 100,
+                        is_stream: false,
+                        error_code: None,
+                        billing_phase: None,
+                        authorization_id: None,
+                        capture_status: None,
+                        estimated_cost_microusd: Some(1),
+                        created_at: Utc::now(),
+                        event_version: 2,
+                    },
+                ],
+            },
+            archive: super::EditionMigrationArchiveManifest {
+                items: vec![super::EditionMigrationArchiveItem {
+                    kind: super::EditionMigrationArchiveKind::TenantUsers,
+                    count: 2,
+                    description: "租户登录/会话相关数据".to_string(),
+                    rows: vec![
+                        serde_json::json!({
+                            "tenant_id": retained_tenant_id,
+                            "email": "keep@example.com"
+                        }),
+                        serde_json::json!({
+                            "tenant_id": dropped_tenant_id,
+                            "email": "drop@example.com"
+                        }),
+                    ],
+                }],
+            },
+        };
+
+        let shrunk = super::shrink_package_to_tenant(&package, retained_tenant_id)
+            .expect("shrink package to tenant");
+
+        assert_eq!(shrunk.control_plane.tenants.len(), 1);
+        assert_eq!(shrunk.control_plane.tenants[0].id, retained_tenant_id);
+        assert_eq!(shrunk.control_plane.api_keys.len(), 1);
+        assert_eq!(shrunk.control_plane.api_keys[0].id, retained_api_key_id);
+        assert_eq!(shrunk.control_plane.api_key_tokens.len(), 1);
+        assert_eq!(
+            shrunk.control_plane.api_key_tokens[0].api_key_id,
+            retained_api_key_id
+        );
+        assert_eq!(shrunk.control_plane.routing_policies.len(), 1);
+        assert_eq!(
+            shrunk.control_plane.routing_policies[0].tenant_id,
+            retained_tenant_id
+        );
+        assert_eq!(shrunk.usage.request_logs.len(), 1);
+        assert_eq!(
+            shrunk.usage.request_logs[0].tenant_id,
+            Some(retained_tenant_id)
+        );
+        assert_eq!(shrunk.archive.items.len(), 1);
+        assert_eq!(shrunk.archive.items[0].count, 1);
+        assert_eq!(shrunk.archive.items[0].rows.len(), 1);
+        let retained_tenant_id_string = retained_tenant_id.to_string();
+        assert_eq!(
+            shrunk.archive.items[0].rows[0]
+                .get("tenant_id")
+                .and_then(serde_json::Value::as_str),
+            Some(retained_tenant_id_string.as_str())
+        );
+
+        let preflight = super::preflight_package(&shrunk, ProductEdition::Personal);
+        assert!(preflight.allowed);
     }
 }
