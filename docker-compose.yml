@@ -76,6 +76,7 @@ services:
       clickhouse:
         condition: service_healthy
     environment:
+      CODEX_POOL_EDITION: business
       CONTROL_PLANE_LISTEN: 0.0.0.0:8090
       CONTROL_PLANE_DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-codex_pool}?statement-cache-capacity=0
       CLICKHOUSE_URL: http://clickhouse:8123
@@ -105,6 +106,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      CODEX_POOL_EDITION: business
       DATA_PLANE_LISTEN: 0.0.0.0:8091
       CONTROL_PLANE_BASE_URL: http://control-plane:8090
       AUTH_VALIDATE_URL: http://control-plane:8090/internal/v1/auth/validate
@@ -128,6 +130,7 @@ services:
       clickhouse:
         condition: service_healthy
     environment:
+      CODEX_POOL_EDITION: business
       REDIS_URL: redis://redis:6379
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}

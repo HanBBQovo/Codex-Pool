@@ -122,6 +122,9 @@
 - [x] 设计 multi-tenant `team/business -> personal` 的 tenant selection shrink 流程
 - [x] 为 `edition-migrate` 新增 `shrink` 命令，支持按 tenant 生成 personal 兼容包
 - [x] 第十一阶段 tenant selection shrink 验证通过，并准备进入下一阶段
+- [x] 为 `personal` 补齐单容器 Docker Compose 与环境变量示例
+- [x] 明确 `business` 的全功能 Compose 交付方式并补示例环境变量
+- [x] 第十二阶段 edition deployment packaging 验证通过，并准备进入下一阶段
 
 ## Progress Notes
 
@@ -232,3 +235,12 @@
   - `cargo test -p control-plane edition_migration::tests -- --nocapture`
   - `cargo test -p control-plane --bin edition-migrate -- --nocapture`
   - `cargo test -p control-plane --lib --bins`
+- 第十二阶段已把三档版本的交付面明确落到 Compose / env 示例：
+  - 新增 `docker-compose.personal.yml` 与 `docker/.env.personal.example`，支持 `personal` 单容器 + SQLite volume 启动
+  - `docker-compose.yml` 现在显式声明 `CODEX_POOL_EDITION=business`，避免全功能栈继续依赖默认 edition 推断
+  - 新增 `docker/.env.business.example`，让 `business` 版和 `team` / `personal` 一样都有独立的示例变量文件
+  - `README.md` 已改成按 `personal / team / business` 三档说明部署，而不是把 `business` 继续称为泛化的 production compose
+- 第十二阶段验证已覆盖：
+  - `docker compose --env-file docker/.env.personal.example -f docker-compose.personal.yml config`
+  - `docker compose --env-file docker/.env.team.example -f docker-compose.team.yml config`
+  - `docker compose --env-file docker/.env.business.example -f docker-compose.yml config`

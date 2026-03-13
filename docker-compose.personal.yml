@@ -1,0 +1,29 @@
+name: codex-pool-personal
+
+services:
+  app:
+    image: ${CONTROL_PLANE_IMAGE:-codex-pool-rust:local}
+    build:
+      context: .
+      dockerfile: docker/rust-runtime.Dockerfile
+    command: ["control-plane"]
+    restart: unless-stopped
+    environment:
+      CODEX_POOL_EDITION: personal
+      CONTROL_PLANE_LISTEN: 0.0.0.0:8090
+      CONTROL_PLANE_DATABASE_URL: ${PERSONAL_SQLITE_PATH:-/var/lib/codex-pool/personal.sqlite}
+      CONTROL_PLANE_INTERNAL_AUTH_TOKEN: ${CONTROL_PLANE_INTERNAL_AUTH_TOKEN:?CONTROL_PLANE_INTERNAL_AUTH_TOKEN is required}
+      CONTROL_PLANE_API_KEY_HMAC_KEYS: ${CONTROL_PLANE_API_KEY_HMAC_KEYS:?CONTROL_PLANE_API_KEY_HMAC_KEYS is required}
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:?CREDENTIALS_ENCRYPTION_KEY is required}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET is required}
+      ADMIN_JWT_TTL_SEC: ${ADMIN_JWT_TTL_SEC:-28800}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${PERSONAL_APP_PORT:-8090}:8090"
+    volumes:
+      - personal-data:/var/lib/codex-pool
+
+volumes:
+  personal-data:

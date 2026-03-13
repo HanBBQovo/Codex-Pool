@@ -28,6 +28,12 @@ Codex-Pool 用于把多个上游账号池化成一个统一入口，对外提供
 - 管理台（Admin Portal）与租户门户（Tenant Portal）
 - 可生产部署的 Docker Compose 拆分
 
+当前仓库同时维护三档交付形态：
+
+- `personal`：单二进制/单容器、SQLite、无 Redis/ClickHouse/独立 frontend
+- `team`：`app + postgres`，适合 2-10 人小团队
+- `business`：全功能多服务栈，默认使用 PostgreSQL + PgBouncer + Redis + ClickHouse
+
 ---
 
 ## 目录
@@ -107,10 +113,39 @@ curl -fsS http://127.0.0.1:8091/health
 
 ## 生产部署
 
-### 先准备生产变量
+### 方案 A：`personal` 单容器部署（SQLite）
+
+`personal` 版会把 admin UI、control-plane API、`/v1/*` 代理统一收进一个容器，并把状态保存在 SQLite。
+
+1. 复制示例环境变量：
 
 ```bash
-cp docker/.env.production.example docker/.env.production
+cp docker/.env.personal.example docker/.env.personal
+```
+
+2. 启动：
+
+```bash
+docker compose --env-file docker/.env.personal -f docker-compose.personal.yml up -d --build
+```
+
+3. 访问：
+
+- 统一入口：`http://127.0.0.1:${PERSONAL_APP_PORT:-8090}`
+- 运行模式：`CODEX_POOL_EDITION=personal`
+- 默认不启动 PostgreSQL、Redis、ClickHouse、独立 frontend 容器
+
+### 方案 B：`business` 全功能部署（多服务）
+
+`business` 版对应当前仓库里的完整生产编排，使用：
+
+- `docker-compose.yml`：全功能运行栈
+- `docker-compose.build.yml`：本机构建镜像 overlay
+
+1. 先准备业务版变量：
+
+```bash
+cp docker/.env.business.example docker/.env.business
 ```
 
 必须替换的关键变量：
@@ -124,11 +159,11 @@ cp docker/.env.production.example docker/.env.production
 
 > 建议用 `openssl rand -base64 32` 生成高强度密钥。
 
-### 方案 A：单机构建并部署（不依赖镜像仓库）
+#### 单机构建并部署（不依赖镜像仓库）
 
 ```bash
 docker compose \
-  --env-file docker/.env.production \
+  --env-file docker/.env.business \
   -f docker-compose.yml \
   -f docker-compose.build.yml \
   up -d --build
@@ -136,7 +171,7 @@ docker compose \
 
 这个方案**不需要**先把镜像上传到 Docker Hub/GHCR。
 
-### 方案 B：多机/集群部署（镜像先推仓库）
+#### 多机/集群部署（镜像先推仓库）
 
 1. 在 CI 通过 tag 自动发布镜像（已提供 `docker-publish.yml`，默认发布到 GHCR）。
 2. 在部署机设置镜像地址：
@@ -147,7 +182,7 @@ docker compose \
 3. 启动：
 
 ```bash
-docker compose --env-file docker/.env.production -f docker-compose.yml up -d
+docker compose --env-file docker/.env.business -f docker-compose.yml up -d
 ```
 
 ### 方案 C：`team` 版最小 Docker 部署（`app + postgres`）
@@ -171,6 +206,14 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 - 管理端与租户端统一入口：`http://127.0.0.1:${TEAM_APP_PORT:-8090}`
 - 运行模式：`CODEX_POOL_EDITION=team`
 - 默认不启动 Redis、ClickHouse、独立 frontend 容器
+
+### 版本交付矩阵
+
+| 版本 | 启动文件 | 默认依赖 |
+| --- | --- | --- |
+| `personal` | `docker-compose.personal.yml` | 单个 `app` 容器 + SQLite volume |
+| `team` | `docker-compose.team.yml` | `app + postgres` |
+| `business` | `docker-compose.yml` | `control-plane + data-plane + usage-worker + frontend + postgres + pgbouncer + redis + clickhouse` |
 
 ---
 
@@ -208,7 +251,7 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 1. 轮换所有历史暴露过的 token/refresh token/JWT secret。
 2. 在首次公开仓库前，执行一次完整 secret 扫描（含 git history）。
 3. 生产环境关闭 `ENABLE_INTERNAL_DEBUG_ROUTES`。
-4. 将配置统一放到 `docker/.env.production` 或密钥管理系统，不在仓库存明文。
+4. 将配置统一放到 `docker/.env.personal` / `docker/.env.team` / `docker/.env.business` 或密钥管理系统，不在仓库存明文。
 
 ---
 
