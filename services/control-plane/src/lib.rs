@@ -13,8 +13,8 @@ pub mod cost;
 pub mod crypto;
 pub mod import_jobs;
 pub mod oauth;
-pub mod personal;
 pub mod security;
+pub mod single_binary;
 pub mod store;
 pub mod tenant;
 #[cfg(test)]

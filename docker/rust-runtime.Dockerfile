@@ -2,8 +2,13 @@ FROM rust:1.93.1-bookworm AS builder
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY frontend ./frontend
 COPY services ./services
 
 RUN cargo build --release -p control-plane --bin control-plane --bin usage-worker \

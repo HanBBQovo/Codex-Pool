@@ -150,6 +150,28 @@ docker compose \
 docker compose --env-file docker/.env.production -f docker-compose.yml up -d
 ```
 
+### 方案 C：`team` 版最小 Docker 部署（`app + postgres`）
+
+`team` 版现在支持单容器承载 admin UI、tenant UI、control-plane API 与 `/v1/*` 代理，只需要再配一个 PostgreSQL。
+
+1. 复制示例环境变量：
+
+```bash
+cp docker/.env.team.example docker/.env.team
+```
+
+2. 启动：
+
+```bash
+docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --build
+```
+
+3. 访问：
+
+- 管理端与租户端统一入口：`http://127.0.0.1:${TEAM_APP_PORT:-8090}`
+- 运行模式：`CODEX_POOL_EDITION=team`
+- 默认不启动 Redis、ClickHouse、独立 frontend 容器
+
 ---
 
 ## Docker 常见问题

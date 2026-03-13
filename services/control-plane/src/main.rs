@@ -12,8 +12,8 @@ use control_plane::app::{
 };
 use control_plane::config::ControlPlaneConfig;
 use control_plane::import_jobs::{InMemoryOAuthImportJobStore, PostgresOAuthImportJobStore};
-use control_plane::personal::{
-    apply_personal_runtime_env_defaults, merge_personal_single_binary_app,
+use control_plane::single_binary::{
+    apply_single_binary_runtime_env_defaults, merge_single_binary_app,
 };
 use control_plane::store::postgres::PostgresStore;
 use control_plane::store::{
@@ -322,14 +322,15 @@ async fn main() -> anyhow::Result<()> {
     config.apply_runtime_env_defaults();
     control_plane::security::ensure_api_key_hasher_configured()?;
     let edition = ProductEdition::from_env_var(CODEX_POOL_EDITION_ENV);
-    if matches!(edition, ProductEdition::Personal) {
-        let defaults = apply_personal_runtime_env_defaults(config.listen_addr);
+    if matches!(edition, ProductEdition::Personal | ProductEdition::Team) {
+        let defaults = apply_single_binary_runtime_env_defaults(config.listen_addr);
         tracing::info!(
             listen_addr = defaults.control_plane_listen,
             callback_listen = defaults.codex_oauth_callback_listen,
             control_plane_base_url = defaults.control_plane_base_url,
             auth_validate_url = defaults.auth_validate_url,
-            "personal edition runtime defaults enforced for single-binary mode"
+            edition = ?edition,
+            "single-binary runtime defaults enforced for non-business edition"
         );
     }
 
@@ -765,8 +766,8 @@ async fn main() -> anyhow::Result<()> {
         import_job_store,
         admin_auth,
     );
-    let app = if matches!(edition, ProductEdition::Personal) {
-        merge_personal_single_binary_app(app).await?
+    let app = if matches!(edition, ProductEdition::Personal | ProductEdition::Team) {
+        merge_single_binary_app(app).await?
     } else {
         app
     };

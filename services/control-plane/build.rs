@@ -32,15 +32,24 @@ fn main() {
 }
 
 fn run_frontend_build(frontend_root: &Path) -> io::Result<()> {
+    if !frontend_root.join("node_modules").is_dir() {
+        run_npm(frontend_root, &["ci"])?;
+    }
+
+    run_npm(frontend_root, &["run", "build"])
+}
+
+fn run_npm(frontend_root: &Path, args: &[&str]) -> io::Result<()> {
     let status = Command::new("npm")
-        .args(["run", "build"])
+        .args(args)
         .current_dir(frontend_root)
         .status()?;
     if status.success() {
         Ok(())
     } else {
         Err(io::Error::other(format!(
-            "npm run build exited with status {status}"
+            "npm {} exited with status {status}",
+            args.join(" ")
         )))
     }
 }

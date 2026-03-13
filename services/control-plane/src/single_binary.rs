@@ -21,15 +21,17 @@ const AUTH_VALIDATE_PATH: &str = "/internal/v1/auth/validate";
 static PERSONAL_FRONTEND_DIR: Dir<'_> = include_dir!("$OUT_DIR/personal_frontend");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersonalRuntimeEnvDefaults {
+pub struct SingleBinaryRuntimeEnvDefaults {
     pub control_plane_listen: String,
     pub codex_oauth_callback_listen: String,
     pub control_plane_base_url: String,
     pub auth_validate_url: String,
 }
 
-pub fn apply_personal_runtime_env_defaults(listen_addr: SocketAddr) -> PersonalRuntimeEnvDefaults {
-    let defaults = personal_runtime_env_defaults(listen_addr);
+pub fn apply_single_binary_runtime_env_defaults(
+    listen_addr: SocketAddr,
+) -> SingleBinaryRuntimeEnvDefaults {
+    let defaults = single_binary_runtime_env_defaults(listen_addr);
     std::env::set_var(CONTROL_PLANE_LISTEN_ENV, &defaults.control_plane_listen);
     std::env::set_var(
         CODEX_OAUTH_CALLBACK_LISTEN_ENV,
@@ -41,19 +43,19 @@ pub fn apply_personal_runtime_env_defaults(listen_addr: SocketAddr) -> PersonalR
     defaults
 }
 
-pub async fn merge_personal_single_binary_app(control_plane_app: Router) -> Result<Router> {
+pub async fn merge_single_binary_app(control_plane_app: Router) -> Result<Router> {
     let data_plane_config = DataPlaneConfig::from_env()?;
     let data_plane_app = build_app_without_status_routes(data_plane_config).await?;
     Ok(control_plane_app
         .merge(data_plane_app)
-        .fallback(personal_frontend_fallback))
+        .fallback(single_binary_frontend_fallback))
 }
 
-fn personal_runtime_env_defaults(listen_addr: SocketAddr) -> PersonalRuntimeEnvDefaults {
-    let origin = personal_loopback_origin(listen_addr);
+fn single_binary_runtime_env_defaults(listen_addr: SocketAddr) -> SingleBinaryRuntimeEnvDefaults {
+    let origin = single_binary_loopback_origin(listen_addr);
     let listen = listen_addr.to_string();
 
-    PersonalRuntimeEnvDefaults {
+    SingleBinaryRuntimeEnvDefaults {
         control_plane_listen: listen.clone(),
         codex_oauth_callback_listen: listen,
         control_plane_base_url: origin.clone(),
@@ -61,7 +63,7 @@ fn personal_runtime_env_defaults(listen_addr: SocketAddr) -> PersonalRuntimeEnvD
     }
 }
 
-fn personal_loopback_origin(listen_addr: SocketAddr) -> String {
+fn single_binary_loopback_origin(listen_addr: SocketAddr) -> String {
     let host = match listen_addr {
         SocketAddr::V4(addr) => {
             let ip = if addr.ip().is_unspecified() {
@@ -84,11 +86,11 @@ fn personal_loopback_origin(listen_addr: SocketAddr) -> String {
     format!("http://{host}:{}", listen_addr.port())
 }
 
-async fn personal_frontend_fallback(uri: Uri) -> Response<Body> {
-    personal_frontend_response(uri.path())
+async fn single_binary_frontend_fallback(uri: Uri) -> Response<Body> {
+    single_binary_frontend_response(uri.path())
 }
 
-fn personal_frontend_response(path: &str) -> Response<Body> {
+fn single_binary_frontend_response(path: &str) -> Response<Body> {
     if is_backend_route(path) {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -169,8 +171,8 @@ fn content_type_for(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_personal_runtime_env_defaults, merge_personal_single_binary_app,
-        personal_frontend_response, personal_runtime_env_defaults,
+        apply_single_binary_runtime_env_defaults, merge_single_binary_app,
+        single_binary_frontend_response, single_binary_runtime_env_defaults,
     };
     use axum::body::to_bytes;
     use axum::http::Request;
@@ -178,8 +180,8 @@ mod tests {
     use tower::util::ServiceExt;
 
     #[test]
-    fn personal_runtime_env_defaults_force_loopback_for_unspecified_v4() {
-        let defaults = personal_runtime_env_defaults("0.0.0.0:8090".parse().unwrap());
+    fn single_binary_runtime_env_defaults_force_loopback_for_unspecified_v4() {
+        let defaults = single_binary_runtime_env_defaults("0.0.0.0:8090".parse().unwrap());
 
         assert_eq!(defaults.control_plane_listen, "0.0.0.0:8090");
         assert_eq!(defaults.codex_oauth_callback_listen, "0.0.0.0:8090");
@@ -191,15 +193,15 @@ mod tests {
     }
 
     #[test]
-    fn personal_frontend_response_rejects_backend_like_paths() {
-        let response = personal_frontend_response("/api/v1/unknown");
+    fn single_binary_frontend_response_rejects_backend_like_paths() {
+        let response = single_binary_frontend_response("/api/v1/unknown");
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
-    async fn personal_frontend_response_serves_html_shell_for_spa_routes() {
-        let response = personal_frontend_response("/accounts");
+    async fn single_binary_frontend_response_serves_html_shell_for_spa_routes() {
+        let response = single_binary_frontend_response("/accounts");
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -215,6 +217,15 @@ mod tests {
 
     #[tokio::test]
     async fn merged_personal_app_exposes_control_plane_data_plane_and_frontend_shell() {
+        assert_merged_single_binary_app("personal").await;
+    }
+
+    #[tokio::test]
+    async fn merged_team_app_exposes_control_plane_data_plane_and_frontend_shell() {
+        assert_merged_single_binary_app("team").await;
+    }
+
+    async fn assert_merged_single_binary_app(edition: &str) {
         let _guard = crate::test_support::ENV_LOCK.lock().unwrap();
         let missing_config = std::env::temp_dir().join(format!(
             "codex-pool-personal-missing-{}.toml",
@@ -228,7 +239,7 @@ mod tests {
             "CONTROL_PLANE_INTERNAL_AUTH_TOKEN",
             Some("test-internal-token"),
         );
-        let old_edition = crate::test_support::set_env("CODEX_POOL_EDITION", Some("personal"));
+        let old_edition = crate::test_support::set_env("CODEX_POOL_EDITION", Some(edition));
         let old_control_plane_listen = crate::test_support::set_env("CONTROL_PLANE_LISTEN", None);
         let old_callback_listen = crate::test_support::set_env("CODEX_OAUTH_CALLBACK_LISTEN", None);
         let old_callback_mode =
@@ -245,11 +256,11 @@ mod tests {
             Some(missing_config.to_string_lossy().as_ref()),
         );
 
-        apply_personal_runtime_env_defaults("127.0.0.1:8090".parse().unwrap());
+        apply_single_binary_runtime_env_defaults("127.0.0.1:8090".parse().unwrap());
         let app = crate::app::build_app();
-        let merged = merge_personal_single_binary_app(app)
+        let merged = merge_single_binary_app(app)
             .await
-            .expect("merge personal app");
+            .expect("merge single-binary app");
 
         let health = merged
             .clone()

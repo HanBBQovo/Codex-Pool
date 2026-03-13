@@ -103,6 +103,10 @@
 - [x] `personal` 单进程内嵌前端静态资源并提供 SPA fallback
 - [x] `personal` 强制收口 self-loopback 的 auth/snapshot/usage 运行时地址
 - [x] 第六阶段 personal single-binary foundation 验证通过，并准备进入下一阶段
+- [x] 将 single-binary 路由合并能力扩展到 `team`
+- [x] 为 `team` 新增 `app + postgres` 最小 Docker Compose 产物
+- [x] 修复 Rust Docker builder 对嵌入式前端产物的依赖链
+- [x] 第七阶段 team single-binary deployment foundation 验证通过，并准备进入下一阶段
 
 ## Progress Notes
 
@@ -167,3 +171,13 @@
   - `cargo test -p data-plane build_app_without_status_routes -- --nocapture`
   - `cargo test -p control-plane --lib --bins`
   - `cargo test -p data-plane --lib --bins`
+- 第七阶段已把 single-binary 能力从 `personal` 推广到 `team`：
+  - `control-plane` 的 single-binary runtime defaults 与路由 merge 现在会同时覆盖 `personal` 和 `team`
+  - `team` 版也会把 admin UI、tenant UI、control-plane API、`/v1/*` 代理统一挂到单端口应用上
+  - `control-plane` 的嵌入式前端构建链路现在会在 `node_modules` 缺失时自动执行 `npm ci`，再执行 `npm run build`
+  - `docker/rust-runtime.Dockerfile` 已补齐 `frontend` 目录复制与 Node/npm 依赖，避免嵌入式前端构建在 Docker builder 中失败
+  - 新增 `docker-compose.team.yml` 与 `docker/.env.team.example`，支持 `team` 版默认 `app + postgres` 启动方式
+- 第七阶段验证已覆盖：
+  - `cargo test -p control-plane single_binary::tests -- --nocapture`
+  - `cargo test -p control-plane --lib --bins`
+  - `docker compose --env-file docker/.env.team.example -f docker-compose.team.yml config`
