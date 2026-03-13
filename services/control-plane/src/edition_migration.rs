@@ -1,0 +1,613 @@
+use std::fs;
+use std::path::Path;
+
+use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Duration, Utc};
+use codex_pool_core::api::{OAuthRefreshStatus, ProductEdition, SessionCredentialKind};
+use codex_pool_core::model::{
+    AiErrorLearningSettings, ApiKey, BuiltinErrorTemplateOverrideRecord, ModelRoutingPolicy,
+    ModelRoutingSettings, ModelRoutingTriggerMode, RoutingPlanVersion, RoutingPolicy,
+    RoutingProfile, Tenant, UpstreamAccount, UpstreamAuthProvider, UpstreamErrorTemplateRecord,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use uuid::Uuid;
+
+use crate::store::postgres::PostgresStore;
+use crate::store::SqliteBackedStore;
+use crate::usage::migration::{
+    export_postgres_usage_bundle, export_sqlite_usage_bundle, import_postgres_usage_bundle,
+    import_sqlite_usage_bundle, UsageMigrationBundle,
+};
+
+pub const EDITION_MIGRATION_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyTokenMigrationRecord {
+    pub token: String,
+    pub api_key_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountAuthProviderMigrationRecord {
+    pub account_id: Uuid,
+    pub auth_provider: UpstreamAuthProvider,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthCredentialMigrationRecord {
+    pub account_id: Uuid,
+    pub access_token_enc: String,
+    pub refresh_token_enc: String,
+    pub refresh_token_sha256: String,
+    pub token_family_id: String,
+    pub token_version: u64,
+    pub token_expires_at: DateTime<Utc>,
+    pub last_refresh_at: Option<DateTime<Utc>>,
+    pub last_refresh_status: OAuthRefreshStatus,
+    pub refresh_reused_detected: bool,
+    pub last_refresh_error_code: Option<String>,
+    pub last_refresh_error: Option<String>,
+    pub refresh_failure_count: u32,
+    pub refresh_backoff_until: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionProfileMigrationRecord {
+    pub account_id: Uuid,
+    pub credential_kind: SessionCredentialKind,
+    pub token_expires_at: Option<DateTime<Utc>>,
+    pub email: Option<String>,
+    pub oauth_subject: Option<String>,
+    pub oauth_identity_provider: Option<String>,
+    pub email_verified: Option<bool>,
+    pub chatgpt_plan_type: Option<String>,
+    pub chatgpt_user_id: Option<String>,
+    pub chatgpt_subscription_active_start: Option<DateTime<Utc>>,
+    pub chatgpt_subscription_active_until: Option<DateTime<Utc>>,
+    pub chatgpt_subscription_last_checked: Option<DateTime<Utc>>,
+    pub chatgpt_account_user_id: Option<String>,
+    pub chatgpt_compute_residency: Option<String>,
+    pub workspace_name: Option<String>,
+    pub organizations: Option<Vec<Value>>,
+    pub groups: Option<Vec<Value>>,
+    pub source_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamAccountHealthStateMigrationRecord {
+    pub account_id: Uuid,
+    pub seen_ok_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountModelSupportMigrationRecord {
+    pub account_id: Uuid,
+    pub supported_models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ControlPlaneMigrationBundle {
+    pub tenants: Vec<Tenant>,
+    pub api_keys: Vec<ApiKey>,
+    pub api_key_tokens: Vec<ApiKeyTokenMigrationRecord>,
+    pub accounts: Vec<UpstreamAccount>,
+    pub account_auth_providers: Vec<AccountAuthProviderMigrationRecord>,
+    pub oauth_credentials: Vec<OAuthCredentialMigrationRecord>,
+    pub session_profiles: Vec<SessionProfileMigrationRecord>,
+    pub account_health_states: Vec<UpstreamAccountHealthStateMigrationRecord>,
+    pub account_model_support: Vec<AccountModelSupportMigrationRecord>,
+    pub routing_policies: Vec<RoutingPolicy>,
+    pub routing_profiles: Vec<RoutingProfile>,
+    pub model_routing_policies: Vec<ModelRoutingPolicy>,
+    pub model_routing_settings: Option<ModelRoutingSettings>,
+    pub upstream_error_learning_settings: Option<AiErrorLearningSettings>,
+    pub upstream_error_templates: Vec<UpstreamErrorTemplateRecord>,
+    pub builtin_error_template_overrides: Vec<BuiltinErrorTemplateOverrideRecord>,
+    pub routing_plan_versions: Vec<RoutingPlanVersion>,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EditionMigrationArchiveKind {
+    TenantUsers,
+    TenantCreditAccounts,
+    TenantCreditLedger,
+    TenantCreditAuthorizations,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditionMigrationArchiveItem {
+    pub kind: EditionMigrationArchiveKind,
+    pub count: u64,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct EditionMigrationArchiveManifest {
+    pub items: Vec<EditionMigrationArchiveItem>,
+}
+
+impl EditionMigrationArchiveManifest {
+    pub fn non_empty_items(&self) -> Vec<&EditionMigrationArchiveItem> {
+        self.items.iter().filter(|item| item.count > 0).collect()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditionMigrationPackage {
+    pub schema_version: u32,
+    pub source_edition: ProductEdition,
+    pub exported_at: DateTime<Utc>,
+    pub control_plane: ControlPlaneMigrationBundle,
+    pub usage: UsageMigrationBundle,
+    pub archive: EditionMigrationArchiveManifest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditionMigrationIssue {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditionMigrationSummary {
+    pub tenant_count: usize,
+    pub api_key_count: usize,
+    pub account_count: usize,
+    pub request_log_count: usize,
+    pub archive_item_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditionMigrationPreflightReport {
+    pub source_edition: ProductEdition,
+    pub target_edition: ProductEdition,
+    pub allowed: bool,
+    pub blockers: Vec<EditionMigrationIssue>,
+    pub warnings: Vec<EditionMigrationIssue>,
+    pub summary: EditionMigrationSummary,
+    pub archive: EditionMigrationArchiveManifest,
+}
+
+fn push_blocker(
+    blockers: &mut Vec<EditionMigrationIssue>,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) {
+    blockers.push(EditionMigrationIssue {
+        code: code.into(),
+        message: message.into(),
+    });
+}
+
+fn push_warning(
+    warnings: &mut Vec<EditionMigrationIssue>,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) {
+    warnings.push(EditionMigrationIssue {
+        code: code.into(),
+        message: message.into(),
+    });
+}
+
+pub(crate) fn default_model_routing_settings() -> ModelRoutingSettings {
+    ModelRoutingSettings {
+        enabled: true,
+        auto_publish: true,
+        planner_model_chain: Vec::new(),
+        trigger_mode: ModelRoutingTriggerMode::Hybrid,
+        kill_switch: false,
+        updated_at: Utc::now(),
+    }
+}
+
+pub fn preflight_package(
+    package: &EditionMigrationPackage,
+    target_edition: ProductEdition,
+) -> EditionMigrationPreflightReport {
+    let mut blockers = Vec::new();
+    let mut warnings = Vec::new();
+    let non_empty_archives = package.archive.non_empty_items();
+
+    if package.schema_version != EDITION_MIGRATION_SCHEMA_VERSION {
+        push_blocker(
+            &mut blockers,
+            "unsupported_schema_version",
+            format!(
+                "迁移包 schema_version={}，当前工具仅支持 {}",
+                package.schema_version, EDITION_MIGRATION_SCHEMA_VERSION
+            ),
+        );
+    }
+
+    match target_edition {
+        ProductEdition::Personal => {
+            if package.control_plane.tenants.len() > 1 {
+                push_blocker(
+                    &mut blockers,
+                    "multi_tenant_not_supported",
+                    "personal 版只支持单 workspace，当前迁移包包含多个 tenant。",
+                );
+            }
+
+            if package.source_edition != ProductEdition::Personal {
+                push_blocker(
+                    &mut blockers,
+                    "restricted_downgrade_not_implemented",
+                    "当前版本尚未实现从 team/business 直接导入 personal；请先运行 preflight 并准备归档后续链路。",
+                );
+            }
+        }
+        ProductEdition::Team => {
+            if package.source_edition == ProductEdition::Business && !non_empty_archives.is_empty()
+            {
+                push_blocker(
+                    &mut blockers,
+                    "business_downgrade_requires_archive_payload",
+                    "business -> team 仍需要带归档载荷的受限降级链路；当前阶段仅提供 archive manifest 预检。",
+                );
+            }
+        }
+        ProductEdition::Business => {}
+    }
+
+    for item in non_empty_archives {
+        let message = format!("{} 条 {:?} 数据不会导入目标版本。", item.count, item.kind);
+        push_warning(&mut warnings, "archive_item_present", message);
+    }
+
+    EditionMigrationPreflightReport {
+        source_edition: package.source_edition,
+        target_edition,
+        allowed: blockers.is_empty(),
+        blockers,
+        warnings,
+        summary: EditionMigrationSummary {
+            tenant_count: package.control_plane.tenants.len(),
+            api_key_count: package.control_plane.api_keys.len(),
+            account_count: package.control_plane.accounts.len(),
+            request_log_count: package.usage.request_logs.len(),
+            archive_item_count: package.archive.non_empty_items().len(),
+        },
+        archive: package.archive.clone(),
+    }
+}
+
+pub async fn build_sqlite_package(
+    source_edition: ProductEdition,
+    store: &SqliteBackedStore,
+) -> Result<EditionMigrationPackage> {
+    let control_plane = store.export_migration_bundle().await?;
+    let usage = export_sqlite_usage_bundle(&store.clone_pool()).await?;
+
+    Ok(EditionMigrationPackage {
+        schema_version: EDITION_MIGRATION_SCHEMA_VERSION,
+        source_edition,
+        exported_at: Utc::now(),
+        control_plane,
+        usage,
+        archive: EditionMigrationArchiveManifest::default(),
+    })
+}
+
+pub async fn build_postgres_package(
+    source_edition: ProductEdition,
+    database_url: &str,
+) -> Result<EditionMigrationPackage> {
+    let store = PostgresStore::connect(database_url).await?;
+    let control_plane = store.export_migration_bundle().await?;
+    let usage = export_postgres_usage_bundle(database_url).await?;
+    let archive = store.export_archive_manifest(source_edition).await?;
+
+    Ok(EditionMigrationPackage {
+        schema_version: EDITION_MIGRATION_SCHEMA_VERSION,
+        source_edition,
+        exported_at: Utc::now(),
+        control_plane,
+        usage,
+        archive,
+    })
+}
+
+pub async fn import_package_into_sqlite(
+    database_url: &str,
+    package: &EditionMigrationPackage,
+) -> Result<()> {
+    let preflight = preflight_package(package, ProductEdition::Personal);
+    if !preflight.allowed {
+        bail!(
+            "迁移预检失败: {}",
+            preflight
+                .blockers
+                .iter()
+                .map(|item| item.message.as_str())
+                .collect::<Vec<_>>()
+                .join("；")
+        );
+    }
+
+    SqliteBackedStore::import_migration_bundle(database_url, &package.control_plane).await?;
+    import_sqlite_usage_bundle(database_url, &package.usage).await?;
+    Ok(())
+}
+
+pub async fn import_package_into_postgres(
+    target_edition: ProductEdition,
+    database_url: &str,
+    package: &EditionMigrationPackage,
+) -> Result<()> {
+    if matches!(target_edition, ProductEdition::Personal) {
+        bail!("请使用 SQLite 导入 personal 版迁移包");
+    }
+
+    let preflight = preflight_package(package, target_edition);
+    if !preflight.allowed {
+        bail!(
+            "迁移预检失败: {}",
+            preflight
+                .blockers
+                .iter()
+                .map(|item| item.message.as_str())
+                .collect::<Vec<_>>()
+                .join("；")
+        );
+    }
+
+    PostgresStore::import_migration_bundle(database_url, &package.control_plane).await?;
+    import_postgres_usage_bundle(database_url, &package.usage).await?;
+    Ok(())
+}
+
+pub fn write_package_to_file(path: &Path, package: &EditionMigrationPackage) -> Result<()> {
+    let encoded =
+        serde_json::to_vec_pretty(package).context("failed to encode edition migration package")?;
+    fs::write(path, encoded)
+        .with_context(|| format!("failed to write migration package to {}", path.display()))
+}
+
+pub fn read_package_from_file(path: &Path) -> Result<EditionMigrationPackage> {
+    let bytes = fs::read(path)
+        .with_context(|| format!("failed to read migration package from {}", path.display()))?;
+    serde_json::from_slice(&bytes).context("failed to decode edition migration package")
+}
+
+pub fn write_archive_manifest_to_file(
+    path: &Path,
+    archive: &EditionMigrationArchiveManifest,
+) -> Result<()> {
+    let encoded =
+        serde_json::to_vec_pretty(archive).context("failed to encode archive manifest")?;
+    fs::write(path, encoded)
+        .with_context(|| format!("failed to write archive manifest to {}", path.display()))
+}
+
+pub fn read_archive_manifest_from_file(path: &Path) -> Result<EditionMigrationArchiveManifest> {
+    let bytes = fs::read(path)
+        .with_context(|| format!("failed to read archive manifest from {}", path.display()))?;
+    serde_json::from_slice(&bytes).context("failed to decode archive manifest")
+}
+
+pub fn inspect_archive_manifest(
+    archive: &EditionMigrationArchiveManifest,
+) -> Vec<EditionMigrationArchiveItem> {
+    archive.items.clone()
+}
+
+pub fn query_window() -> (i64, i64) {
+    let start = 0;
+    let end = (Utc::now() + Duration::days(3650)).timestamp();
+    (start, end)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::store::{ControlPlaneStore, SqliteBackedStore};
+    use crate::usage::clickhouse_repo::UsageQueryRepository;
+    use crate::usage::sqlite_repo::SqliteUsageRepo;
+    use crate::usage::UsageIngestRepository;
+    use chrono::Utc;
+    use codex_pool_core::api::{
+        CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest, ProductEdition,
+        UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
+    };
+    use codex_pool_core::events::RequestLogEvent;
+    use codex_pool_core::model::{RoutingProfileSelector, UpstreamMode};
+    use uuid::Uuid;
+
+    fn sqlite_path(name: &str) -> String {
+        let path = std::env::temp_dir().join(format!("{name}-{}.sqlite3", Uuid::new_v4()));
+        path.display().to_string()
+    }
+
+    #[tokio::test]
+    async fn sqlite_package_roundtrip_preserves_core_state_and_usage() {
+        let source_url = sqlite_path("edition-migrate-source");
+        let source_store = SqliteBackedStore::connect(&source_url)
+            .await
+            .expect("connect source sqlite store");
+        let source_usage = SqliteUsageRepo::new(source_store.clone_pool())
+            .await
+            .expect("connect source sqlite usage repo");
+
+        let tenant = source_store
+            .create_tenant(CreateTenantRequest {
+                name: "Personal Workspace".to_string(),
+            })
+            .await
+            .expect("create tenant");
+        let api_key = source_store
+            .create_api_key(CreateApiKeyRequest {
+                tenant_id: tenant.id,
+                name: "default".to_string(),
+            })
+            .await
+            .expect("create api key")
+            .record;
+        let account = source_store
+            .create_upstream_account(CreateUpstreamAccountRequest {
+                label: "OpenAI".to_string(),
+                mode: UpstreamMode::OpenAiApiKey,
+                base_url: "https://api.openai.com".to_string(),
+                bearer_token: "sk-test".to_string(),
+                chatgpt_account_id: None,
+                auth_provider: None,
+                enabled: Some(true),
+                priority: Some(100),
+            })
+            .await
+            .expect("create upstream account");
+
+        let profile = source_store
+            .upsert_routing_profile(UpsertRoutingProfileRequest {
+                id: None,
+                name: "default-profile".to_string(),
+                description: Some("default profile".to_string()),
+                enabled: true,
+                priority: 100,
+                selector: RoutingProfileSelector {
+                    include_account_ids: vec![account.id],
+                    ..RoutingProfileSelector::default()
+                },
+            })
+            .await
+            .expect("upsert routing profile");
+        let policy = source_store
+            .upsert_model_routing_policy(UpsertModelRoutingPolicyRequest {
+                id: None,
+                name: "default-policy".to_string(),
+                family: "openai".to_string(),
+                exact_models: vec!["gpt-5-mini".to_string()],
+                model_prefixes: Vec::new(),
+                fallback_profile_ids: vec![profile.id],
+                enabled: true,
+                priority: 100,
+            })
+            .await
+            .expect("upsert model routing policy");
+
+        let request_id = format!("req-{}", Uuid::new_v4());
+        source_usage
+            .ingest_request_log(RequestLogEvent {
+                id: Uuid::new_v4(),
+                account_id: account.id,
+                tenant_id: Some(tenant.id),
+                api_key_id: Some(api_key.id),
+                event_version: 2,
+                path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                status_code: 200,
+                latency_ms: 180,
+                is_stream: false,
+                error_code: None,
+                request_id: Some(request_id.clone()),
+                model: Some("gpt-5-mini".to_string()),
+                service_tier: None,
+                input_tokens: Some(200),
+                cached_input_tokens: Some(20),
+                output_tokens: Some(60),
+                reasoning_tokens: Some(10),
+                first_token_latency_ms: Some(50),
+                billing_phase: Some("captured".to_string()),
+                authorization_id: None,
+                capture_status: Some("captured".to_string()),
+                created_at: Utc::now(),
+            })
+            .await
+            .expect("ingest request log");
+
+        let package = super::build_sqlite_package(ProductEdition::Personal, &source_store)
+            .await
+            .expect("export sqlite edition package");
+
+        let target_url = sqlite_path("edition-migrate-target");
+        super::import_package_into_sqlite(&target_url, &package)
+            .await
+            .expect("import package into sqlite");
+
+        let imported_store = SqliteBackedStore::connect(&target_url)
+            .await
+            .expect("connect imported sqlite store");
+        let imported_usage = SqliteUsageRepo::new(imported_store.clone_pool())
+            .await
+            .expect("connect imported sqlite usage repo");
+
+        let imported_tenants = imported_store.list_tenants().await.expect("list tenants");
+        let imported_api_keys = imported_store.list_api_keys().await.expect("list api keys");
+        let imported_accounts = imported_store
+            .list_upstream_accounts()
+            .await
+            .expect("list upstream accounts");
+        let imported_profiles = imported_store
+            .list_routing_profiles()
+            .await
+            .expect("list routing profiles");
+        let imported_policies = imported_store
+            .list_model_routing_policies()
+            .await
+            .expect("list model routing policies");
+        let logs = imported_usage
+            .query_request_logs(crate::usage::RequestLogQuery {
+                start_ts: Utc::now().timestamp() - 3600,
+                end_ts: Utc::now().timestamp() + 3600,
+                limit: 20,
+                tenant_id: Some(tenant.id),
+                api_key_id: Some(api_key.id),
+                status_code: None,
+                request_id: Some(request_id),
+                keyword: None,
+            })
+            .await
+            .expect("query imported request logs");
+
+        assert_eq!(imported_tenants.len(), 1);
+        assert_eq!(imported_tenants[0].id, tenant.id);
+        assert_eq!(imported_api_keys.len(), 1);
+        assert_eq!(imported_api_keys[0].id, api_key.id);
+        assert_eq!(imported_accounts.len(), 1);
+        assert_eq!(imported_accounts[0].id, account.id);
+        assert_eq!(imported_profiles.len(), 1);
+        assert_eq!(imported_profiles[0].id, profile.id);
+        assert_eq!(imported_policies.len(), 1);
+        assert_eq!(imported_policies[0].id, policy.id);
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].tenant_id, Some(tenant.id));
+        assert_eq!(logs[0].api_key_id, Some(api_key.id));
+    }
+
+    #[test]
+    fn preflight_blocks_team_to_personal_when_multiple_tenants_exist() {
+        let package = super::EditionMigrationPackage {
+            schema_version: super::EDITION_MIGRATION_SCHEMA_VERSION,
+            source_edition: ProductEdition::Team,
+            exported_at: Utc::now(),
+            control_plane: super::ControlPlaneMigrationBundle {
+                tenants: vec![
+                    codex_pool_core::model::Tenant {
+                        id: Uuid::new_v4(),
+                        name: "A".to_string(),
+                        created_at: Utc::now(),
+                    },
+                    codex_pool_core::model::Tenant {
+                        id: Uuid::new_v4(),
+                        name: "B".to_string(),
+                        created_at: Utc::now(),
+                    },
+                ],
+                ..Default::default()
+            },
+            usage: super::UsageMigrationBundle::default(),
+            archive: super::EditionMigrationArchiveManifest::default(),
+        };
+
+        let report = super::preflight_package(&package, ProductEdition::Personal);
+
+        assert!(!report.allowed);
+        assert!(report
+            .blockers
+            .iter()
+            .any(|item| item.code == "multi_tenant_not_supported"));
+    }
+}

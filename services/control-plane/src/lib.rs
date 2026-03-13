@@ -11,6 +11,7 @@ pub mod app;
 pub mod config;
 pub mod cost;
 pub mod crypto;
+pub mod edition_migration;
 pub mod import_jobs;
 pub mod oauth;
 pub mod security;

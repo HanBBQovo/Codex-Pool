@@ -7,6 +7,7 @@ use codex_pool_core::events::RequestLogEvent;
 use uuid::Uuid;
 
 pub mod clickhouse_repo;
+pub mod migration;
 pub mod postgres_repo;
 pub mod redis_reader;
 pub mod sqlite_repo;
@@ -40,7 +41,7 @@ impl UsageAggregationEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct RequestLogRow {
     pub id: Uuid,
     pub account_id: Uuid,

@@ -107,6 +107,11 @@
 - [x] 为 `team` 新增 `app + postgres` 最小 Docker Compose 产物
 - [x] 修复 Rust Docker builder 对嵌入式前端产物的依赖链
 - [x] 第七阶段 team single-binary deployment foundation 验证通过，并准备进入下一阶段
+- [x] 设计并实现 edition migration 数据包格式与 preflight 规则
+- [x] 为 `personal` 新增 SQLite control-plane / usage 导出导入回环能力
+- [x] 为 `team/business` 新增 PostgreSQL control-plane / usage 导出导入骨架
+- [x] 新增 `edition-migrate` CLI，支持 `export / preflight / import / archive inspect`
+- [x] 第八阶段 edition migration upgrade foundation 验证通过，并准备进入下一阶段
 
 ## Progress Notes
 
@@ -181,3 +186,13 @@
   - `cargo test -p control-plane single_binary::tests -- --nocapture`
   - `cargo test -p control-plane --lib --bins`
   - `docker compose --env-file docker/.env.team.example -f docker-compose.team.yml config`
+- 第八阶段已落地 edition migration 的第一版“可执行升级链路”：
+  - `control-plane` 新增 `edition_migration` 模块，定义统一迁移包、archive manifest 与 preflight 报告结构
+  - `store` 新增 SQLite / PostgreSQL control-plane bundle 导出导入能力，保留 tenant / api key / upstream account / routing / OAuth credential 等原始 ID
+  - `usage` 新增跨版本 request-log 迁移包，`personal -> team/business` 与 `team -> business` 导入时会按 request logs 重建 PostgreSQL 小时聚合表
+  - 新增 `edition-migrate` 二进制，支持 `export`、`preflight`、`import`、`archive inspect`
+  - `team -> personal` 与 `business -> team/personal` 当前仍是受限降级 preflight；本阶段只导出了 archive manifest，还没有落 raw archive payload
+- 第八阶段验证已覆盖：
+  - `cargo test -p control-plane edition_migration::tests -- --nocapture`
+  - `cargo test -p control-plane --bin edition-migrate -- --nocapture`
+  - `cargo test -p control-plane --lib --bins`
