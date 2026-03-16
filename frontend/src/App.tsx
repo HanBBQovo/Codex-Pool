@@ -18,6 +18,7 @@ import { LoadingScreen } from '@/components/ui/loading-overlay'
 import { NotificationCenter } from '@/components/ui/notification-center'
 import { applyRouteSeo } from '@/lib/seo'
 import type { SystemCapabilitiesResponse } from '@/api/types'
+import { shouldShowStandaloneAdminApiKeys } from '@/features/api-keys/admin-capabilities'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,7 @@ const Models = lazy(() => import('@/pages/Models'))
 const Usage = lazy(() => import('@/pages/Usage'))
 const Billing = lazy(() => import('@/pages/Billing'))
 const Proxies = lazy(() => import('@/pages/Proxies'))
+const AdminApiKeys = lazy(() => import('@/pages/AdminApiKeys'))
 const Tenants = lazy(() => import('@/pages/Tenants'))
 const Config = lazy(() => import('@/pages/Config'))
 const Logs = lazy(() => import('@/pages/Logs'))
@@ -136,6 +138,8 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
       window.removeEventListener(LOGIN_FAILED_EVENT, onLoginFailed)
     }
   }, [t])
+
+  const showStandaloneAdminApiKeys = shouldShowStandaloneAdminApiKeys(capabilities)
 
   useEffect(() => {
     if (!authenticated || !capabilities.features.multi_tenant) {
@@ -287,6 +291,16 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
               </Suspense>
             )}
           />
+          {showStandaloneAdminApiKeys ? (
+            <Route
+              path="/api-keys"
+              element={(
+                <Suspense fallback={<RouteSkeleton />}>
+                  <AdminApiKeys />
+                </Suspense>
+              )}
+            />
+          ) : null}
           {capabilities.features.multi_tenant ? (
             <Route
               path="/tenants"

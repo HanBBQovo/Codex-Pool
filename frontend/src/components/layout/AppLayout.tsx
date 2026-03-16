@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import {
     LayoutDashboard,
+    KeyRound,
     Users,
     UserCog,
     HardDriveDownload,
@@ -32,6 +33,7 @@ import { Button } from '@/components/ui/button'
 import type { SystemCapabilitiesResponse } from '@/api/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import codexPoolLogo from '@/assets/codex-pool-logo.png'
+import { filterAdminMenuGroupsByCapabilities } from '@/features/api-keys/admin-capabilities'
 
 const MOBILE_FOCUSABLE_SELECTOR = [
     'a[href]',
@@ -170,6 +172,7 @@ export function AppLayout({
             items: [
                 { path: '/accounts', icon: UserCog, label: t('nav.accounts') },
                 { path: '/models', icon: Box, label: t('nav.models') },
+                { path: '/api-keys', icon: KeyRound, label: t('nav.apiKeys') },
                 { path: '/tenants', icon: Users, label: t('nav.tenants') },
                 { path: '/proxies', icon: Network, label: t('nav.proxies') },
             ]
@@ -193,19 +196,10 @@ export function AppLayout({
         }
     ]
     const resolvedMenuGroups = menuGroups ?? defaultAdminMenuGroups
-    const capabilityScopedMenuGroups = useMemo(() => {
-        return resolvedMenuGroups
-            .map((group) => ({
-                ...group,
-                items: group.items.filter((item) => {
-                    if (item.path === '/tenants') {
-                        return capabilities?.features.multi_tenant ?? true
-                    }
-                    return true
-                }),
-            }))
-            .filter((group) => group.items.length > 0)
-    }, [capabilities, resolvedMenuGroups])
+    const capabilityScopedMenuGroups = useMemo(
+        () => filterAdminMenuGroupsByCapabilities(resolvedMenuGroups, capabilities),
+        [capabilities, resolvedMenuGroups],
+    )
     const visibleMenuGroups = useMemo(() => {
         return capabilityScopedMenuGroups
             .map((group) => ({
