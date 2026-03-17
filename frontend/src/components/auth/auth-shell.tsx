@@ -4,8 +4,9 @@ import { useReducedMotion } from 'framer-motion'
 import AnimatedContent from '@/components/AnimatedContent'
 import { LanguageToggle } from '@/components/LanguageToggle'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { BrandStage, PagePanel } from '@/components/layout/page-archetypes'
+import { PagePanel } from '@/components/layout/page-archetypes'
 import { resolvePanelRevealMotion } from '@/lib/motion-presets'
+import { describeAuthShellLayout } from '@/lib/page-archetypes'
 import { cn } from '@/lib/utils'
 
 interface AuthShellProps {
@@ -27,19 +28,19 @@ export function AuthShell({
 }: AuthShellProps) {
   const prefersReducedMotion = useReducedMotion()
   const panelRevealMotion = resolvePanelRevealMotion(prefersReducedMotion)
+  const authLayout = describeAuthShellLayout()
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden bg-[#f5f6f8] text-[#0f172a] dark:bg-[#0a0f18] dark:text-[#e2e8f0]">
-      <div className="page-grid-wash pointer-events-none absolute inset-0 opacity-80 dark:opacity-70" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.92),rgba(255,255,255,0.2)_32%,rgba(255,255,255,0)_62%),radial-gradient(circle_at_85%_18%,rgba(226,232,240,0.42),rgba(226,232,240,0)_30%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.12),rgba(148,163,184,0)_32%),radial-gradient(circle_at_85%_18%,rgba(59,130,246,0.08),rgba(59,130,246,0)_28%)]" />
+    <div className="relative min-h-dvh overflow-x-hidden bg-background text-foreground">
+      <div className="page-grid-wash pointer-events-none absolute inset-0 opacity-90 dark:opacity-80" />
 
       <div className="relative z-10 min-h-dvh px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-8 sm:py-8 lg:px-12 lg:py-10">
-        <div className="mx-auto flex w-full max-w-7xl justify-end gap-2 pb-2 sm:pb-3">
+        <div className="mx-auto flex w-full max-w-6xl justify-end gap-2 pb-2 sm:pb-3">
           <LanguageToggle />
           <ThemeToggle />
         </div>
-        <div className="mx-auto flex max-w-7xl sm:min-h-[calc(100dvh-3.25rem)] sm:items-start lg:items-center">
-          <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1.08fr)_minmax(23rem,0.82fr)] lg:gap-8 xl:gap-10">
+        <div className="mx-auto flex max-w-6xl sm:min-h-[calc(100dvh-3.25rem)] sm:items-center">
+          <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,0.72fr)] lg:gap-6 xl:gap-8">
             <AnimatedContent
               distance={panelRevealMotion.distance}
               direction="horizontal"
@@ -48,12 +49,12 @@ export function AuthShell({
               ease={panelRevealMotion.ease}
               initialOpacity={panelRevealMotion.initialOpacity}
               scale={panelRevealMotion.scale}
-              className="order-1 flex w-full items-center justify-center lg:order-2 lg:justify-end"
+              className="order-1 flex w-full items-center justify-center lg:justify-start"
             >
               <PagePanel
+                tone={authLayout.formPanelTone}
                 className={cn(
-                  'w-full max-w-[34rem]',
-                  prefersReducedMotion ? '' : 'backdrop-blur-[1px]',
+                  'w-full max-w-[33rem] rounded-[1.35rem] p-6 sm:p-7',
                   rightSlotClassName,
                 )}
               >
@@ -67,20 +68,40 @@ export function AuthShell({
               ease={panelRevealMotion.ease}
               initialOpacity={panelRevealMotion.initialOpacity}
               scale={panelRevealMotion.scale}
-              className="order-2 lg:order-1"
+              className="order-2"
             >
-              <BrandStage
-                badge={(
-                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-300/75 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:border-slate-700/70 dark:bg-slate-950/65 dark:text-slate-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-900 dark:bg-slate-100" />
-                    <span>{badge}</span>
+              <PagePanel
+                tone={authLayout.brandPanelTone}
+                className="h-full rounded-[1.35rem] p-6 sm:p-7"
+              >
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/70 bg-background/72 px-2.5 py-1 text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary/85" />
+                      <span>{badge}</span>
+                    </div>
+                    <div className="space-y-2">
+                      <h1 className="text-balance text-[clamp(1.9rem,4vw,3.3rem)] font-semibold leading-[0.98] tracking-[-0.026em] text-foreground">
+                        {title}
+                      </h1>
+                      <p className="text-sm leading-6 text-muted-foreground sm:text-[15px]">
+                        {subtitle}
+                      </p>
+                    </div>
                   </div>
-                )}
-                title={title}
-                subtitle={subtitle}
-                points={points}
-                className="min-h-[18rem] lg:min-h-[34rem] lg:rounded-[2rem]"
-              />
+
+                  {authLayout.pointsStyle === 'list' ? (
+                    <ul className="space-y-3 border-t border-border/60 pt-5 text-sm leading-6 text-foreground/82">
+                      {points.map((point, index) => (
+                        <li key={index} className="flex items-start gap-3">
+                          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/80" />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              </PagePanel>
             </AnimatedContent>
           </div>
         </div>

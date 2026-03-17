@@ -27,6 +27,12 @@ export interface DashboardShellLayout {
   desktopAlignment: 'start' | 'stretch'
 }
 
+export interface AuthShellLayout {
+  formPanelTone: 'primary'
+  brandPanelTone: 'secondary'
+  pointsStyle: 'list'
+}
+
 export interface ReportShellLayout {
   mobileToolbarPlacement: 'after-intro'
   mobileRailPlacement: 'after-content' | 'after-toolbar'
@@ -202,6 +208,14 @@ export function describeDashboardShellLayout(): DashboardShellLayout {
   return {
     mobileRailPlacement: 'after-content',
     desktopAlignment: 'start',
+  }
+}
+
+export function describeAuthShellLayout(): AuthShellLayout {
+  return {
+    formPanelTone: 'primary',
+    brandPanelTone: 'secondary',
+    pointsStyle: 'list',
   }
 }
 

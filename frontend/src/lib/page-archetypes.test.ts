@@ -5,6 +5,7 @@ import test from 'node:test'
 import * as pageArchetypes from './page-archetypes.ts'
 
 import {
+  describeAuthShellLayout,
   describeDashboardShellLayout,
   describePageRegions,
   resolvePageArchetype,
@@ -87,6 +88,14 @@ test('dashboard keeps a more expressive surface tone than settings under the res
   assert.equal(dashboard.effectProfile, 'restrained')
   assert.equal(settings.surfaceTone, 'quiet')
   assert.equal(settings.effectProfile, 'none')
+})
+
+test('describeAuthShellLayout keeps the form primary and demotes brand points into a quiet supporting panel', () => {
+  assert.deepEqual(describeAuthShellLayout(), {
+    formPanelTone: 'primary',
+    brandPanelTone: 'secondary',
+    pointsStyle: 'list',
+  })
 })
 
 test('describeDashboardShellLayout keeps dashboard metrics ahead of the rail on mobile and avoids stretched headers on desktop', () => {
