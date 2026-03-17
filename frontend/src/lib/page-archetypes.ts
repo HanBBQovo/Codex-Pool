@@ -4,6 +4,7 @@ export interface PageArchetypeConfig {
   name: PageArchetype
   introStyle: 'stage' | 'compact'
   stageMode: 'split' | 'inline' | 'none'
+  headerSurface: 'stage' | 'panel' | 'plain'
   primaryZone: 'form' | 'task' | 'content'
   secondaryDensity: 'narrative' | 'balanced' | 'summary-first'
   surfaceTone: 'refined' | 'neutral' | 'quiet'
@@ -26,6 +27,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     name: 'auth',
     introStyle: 'stage',
     stageMode: 'split',
+    headerSurface: 'stage',
     primaryZone: 'form',
     secondaryDensity: 'narrative',
     surfaceTone: 'refined',
@@ -39,6 +41,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     name: 'dashboard',
     introStyle: 'compact',
     stageMode: 'inline',
+    headerSurface: 'panel',
     primaryZone: 'content',
     secondaryDensity: 'balanced',
     surfaceTone: 'refined',
@@ -52,6 +55,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     name: 'workspace',
     introStyle: 'compact',
     stageMode: 'none',
+    headerSurface: 'panel',
     primaryZone: 'task',
     secondaryDensity: 'summary-first',
     surfaceTone: 'neutral',
@@ -65,6 +69,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     name: 'detail',
     introStyle: 'compact',
     stageMode: 'none',
+    headerSurface: 'plain',
     primaryZone: 'content',
     secondaryDensity: 'balanced',
     surfaceTone: 'quiet',
@@ -78,6 +83,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     name: 'settings',
     introStyle: 'compact',
     stageMode: 'none',
+    headerSurface: 'plain',
     primaryZone: 'content',
     secondaryDensity: 'balanced',
     surfaceTone: 'quiet',

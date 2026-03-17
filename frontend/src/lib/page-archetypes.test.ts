@@ -14,6 +14,7 @@ test('resolvePageArchetype gives auth a branded but non-effect-heavy structure',
 
   assert.equal(archetype.name, 'auth')
   assert.equal(archetype.introStyle, 'stage')
+  assert.equal(archetype.headerSurface, 'stage')
   assert.equal(archetype.stageMode, 'split')
   assert.equal(archetype.primaryZone, 'form')
   assert.equal(archetype.effectProfile, 'subtle')
@@ -26,6 +27,7 @@ test('resolvePageArchetype keeps workspace compact and task-first', () => {
 
   assert.equal(archetype.name, 'workspace')
   assert.equal(archetype.introStyle, 'compact')
+  assert.equal(archetype.headerSurface, 'panel')
   assert.equal(archetype.primaryZone, 'task')
   assert.equal(archetype.secondaryDensity, 'summary-first')
   assert.equal(archetype.stageMode, 'none')
@@ -33,11 +35,23 @@ test('resolvePageArchetype keeps workspace compact and task-first', () => {
   assert.equal(archetype.mobile.stageCompression, 'hide')
 })
 
+test('resolvePageArchetype keeps dashboard in a context-panel rhythm', () => {
+  const archetype = resolvePageArchetype('dashboard')
+
+  assert.equal(archetype.name, 'dashboard')
+  assert.equal(archetype.introStyle, 'compact')
+  assert.equal(archetype.headerSurface, 'panel')
+  assert.equal(archetype.stageMode, 'inline')
+  assert.equal(archetype.secondaryDensity, 'balanced')
+  assert.equal(archetype.effectProfile, 'minimal')
+})
+
 test('resolvePageArchetype falls back to settings for unknown variants', () => {
   const archetype = resolvePageArchetype('unknown' as PageArchetype)
 
   assert.equal(archetype.name, 'settings')
   assert.equal(archetype.introStyle, 'compact')
+  assert.equal(archetype.headerSurface, 'plain')
   assert.equal(archetype.primaryZone, 'content')
   assert.equal(archetype.effectProfile, 'none')
   assert.equal(archetype.mobile.primaryFirst, true)

@@ -181,3 +181,161 @@ export function WorkspaceShell({
     </section>
   )
 }
+
+interface SectionHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
+  title: ReactNode
+  description?: ReactNode
+  actions?: ReactNode
+  eyebrow?: ReactNode
+}
+
+export function SectionHeader({
+  title,
+  description,
+  actions,
+  eyebrow,
+  className,
+  ...props
+}: SectionHeaderProps) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
+        className,
+      )}
+      {...props}
+    >
+      <div className="min-w-0 space-y-1.5">
+        {eyebrow ? (
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            {eyebrow}
+          </p>
+        ) : null}
+        <h2 className="text-lg font-semibold tracking-[-0.02em] text-slate-950 dark:text-slate-50">
+          {title}
+        </h2>
+        {description ? (
+          <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p>
+        ) : null}
+      </div>
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+    </div>
+  )
+}
+
+interface DashboardShellProps extends HTMLAttributes<HTMLDivElement> {
+  intro: ReactNode
+  rail?: ReactNode
+}
+
+export function DashboardShell({
+  intro,
+  rail,
+  className,
+  children,
+  ...props
+}: DashboardShellProps) {
+  const config = resolvePageArchetype('dashboard')
+
+  return (
+    <section className={cn('space-y-6 md:space-y-8', className)} {...props}>
+      <div
+        className={cn(
+          'grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(19rem,0.92fr)] 2xl:grid-cols-[minmax(0,1.16fr)_minmax(20rem,0.84fr)]',
+          !rail && 'grid-cols-1',
+        )}
+      >
+        <PagePanel
+          className={cn(
+            'relative overflow-hidden',
+            config.headerSurface === 'panel' && 'rounded-[1.75rem] p-6 sm:p-7 lg:p-8',
+          )}
+        >
+          <div className="page-grid-wash pointer-events-none absolute inset-0 opacity-55 dark:opacity-35" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.76),rgba(255,255,255,0.16)_32%,rgba(255,255,255,0)_60%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.12),rgba(148,163,184,0)_32%)]" />
+          <div className="relative">{intro}</div>
+        </PagePanel>
+        {rail ? <div className="space-y-4">{rail}</div> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+type DashboardMetricGridProps = HTMLAttributes<HTMLDivElement>
+
+export function DashboardMetricGrid({
+  className,
+  children,
+  ...props
+}: DashboardMetricGridProps) {
+  return (
+    <div
+      className={cn('grid gap-4 sm:grid-cols-2 2xl:grid-cols-4', className)}
+      {...props}
+    >
+      {children}
+    </div>
+  )
+}
+
+interface DashboardMetricCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
+  eyebrow?: ReactNode
+  title: ReactNode
+  value: ReactNode
+  valueTitle?: string
+  description?: ReactNode
+  icon?: ReactNode
+  loading?: boolean
+}
+
+export function DashboardMetricCard({
+  eyebrow,
+  title,
+  value,
+  valueTitle,
+  description,
+  icon,
+  loading = false,
+  className,
+  ...props
+}: DashboardMetricCardProps) {
+  return (
+    <PagePanel className={cn('h-full space-y-4', className)} {...props}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1.5">
+          {eyebrow ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+              {eyebrow}
+            </p>
+          ) : null}
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
+        </div>
+        {icon ? (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200/80 bg-white/80 text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-200">
+            {icon}
+          </div>
+        ) : null}
+      </div>
+      <div className="space-y-2">
+        {loading ? (
+          <div className="h-10 w-32 animate-pulse rounded-xl bg-slate-200/75 dark:bg-slate-800/75" />
+        ) : (
+          <p
+            title={valueTitle}
+            className="text-[clamp(1.7rem,3vw,2.45rem)] font-semibold leading-none tracking-[-0.04em] text-slate-950 dark:text-slate-50"
+          >
+            {value}
+          </p>
+        )}
+        {description ? (
+          loading ? (
+            <div className="h-3.5 w-40 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
+          ) : (
+            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+          )
+        ) : null}
+      </div>
+    </PagePanel>
+  )
+}
