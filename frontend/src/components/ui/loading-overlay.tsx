@@ -1,5 +1,6 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 
+import { resolveFeedbackMotion } from '@/lib/motion-presets'
 import { cn } from '@/lib/utils'
 
 type LoadingSize = 'default' | 'compact'
@@ -63,15 +64,18 @@ export function LoadingOverlay({
   size = 'default',
   className,
 }: LoadingOverlayProps) {
+  const prefersReducedMotion = useReducedMotion()
+  const feedbackMotion = resolveFeedbackMotion(prefersReducedMotion)
+
   return (
     <AnimatePresence>
       {show ? (
         <motion.div
           key="loading-overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.28, ease: 'easeOut' }}
+          initial={feedbackMotion.initial}
+          animate={feedbackMotion.animate}
+          exit={feedbackMotion.exit}
+          transition={feedbackMotion.transition}
           className={cn('absolute inset-0 z-20', className)}
           role="status"
           aria-live="polite"
@@ -93,6 +97,9 @@ export function LoadingScreen({
   size = 'default',
   className,
 }: LoadingScreenProps) {
+  const prefersReducedMotion = useReducedMotion()
+  const feedbackMotion = resolveFeedbackMotion(prefersReducedMotion)
+
   return (
     <div
       className={cn('relative flex h-full min-h-[280px] w-full items-center justify-center overflow-hidden bg-background', className)}
@@ -101,9 +108,14 @@ export function LoadingScreen({
       aria-busy="true"
     >
       <LoadingBackdrop />
-      <div className="relative">
+      <motion.div
+        className="relative"
+        initial={feedbackMotion.initial}
+        animate={feedbackMotion.animate}
+        transition={feedbackMotion.transition}
+      >
         <LoadingContent title={title} description={description} size={size} />
-      </div>
+      </motion.div>
     </div>
   )
 }

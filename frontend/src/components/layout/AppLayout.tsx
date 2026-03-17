@@ -25,6 +25,7 @@ import {
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { canAccessByRole, type AppRole } from '@/lib/permissions'
+import { resolvePageEnterMotion } from '@/lib/motion-presets'
 import { useTranslation } from 'react-i18next'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { LanguageToggle } from '@/components/LanguageToggle'
@@ -87,6 +88,7 @@ export function AppLayout({
 }: AppLayoutProps) {
     const { t } = useTranslation()
     const prefersReducedMotion = useReducedMotion()
+    const shellEnterMotion = resolvePageEnterMotion(prefersReducedMotion)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
     const mobileDrawerRef = useRef<HTMLElement | null>(null)
@@ -236,9 +238,9 @@ export function AppLayout({
                 {/* Sidebar */}
                 <motion.aside
                     ref={mobileDrawerRef}
-                    initial={prefersReducedMotion ? false : { x: -20, opacity: 0 }}
-                    animate={prefersReducedMotion ? undefined : { x: 0, opacity: 1 }}
-                    transition={prefersReducedMotion ? undefined : { duration: 0.35, ease: "easeOut" }}
+                    initial={prefersReducedMotion ? false : { x: -shellEnterMotion.initial.y, opacity: shellEnterMotion.initial.opacity }}
+                    animate={prefersReducedMotion ? undefined : { x: 0, opacity: shellEnterMotion.animate.opacity }}
+                    transition={prefersReducedMotion ? undefined : shellEnterMotion.transition}
                     tabIndex={-1}
                     role={mobileSidebarOpen ? 'dialog' : undefined}
                     aria-modal={mobileSidebarOpen ? true : undefined}

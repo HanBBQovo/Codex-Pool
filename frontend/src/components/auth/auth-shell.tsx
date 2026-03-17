@@ -5,6 +5,7 @@ import AnimatedContent from '@/components/AnimatedContent'
 import { LanguageToggle } from '@/components/LanguageToggle'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BrandStage, PagePanel } from '@/components/layout/page-archetypes'
+import { resolvePanelRevealMotion } from '@/lib/motion-presets'
 import { cn } from '@/lib/utils'
 
 interface AuthShellProps {
@@ -25,6 +26,7 @@ export function AuthShell({
   rightSlotClassName,
 }: AuthShellProps) {
   const prefersReducedMotion = useReducedMotion()
+  const panelRevealMotion = resolvePanelRevealMotion(prefersReducedMotion)
 
   return (
     <div className="relative min-h-dvh overflow-x-hidden bg-[#f5f6f8] text-[#0f172a] dark:bg-[#0a0f18] dark:text-[#e2e8f0]">
@@ -39,11 +41,13 @@ export function AuthShell({
         <div className="mx-auto flex max-w-7xl sm:min-h-[calc(100dvh-3.25rem)] sm:items-start lg:items-center">
           <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1.08fr)_minmax(23rem,0.82fr)] lg:gap-8 xl:gap-10">
             <AnimatedContent
-              distance={24}
+              distance={panelRevealMotion.distance}
               direction="horizontal"
               reverse
-              duration={0.24}
-              ease="power3.out"
+              duration={panelRevealMotion.duration}
+              ease={panelRevealMotion.ease}
+              initialOpacity={panelRevealMotion.initialOpacity}
+              scale={panelRevealMotion.scale}
               className="order-1 flex w-full items-center justify-center lg:order-2 lg:justify-end"
             >
               <PagePanel
@@ -58,9 +62,11 @@ export function AuthShell({
             </AnimatedContent>
 
             <AnimatedContent
-              distance={24}
-              duration={0.28}
-              ease="power3.out"
+              distance={panelRevealMotion.distance}
+              duration={panelRevealMotion.duration}
+              ease={panelRevealMotion.ease}
+              initialOpacity={panelRevealMotion.initialOpacity}
+              scale={panelRevealMotion.scale}
               className="order-2 lg:order-1"
             >
               <BrandStage
