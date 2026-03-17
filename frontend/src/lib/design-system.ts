@@ -29,7 +29,7 @@ export interface SurfaceRecipe {
   emphasis: 'high' | 'medium' | 'low'
   border: 'defined' | 'soft' | 'glow-edge'
   background: 'elevated' | 'subtle' | 'atmospheric' | 'chrome'
-  shadow: 'soft' | 'softest' | 'lifted' | 'deep-lifted' | 'none'
+  shadow: 'soft' | 'softest' | 'lifted' | 'deep-soft' | 'deep-lifted' | 'none'
   temperature: 'neutral' | 'cool'
 }
 
@@ -119,7 +119,7 @@ const SURFACE_RECIPES: Record<DesignMode, Record<SurfaceKind, SurfaceRecipe>> = 
       emphasis: 'medium',
       border: 'defined',
       background: 'elevated',
-      shadow: 'deep-lifted',
+      shadow: 'deep-soft',
       temperature: 'neutral',
     },
     'panel-muted': {

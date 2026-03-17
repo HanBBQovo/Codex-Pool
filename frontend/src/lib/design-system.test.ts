@@ -75,3 +75,17 @@ test('resolveSurfaceRecipe returns shared panel, muted panel, stage, and sidebar
     temperature: 'cool',
   })
 })
+
+test('resolveSurfaceRecipe keeps panel tiers restrained while giving stage and sidebar their own material role', () => {
+  const panel = resolveSurfaceRecipe('panel', 'dark')
+  const mutedPanel = resolveSurfaceRecipe('panel-muted', 'dark')
+  const stage = resolveSurfaceRecipe('stage', 'light')
+  const sidebar = resolveSurfaceRecipe('sidebar', 'light')
+
+  assert.equal(panel.shadow, 'deep-soft')
+  assert.equal(mutedPanel.shadow, 'softest')
+  assert.equal(mutedPanel.emphasis, 'low')
+  assert.equal(stage.emphasis, 'high')
+  assert.equal(stage.temperature, 'cool')
+  assert.equal(sidebar.background, 'chrome')
+})
