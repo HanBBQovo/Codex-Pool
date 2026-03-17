@@ -46,6 +46,39 @@ test('initializeThreadsRenderer returns null when renderer creation fails or can
   assert.equal(clearColorCalled, false)
 })
 
+test('canInitializeThreadsRenderer reports WebGL preflight availability safely', async () => {
+  const module = await loadThreadsUtils()
+
+  assert.equal(
+    typeof module?.canInitializeThreadsRenderer,
+    'function',
+    'expected canInitializeThreadsRenderer to be exported',
+  )
+
+  const { canInitializeThreadsRenderer } = module!
+
+  assert.equal(
+    canInitializeThreadsRenderer(() => ({
+      getContext: () => null,
+    })),
+    false,
+  )
+
+  assert.equal(
+    canInitializeThreadsRenderer(() => ({
+      getContext: (contextId) => (contextId === 'webgl' ? { ok: true } : null),
+    })),
+    true,
+  )
+
+  assert.equal(
+    canInitializeThreadsRenderer(() => {
+      throw new Error('canvas unavailable')
+    }),
+    false,
+  )
+})
+
 test('initializeThreadsRenderer configures blend state when renderer is valid', async () => {
   const module = await loadThreadsUtils()
 

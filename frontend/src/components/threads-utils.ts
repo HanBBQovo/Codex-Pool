@@ -15,9 +15,38 @@ export type InitializedThreadsRenderer<TRenderer extends ThreadsRendererLike> = 
   }
 }
 
+type ThreadsCanvasProbe = {
+  getContext: (contextId: 'webgl' | 'experimental-webgl') => unknown
+}
+
+export function canInitializeThreadsRenderer(
+  createCanvas: () => ThreadsCanvasProbe | null = () => {
+    if (typeof document === 'undefined') {
+      return null
+    }
+
+    return document.createElement('canvas') as ThreadsCanvasProbe
+  },
+): boolean {
+  try {
+    const canvas = createCanvas()
+    if (!canvas) {
+      return typeof document === 'undefined'
+    }
+
+    return Boolean(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+  } catch {
+    return false
+  }
+}
+
 export function initializeThreadsRenderer<TRenderer extends ThreadsRendererLike>(
   createRenderer: () => TRenderer,
 ): InitializedThreadsRenderer<TRenderer> | null {
+  if (!canInitializeThreadsRenderer()) {
+    return null
+  }
+
   try {
     const renderer = createRenderer()
     const gl = renderer.gl
