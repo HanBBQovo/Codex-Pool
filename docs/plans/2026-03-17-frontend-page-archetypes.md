@@ -312,6 +312,9 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
 - `frontend/src/features/logs/filter-controls.tsx` 已新增 `LogsFilterField`，把原本只靠 placeholder 的筛选器收拢为带可见标签的过滤表单，移动端可扫读性明显更稳定。
 - `Accounts` 已迁移到共享 `workspace` 节奏，主动作从表格工具栏上移到页头，筛选和批量操作集中到独立控制面板，移动端形成 `actions -> filters -> table` 的稳定顺序。
 - `frontend/src/lib/page-archetypes.ts` 已补充 `describeAccountsWorkspaceLayout()`，约束账号池在移动端先呈现主动作，再呈现过滤与批量操作，不再把所有控制项挤进同一层表格工具栏。
+- `Models` 已迁移到共享 `workspace` 节奏，页面收口为 `intro -> sync/actions context -> table` 三段式，把同步状态、主动作和反馈信息从标题与表格之间的漂浮区域收进稳定的上下文面板。
+- `frontend/src/lib/page-archetypes.ts` 已补充 `describeModelsWorkspaceLayout()`，约束模型池在移动端先呈现页面说明，再呈现同步/探测动作与状态反馈，最后才进入搜索和表格。
+- `frontend/src/pages/Models.tsx` 已改用 `PageIntro / PagePanel / SectionHeader`，并为长状态文案补充 `break-words` 保护，降低移动端被同步摘要或错误文本撑坏层级的风险。
 - `tenantUsage` 与 `usage` 相关多语言文案已同步修正，移除日文/俄文中的占位翻译，并校正 admin Usage 图表语义。
 - 最终验证通过：
   - `cd frontend && node --test src/lib/page-archetypes.test.ts src/components/ui/trend-chart-core.test.ts src/components/threads-utils.test.ts src/lib/dashboard-chart-a11y.test.ts`
@@ -338,3 +341,5 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
   - `/tmp/tenant-logs-after-mobile-20260317.png`
   - `/tmp/accounts-after-desktop-20260317.png`
   - `/tmp/accounts-after-mobile-20260317.png`
+  - `/tmp/models-after-desktop-20260317.png`
+  - `/tmp/models-after-mobile-20260317.png`
