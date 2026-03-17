@@ -259,6 +259,44 @@ git add frontend/src/components/layout/page-archetypes.tsx frontend/src/componen
 git commit -m "feat(frontend): migrate dashboards to shared archetype" -m "Unify admin and tenant dashboards with the shared dashboard archetype."
 ```
 
+---
+
+## Rollout Progress
+
+- [x] `Models` 已迁移到共享 workspace shell，并已提交 `11692cc`
+- [x] `Proxies` 已迁移到共享 workspace shell，并已提交 `65bf764`
+- [x] `Config` 已迁移到 settings shell，并已提交 `891817e`
+- [x] `AdminApiKeys` 已完成本轮 archetype rollout（待本次会话提交）
+
+### AdminApiKeys Rollout Notes
+
+- 直链路径从 `/api-keys` 改为 `/access-keys`，避免在 Vite dev server 下与 `/api` 代理前缀冲突导致直开 404 / 白屏。
+- 同时保留旧 `/api-keys` 的兼容入口：旧链接现会先进入 SPA，再跳转到 `/access-keys`，由 capability gating 统一决定最终落点。
+- 新增 `frontend/src/lib/edition-shell-routing.ts`，让 `AppShell` 在 `system/capabilities` 首次返回前先进入 loading，而不是先用 `DEFAULT_SYSTEM_CAPABILITIES=business` 做错误首屏路由判断。
+- `AppShell` 的 loading 也已收窄到真正依赖 capability 判路由的首屏路径（`/tenant/*`、`/tenants`、`/api-keys`、`/access-keys`），不会再拖慢普通 admin `/dashboard` 冷启动。
+- `frontend/src/pages/AdminApiKeys.tsx` 已迁移到 settings 风格的堆叠式 archetype：
+  - `PageIntro`
+  - `PagePanel(create)`
+  - `PagePanel(list)`
+- “明文 key 只展示一次”的 disclosure 仍保留在创建面板内部，没有被移到全局 toast 或列表区。
+- 列表 loading 已改回非交互态文案占位，避免 overlay 与底层可操作表格同时存在带来的键盘/读屏混乱。
+- tenant 侧 `/tenant/api-keys` 未改动，仍保持原路由与能力边界。
+
+### Verification Evidence
+
+已执行并通过：
+
+```bash
+shnote --what "执行最终前端质量基线" --why "把 AppShell 首屏路由修复也纳入完整回归并确认可提交" run "cd frontend && node --test src/lib/page-archetypes.test.ts src/components/ui/trend-chart-core.test.ts src/features/api-keys/admin-capabilities.test.ts src/lib/edition-shell-routing.test.ts && npm run i18n:check && npm run i18n:hardcode -- --no-baseline && node scripts/i18n/check-missing-runtime-keys.mjs && npm run lint && npm run build"
+```
+
+补充浏览器/链路证据：
+
+- `curl -I http://127.0.0.1:5174/access-keys` 现返回 `200 OK`，说明 `/access-keys` 已不再被 `/api` 前缀代理吞掉。
+- `curl -I http://127.0.0.1:5174/api-keys` 现同样返回 `200 OK`，说明旧路径也已恢复到 SPA 兼容入口。
+- 在当前 `multi_tenant=true` 的实际环境中，`/access-keys` 会按 capability gating 回退到 `/dashboard`，这是当前 edition 语义下的预期行为，不再是白屏。
+- 浏览器实测中，`/api-keys` 与 `/access-keys` 在当前 business 环境都会进入 SPA 后统一回退到 `/dashboard`，且页面文本非空、无前端错误。
+
 ### Task 6: 回归检查与文档收口
 
 **Files:**
