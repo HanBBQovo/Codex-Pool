@@ -397,6 +397,80 @@ mod tests {
         assert!(!response.accepted);
     }
 
+    #[tokio::test]
+    async fn in_memory_store_can_claim_multiple_batches_for_running_job() {
+        let store = InMemoryOAuthImportJobStore::default();
+        let job_id = Uuid::new_v4();
+        let summary = OAuthImportJobSummary {
+            job_id,
+            status: OAuthImportJobStatus::Queued,
+            total: 3,
+            processed: 0,
+            created_count: 0,
+            updated_count: 0,
+            failed_count: 0,
+            skipped_count: 0,
+            started_at: None,
+            finished_at: None,
+            created_at: Utc::now(),
+            throughput_per_min: None,
+            error_summary: Vec::new(),
+        };
+        let items = (1..=3)
+            .map(|item_id| PersistedImportItem {
+                item: OAuthImportJobItem {
+                    item_id,
+                    source_file: "multi-batch.jsonl".to_string(),
+                    line_no: item_id,
+                    status: OAuthImportItemStatus::Pending,
+                    label: format!("multi-batch-{item_id}"),
+                    email: None,
+                    chatgpt_account_id: Some(format!("acct-multi-{item_id}")),
+                    account_id: None,
+                    error_code: None,
+                    error_message: None,
+                },
+                request: Some(ImportTaskRequest::OAuthRefresh(ImportOAuthRefreshTokenRequest {
+                    label: format!("multi-batch-{item_id}"),
+                    base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                    refresh_token: format!("rt-multi-{item_id}"),
+                    chatgpt_account_id: Some(format!("acct-multi-{item_id}")),
+                    mode: Some(UpstreamMode::ChatGptSession),
+                    enabled: Some(true),
+                    priority: Some(100),
+                    chatgpt_plan_type: None,
+                    source_type: None,
+                })),
+                raw_record: None,
+                normalized_record: None,
+                retry_count: 0,
+            })
+            .collect::<Vec<_>>();
+        store.create_job(summary, items).await.expect("create job");
+
+        let first_batch = store.start_job(job_id, 2).await.expect("claim first batch");
+        assert_eq!(first_batch.len(), 2);
+
+        for task in &first_batch {
+            store
+                .mark_item_success(
+                    job_id,
+                    task.item_id,
+                    &ImportTaskSuccess {
+                        created: true,
+                        account_id: None,
+                        chatgpt_account_id: Some(format!("acct-success-{}", task.item_id)),
+                    },
+                )
+                .await
+                .expect("mark success");
+        }
+
+        let second_batch = store.start_job(job_id, 2).await.expect("claim second batch");
+        assert_eq!(second_batch.len(), 1);
+        assert_eq!(second_batch[0].item_id, 3);
+    }
+
     #[test]
     fn classify_import_failure_code_detects_refresh_token_reused() {
         let code = classify_import_failure_code(

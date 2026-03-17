@@ -13,6 +13,8 @@ impl InMemoryStore {
             session_profiles: Arc::new(RwLock::new(HashMap::new())),
             account_health_states: Arc::new(RwLock::new(HashMap::new())),
             account_model_support: Arc::new(RwLock::new(HashMap::new())),
+            oauth_rate_limit_caches: Arc::new(RwLock::new(HashMap::new())),
+            oauth_rate_limit_refresh_jobs: Arc::new(RwLock::new(HashMap::new())),
             policies: Arc::new(RwLock::new(HashMap::new())),
             routing_profiles: Arc::new(RwLock::new(HashMap::new())),
             model_routing_policies: Arc::new(RwLock::new(HashMap::new())),
@@ -221,6 +223,10 @@ impl InMemoryStore {
             .write()
             .unwrap()
             .remove(&account_id);
+        self.oauth_rate_limit_caches
+            .write()
+            .unwrap()
+            .remove(&account_id);
 
         self.revision.fetch_add(1, Ordering::Relaxed);
         Ok(())
@@ -370,11 +376,13 @@ impl InMemoryStore {
             let mut providers = self.account_auth_providers.write().unwrap();
             let mut oauth_credentials = self.oauth_credentials.write().unwrap();
             let mut session_profiles = self.session_profiles.write().unwrap();
+            let mut rate_limit_caches = self.oauth_rate_limit_caches.write().unwrap();
             for account_id in expired_ids {
                 accounts.remove(&account_id);
                 providers.remove(&account_id);
                 oauth_credentials.remove(&account_id);
                 session_profiles.remove(&account_id);
+                rate_limit_caches.remove(&account_id);
             }
         }
 
@@ -404,18 +412,32 @@ impl InMemoryStore {
                 _ => None,
             });
         let now_guard = Utc::now() + Duration::seconds(OAUTH_MIN_VALID_SEC);
-        let effective_enabled = match (provider.clone(), credential_kind.clone()) {
-            (UpstreamAuthProvider::OAuthRefreshToken, _) => {
-                account.enabled && token_expires_at.is_some_and(|expires_at| expires_at > now_guard)
-            }
-            (_, Some(SessionCredentialKind::OneTimeAccessToken)) => {
-                account.enabled
-                    && token_expires_at
-                        .map(|expires_at| expires_at > now_guard)
-                        .unwrap_or(true)
-            }
-            _ => account.enabled,
-        };
+        let rate_limit_cache = self
+            .oauth_rate_limit_caches
+            .read()
+            .unwrap()
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
+        let last_refresh_status = credential
+            .map(|item| item.last_refresh_status.clone())
+            .unwrap_or(OAuthRefreshStatus::Never);
+        let effective_enabled = oauth_effective_enabled(
+            account.enabled,
+            &provider,
+            credential_kind.as_ref(),
+            token_expires_at,
+            &last_refresh_status,
+            credential
+                .map(|item| item.refresh_reused_detected)
+                .unwrap_or(false),
+            credential
+                .and_then(|item| item.last_refresh_error_code.as_deref()),
+            rate_limit_cache.expires_at,
+            rate_limit_cache.last_error_code.as_deref(),
+            rate_limit_cache.last_error.as_deref(),
+            now_guard,
+        );
         let next_refresh_at = match provider {
             UpstreamAuthProvider::OAuthRefreshToken => token_expires_at
                 .map(|expires_at| expires_at - Duration::seconds(OAUTH_REFRESH_WINDOW_SEC)),
@@ -469,11 +491,11 @@ impl InMemoryStore {
             last_refresh_error: credential.and_then(|item| item.last_refresh_error.clone()),
             effective_enabled,
             supported_models,
-            rate_limits: Vec::new(),
-            rate_limits_fetched_at: None,
-            rate_limits_expires_at: None,
-            rate_limits_last_error_code: None,
-            rate_limits_last_error: None,
+            rate_limits: rate_limit_cache.rate_limits,
+            rate_limits_fetched_at: rate_limit_cache.fetched_at,
+            rate_limits_expires_at: rate_limit_cache.expires_at,
+            rate_limits_last_error_code: rate_limit_cache.last_error_code,
+            rate_limits_last_error: rate_limit_cache.last_error,
             next_refresh_at,
         }
     }

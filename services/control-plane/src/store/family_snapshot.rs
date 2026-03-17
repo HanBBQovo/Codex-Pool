@@ -85,6 +85,8 @@ impl InMemoryStore {
         let session_profiles = self.session_profiles.read().unwrap().clone();
         let providers = self.account_auth_providers.read().unwrap().clone();
         let model_support = self.account_model_support.read().unwrap().clone();
+        let rate_limit_caches = self.oauth_rate_limit_caches.read().unwrap().clone();
+        let now = Utc::now();
 
         accounts
             .iter()
@@ -94,6 +96,12 @@ impl InMemoryStore {
                     .cloned()
                     .unwrap_or(UpstreamAuthProvider::LegacyBearer);
                 let support = model_support.get(&account.id).cloned().unwrap_or_default();
+                let rate_limits = rate_limit_caches
+                    .get(&account.id)
+                    .map(|cache| cache.rate_limits.clone())
+                    .unwrap_or_default();
+                let (blocked_until, hard_block_reason) =
+                    derive_rate_limit_block(&rate_limits, now);
                 (
                     account.id,
                     AccountRoutingTraits {
@@ -103,8 +111,8 @@ impl InMemoryStore {
                             .and_then(|profile| profile.chatgpt_plan_type.clone()),
                         auth_provider: Some(provider),
                         supported_models: support.supported_models,
-                        blocked_until: None,
-                        hard_block_reason: None,
+                        blocked_until,
+                        hard_block_reason,
                     },
                 )
             })
@@ -296,7 +304,10 @@ impl InMemoryStore {
         self.purge_expired_one_time_accounts_inner();
         let providers = self.account_auth_providers.read().unwrap().clone();
         let oauth_credentials = self.oauth_credentials.read().unwrap().clone();
+        let session_profiles = self.session_profiles.read().unwrap().clone();
+        let rate_limit_caches = self.oauth_rate_limit_caches.read().unwrap().clone();
         let mut accounts = self.list_upstream_accounts_inner();
+        let now = Utc::now();
 
         for account in &mut accounts {
             let provider = providers
@@ -313,9 +324,27 @@ impl InMemoryStore {
                 continue;
             };
 
-            if credential.token_expires_at <= Utc::now() + Duration::seconds(OAUTH_MIN_VALID_SEC) {
-                account.enabled = false;
-            }
+            let credential_kind = session_profiles
+                .get(&account.id)
+                .map(|profile| profile.credential_kind.clone())
+                .or(Some(SessionCredentialKind::RefreshRotatable));
+            let cache = rate_limit_caches
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
+            account.enabled = oauth_effective_enabled(
+                account.enabled,
+                &provider,
+                credential_kind.as_ref(),
+                Some(credential.token_expires_at),
+                &credential.last_refresh_status,
+                credential.refresh_reused_detected,
+                credential.last_refresh_error_code.as_deref(),
+                cache.expires_at,
+                cache.last_error_code.as_deref(),
+                cache.last_error.as_deref(),
+                now,
+            );
 
             if let Some(cipher) = &self.credential_cipher {
                 match cipher.decrypt(&credential.access_token_enc) {

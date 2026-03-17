@@ -416,6 +416,8 @@ fn bundle_to_sqlite_state(bundle: &ControlPlaneMigrationBundle) -> SqlitePersist
                 )
             })
             .collect(),
+        oauth_rate_limit_caches: HashMap::new(),
+        oauth_rate_limit_refresh_jobs: HashMap::new(),
         policies: bundle
             .routing_policies
             .iter()

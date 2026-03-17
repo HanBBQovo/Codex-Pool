@@ -423,6 +423,164 @@ impl ControlPlaneStore for InMemoryStore {
         Ok(())
     }
 
+    async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64> {
+        let batch_size = rate_limit_refresh_batch_size_from_env();
+        let concurrency = rate_limit_refresh_concurrency_from_env();
+        let mut refreshed_total = 0_u64;
+
+        loop {
+            let targets = self.load_rate_limit_refresh_targets(None, batch_size, true);
+            if targets.is_empty() {
+                break;
+            }
+
+            let fetched = targets.len();
+            let stats = self.refresh_rate_limit_targets_batch(targets, concurrency).await;
+            refreshed_total = refreshed_total.saturating_add(stats.processed);
+            if fetched < batch_size {
+                break;
+            }
+        }
+
+        Ok(refreshed_total)
+    }
+
+    async fn recover_oauth_rate_limit_refresh_jobs(&self) -> Result<u64> {
+        let now = Utc::now();
+        let mut recovered = 0_u64;
+        let mut jobs = self.oauth_rate_limit_refresh_jobs.write().unwrap();
+        for summary in jobs.values_mut() {
+            if summary.status != OAuthRateLimitRefreshJobStatus::Running {
+                continue;
+            }
+
+            summary.status = OAuthRateLimitRefreshJobStatus::Failed;
+            summary.finished_at = Some(now);
+            if let Some(existing) = summary
+                .error_summary
+                .iter_mut()
+                .find(|item| item.error_code == "job_recovered_after_restart")
+            {
+                existing.count = existing.count.saturating_add(1);
+            } else {
+                summary.error_summary.push(OAuthRateLimitRefreshErrorSummary {
+                    error_code: "job_recovered_after_restart".to_string(),
+                    count: 1,
+                });
+            }
+            recovered = recovered.saturating_add(1);
+        }
+
+        Ok(recovered)
+    }
+
+    async fn create_oauth_rate_limit_refresh_job(&self) -> Result<OAuthRateLimitRefreshJobSummary> {
+        let mut jobs = self.oauth_rate_limit_refresh_jobs.write().unwrap();
+        if let Some(existing) = jobs
+            .values()
+            .filter(|summary| {
+                matches!(
+                    summary.status,
+                    OAuthRateLimitRefreshJobStatus::Queued
+                        | OAuthRateLimitRefreshJobStatus::Running
+                )
+            })
+            .cloned()
+            .max_by(|left, right| {
+                left.created_at
+                    .cmp(&right.created_at)
+                    .then_with(|| left.job_id.cmp(&right.job_id))
+            })
+        {
+            return Ok(existing);
+        }
+
+        let now = Utc::now();
+        let summary = OAuthRateLimitRefreshJobSummary {
+            job_id: Uuid::new_v4(),
+            status: OAuthRateLimitRefreshJobStatus::Queued,
+            total: self.count_rate_limit_refresh_targets(),
+            processed: 0,
+            success_count: 0,
+            failed_count: 0,
+            started_at: None,
+            finished_at: None,
+            created_at: now,
+            throughput_per_min: None,
+            error_summary: Vec::new(),
+        };
+        jobs.insert(summary.job_id, summary.clone());
+
+        Ok(summary)
+    }
+
+    async fn oauth_rate_limit_refresh_job(
+        &self,
+        job_id: Uuid,
+    ) -> Result<OAuthRateLimitRefreshJobSummary> {
+        self.oauth_rate_limit_refresh_jobs
+            .read()
+            .unwrap()
+            .get(&job_id)
+            .cloned()
+            .ok_or_else(|| anyhow!("job not found"))
+    }
+
+    async fn run_oauth_rate_limit_refresh_job(&self, job_id: Uuid) -> Result<()> {
+        let total = self.count_rate_limit_refresh_targets();
+        {
+            let mut jobs = self.oauth_rate_limit_refresh_jobs.write().unwrap();
+            let summary = jobs
+                .get_mut(&job_id)
+                .ok_or_else(|| anyhow!("job not found"))?;
+            if summary.status != OAuthRateLimitRefreshJobStatus::Queued {
+                return Ok(());
+            }
+
+            summary.status = OAuthRateLimitRefreshJobStatus::Running;
+            summary.total = total;
+            summary.processed = 0;
+            summary.success_count = 0;
+            summary.failed_count = 0;
+            summary.started_at = Some(Utc::now());
+            summary.finished_at = None;
+            summary.throughput_per_min = None;
+            summary.error_summary.clear();
+        }
+
+        let run_result: Result<()> = async {
+            let batch_size = rate_limit_refresh_batch_size_from_env();
+            let concurrency = rate_limit_refresh_concurrency_from_env();
+            let mut cursor = None;
+
+            loop {
+                let targets = self.load_rate_limit_refresh_targets(cursor, batch_size, false);
+                if targets.is_empty() {
+                    break;
+                }
+
+                let fetched = targets.len();
+                cursor = targets.last().map(|target| target.account_id);
+                let stats = self.refresh_rate_limit_targets_batch(targets, concurrency).await;
+                self.append_rate_limit_refresh_job_progress(job_id, &stats)?;
+
+                if fetched < batch_size {
+                    break;
+                }
+            }
+
+            self.finish_rate_limit_refresh_job(job_id, OAuthRateLimitRefreshJobStatus::Completed)
+        }
+        .await;
+
+        if let Err(err) = run_result {
+            let _ = self.mark_rate_limit_refresh_job_failed(job_id, "internal_error");
+            return Err(err);
+        }
+
+        Ok(())
+    }
+
     async fn set_oauth_family_enabled(
         &self,
         account_id: Uuid,
@@ -463,6 +621,65 @@ impl ControlPlaneStore for InMemoryStore {
             min_write_interval_sec,
         ))
     }
+
+    async fn maybe_refresh_oauth_rate_limit_cache_on_seen_ok(
+        &self,
+        account_id: Uuid,
+    ) -> Result<()> {
+        let now = Utc::now();
+        let account = self
+            .accounts
+            .read()
+            .unwrap()
+            .get(&account_id)
+            .cloned();
+        let provider = self.account_auth_providers.read().unwrap().get(&account_id).cloned();
+        let credential = self
+            .oauth_credentials
+            .read()
+            .unwrap()
+            .get(&account_id)
+            .cloned();
+        let cache = self
+            .oauth_rate_limit_caches
+            .read()
+            .unwrap()
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_default();
+
+        let (Some(account), Some(provider), Some(credential)) = (account, provider, credential)
+        else {
+            return Ok(());
+        };
+        if !account.enabled || provider != UpstreamAuthProvider::OAuthRefreshToken {
+            return Ok(());
+        }
+        if !should_refresh_rate_limit_cache_on_seen_ok(
+            now,
+            SeenOkRateLimitRefreshContext {
+                token_expires_at: Some(credential.token_expires_at),
+                last_refresh_status: &credential.last_refresh_status,
+                refresh_reused_detected: credential.refresh_reused_detected,
+                last_refresh_error_code: credential.last_refresh_error_code.as_deref(),
+                rate_limits_expires_at: cache.expires_at,
+                rate_limits_last_error_code: cache.last_error_code.as_deref(),
+                rate_limits_last_error: cache.last_error.as_deref(),
+            },
+        ) {
+            return Ok(());
+        }
+
+        let target = InMemoryRateLimitRefreshTarget {
+            account_id,
+            base_url: account.base_url,
+            chatgpt_account_id: account.chatgpt_account_id,
+            access_token_enc: credential.access_token_enc,
+        };
+        let _ = self.refresh_rate_limit_targets_batch(vec![target], 1).await;
+
+        Ok(())
+    }
 }
 
 fn truncate_error_message(raw: String) -> String {
@@ -494,7 +711,8 @@ mod tests {
     use chrono::{DateTime, Duration, Utc};
     use codex_pool_core::api::{
         CreateApiKeyRequest, CreateTenantRequest, ImportOAuthRefreshTokenRequest,
-        UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
+        OAuthRateLimitSnapshot, OAuthRateLimitWindow, UpsertModelRoutingPolicyRequest,
+        UpsertRoutingProfileRequest,
     };
     use codex_pool_core::model::{RoutingProfileSelector, UpstreamMode};
     use serde_json::json;
@@ -609,6 +827,38 @@ mod tests {
                     "name": "Demo Group",
                 })]),
             })
+        }
+    }
+
+    #[derive(Clone)]
+    struct RateLimitAwareOAuthTokenClient;
+
+    #[async_trait]
+    impl OAuthTokenClient for RateLimitAwareOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            _refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            StaticOAuthTokenClient.refresh_token("rt", None).await
+        }
+
+        async fn fetch_rate_limits(
+            &self,
+            _access_token: &str,
+            _base_url: Option<&str>,
+            _chatgpt_account_id: Option<&str>,
+        ) -> Result<Vec<OAuthRateLimitSnapshot>, crate::oauth::OAuthTokenClientError> {
+            Ok(vec![OAuthRateLimitSnapshot {
+                limit_id: Some("five_hours".to_string()),
+                limit_name: Some("5 hours".to_string()),
+                primary: Some(OAuthRateLimitWindow {
+                    used_percent: 25.0,
+                    window_minutes: Some(300),
+                    resets_at: Some(Utc::now() + Duration::minutes(30)),
+                }),
+                secondary: None,
+            }])
         }
     }
 
@@ -795,6 +1045,65 @@ mod tests {
         );
         assert_eq!(status.organizations.as_ref().map(Vec::len), Some(1));
         assert_eq!(status.groups.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_rate_limit_refresh_job_populates_oauth_status_cache() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([7_u8; 32]),
+        )
+        .unwrap();
+        let store =
+            InMemoryStore::new_with_oauth(Arc::new(RateLimitAwareOAuthTokenClient), Some(cipher));
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-rate-limit".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-rate-limit".to_string(),
+                chatgpt_account_id: None,
+                mode: None,
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: None,
+            })
+            .await
+            .expect("import oauth account");
+
+        let created = store
+            .create_oauth_rate_limit_refresh_job()
+            .await
+            .expect("create rate-limit refresh job");
+        assert_eq!(created.total, 1);
+
+        store
+            .run_oauth_rate_limit_refresh_job(created.job_id)
+            .await
+            .expect("run rate-limit refresh job");
+
+        let summary = store
+            .oauth_rate_limit_refresh_job(created.job_id)
+            .await
+            .expect("load rate-limit refresh job");
+        assert_eq!(
+            summary.status,
+            codex_pool_core::api::OAuthRateLimitRefreshJobStatus::Completed
+        );
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.processed, 1);
+        assert_eq!(summary.success_count, 1);
+        assert_eq!(summary.failed_count, 0);
+
+        let status = store
+            .oauth_account_status(account.id)
+            .await
+            .expect("oauth account status");
+        assert_eq!(status.rate_limits.len(), 1);
+        assert_eq!(status.rate_limits[0].limit_id.as_deref(), Some("five_hours"));
+        assert!(status.rate_limits_fetched_at.is_some());
+        assert!(status.rate_limits_expires_at.is_some());
+        assert!(status.rate_limits_last_error_code.is_none());
     }
 
     #[tokio::test]

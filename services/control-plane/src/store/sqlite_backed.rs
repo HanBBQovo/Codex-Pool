@@ -33,6 +33,10 @@ struct SqlitePersistedStoreState {
     session_profiles: HashMap<Uuid, SessionProfileRecord>,
     account_health_states: HashMap<Uuid, UpstreamAccountHealthStateRecord>,
     account_model_support: HashMap<Uuid, AccountModelSupportRecord>,
+    #[serde(default)]
+    oauth_rate_limit_caches: HashMap<Uuid, OAuthRateLimitCacheRecord>,
+    #[serde(default)]
+    oauth_rate_limit_refresh_jobs: HashMap<Uuid, OAuthRateLimitRefreshJobSummary>,
     policies: HashMap<Uuid, RoutingPolicy>,
     routing_profiles: HashMap<Uuid, RoutingProfile>,
     model_routing_policies: HashMap<Uuid, ModelRoutingPolicy>,
@@ -56,6 +60,12 @@ impl InMemoryStore {
             session_profiles: self.session_profiles.read().unwrap().clone(),
             account_health_states: self.account_health_states.read().unwrap().clone(),
             account_model_support: self.account_model_support.read().unwrap().clone(),
+            oauth_rate_limit_caches: self.oauth_rate_limit_caches.read().unwrap().clone(),
+            oauth_rate_limit_refresh_jobs: self
+                .oauth_rate_limit_refresh_jobs
+                .read()
+                .unwrap()
+                .clone(),
             policies: self.policies.read().unwrap().clone(),
             routing_profiles: self.routing_profiles.read().unwrap().clone(),
             model_routing_policies: self.model_routing_policies.read().unwrap().clone(),
@@ -115,6 +125,10 @@ impl InMemoryStore {
             session_profiles: Arc::new(RwLock::new(state.session_profiles)),
             account_health_states: Arc::new(RwLock::new(state.account_health_states)),
             account_model_support: Arc::new(RwLock::new(state.account_model_support)),
+            oauth_rate_limit_caches: Arc::new(RwLock::new(state.oauth_rate_limit_caches)),
+            oauth_rate_limit_refresh_jobs: Arc::new(RwLock::new(
+                state.oauth_rate_limit_refresh_jobs,
+            )),
             policies: Arc::new(RwLock::new(state.policies)),
             routing_profiles: Arc::new(RwLock::new(state.routing_profiles)),
             model_routing_policies: Arc::new(RwLock::new(state.model_routing_policies)),
@@ -571,15 +585,24 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64> {
-        self.inner.refresh_due_oauth_rate_limit_caches().await
+        let before = self.current_revision();
+        let refreshed = self.inner.refresh_due_oauth_rate_limit_caches().await?;
+        self.persist_if_revision_changed(before).await?;
+        Ok(refreshed)
     }
 
     async fn recover_oauth_rate_limit_refresh_jobs(&self) -> Result<u64> {
-        self.inner.recover_oauth_rate_limit_refresh_jobs().await
+        let recovered = self.inner.recover_oauth_rate_limit_refresh_jobs().await?;
+        if recovered > 0 {
+            self.persist_state().await?;
+        }
+        Ok(recovered)
     }
 
     async fn create_oauth_rate_limit_refresh_job(&self) -> Result<OAuthRateLimitRefreshJobSummary> {
-        self.inner.create_oauth_rate_limit_refresh_job().await
+        let summary = self.inner.create_oauth_rate_limit_refresh_job().await?;
+        self.persist_state().await?;
+        Ok(summary)
     }
 
     async fn oauth_rate_limit_refresh_job(
@@ -590,7 +613,9 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn run_oauth_rate_limit_refresh_job(&self, job_id: Uuid) -> Result<()> {
-        self.inner.run_oauth_rate_limit_refresh_job(job_id).await
+        self.inner.run_oauth_rate_limit_refresh_job(job_id).await?;
+        self.persist_state().await?;
+        Ok(())
     }
 
     async fn flush_snapshot_revision(&self, max_batch: usize) -> Result<u32> {
@@ -647,9 +672,11 @@ impl ControlPlaneStore for SqliteBackedStore {
         &self,
         account_id: Uuid,
     ) -> Result<()> {
+        let before = self.current_revision();
         self.inner
             .maybe_refresh_oauth_rate_limit_cache_on_seen_ok(account_id)
-            .await
+            .await?;
+        self.persist_if_revision_changed(before).await
     }
 }
 

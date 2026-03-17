@@ -1,3 +1,19 @@
+#[derive(Debug, Clone)]
+struct InMemoryRateLimitRefreshTarget {
+    account_id: Uuid,
+    base_url: String,
+    chatgpt_account_id: Option<String>,
+    access_token_enc: String,
+}
+
+#[derive(Debug, Default)]
+struct InMemoryRateLimitRefreshBatchStats {
+    processed: u64,
+    success: u64,
+    failed: u64,
+    error_counts: HashMap<String, u64>,
+}
+
 impl InMemoryStore {
     fn canonical_oauth_account_id_by_identity(
         &self,
@@ -149,6 +165,7 @@ impl InMemoryStore {
             let mut credentials = self.oauth_credentials.write().unwrap();
             let mut profiles = self.session_profiles.write().unwrap();
             let mut health = self.account_health_states.write().unwrap();
+            let mut rate_limit_caches = self.oauth_rate_limit_caches.write().unwrap();
 
             for account_id in &duplicate_ids {
                 accounts.remove(account_id);
@@ -156,11 +173,307 @@ impl InMemoryStore {
                 credentials.remove(account_id);
                 profiles.remove(account_id);
                 health.remove(account_id);
+                rate_limit_caches.remove(account_id);
             }
         }
 
         self.revision.fetch_add(1, Ordering::Relaxed);
         duplicate_ids.len() as u64
+    }
+
+    fn load_rate_limit_refresh_targets(
+        &self,
+        after_id: Option<Uuid>,
+        limit: usize,
+        due_only: bool,
+    ) -> Vec<InMemoryRateLimitRefreshTarget> {
+        let now = Utc::now();
+        let accounts = self.accounts.read().unwrap().clone();
+        let providers = self.account_auth_providers.read().unwrap().clone();
+        let credentials = self.oauth_credentials.read().unwrap().clone();
+        let caches = self.oauth_rate_limit_caches.read().unwrap().clone();
+
+        let mut targets = accounts
+            .values()
+            .filter_map(|account| {
+                if after_id.is_some_and(|cursor| account.id <= cursor) {
+                    return None;
+                }
+                if !account.enabled {
+                    return None;
+                }
+                if !providers
+                    .get(&account.id)
+                    .is_some_and(|provider| *provider == UpstreamAuthProvider::OAuthRefreshToken)
+                {
+                    return None;
+                }
+
+                let credential = credentials.get(&account.id)?;
+                if credential.token_expires_at <= now + Duration::seconds(OAUTH_MIN_VALID_SEC) {
+                    return None;
+                }
+                if credential.refresh_reused_detected {
+                    return None;
+                }
+                if matches!(credential.last_refresh_status, OAuthRefreshStatus::Failed)
+                    && is_fatal_refresh_error_code(
+                        credential.last_refresh_error_code.as_deref(),
+                    )
+                {
+                    return None;
+                }
+
+                let cache = caches.get(&account.id).cloned().unwrap_or_default();
+                if due_only && cache.expires_at.is_some_and(|expires_at| expires_at > now) {
+                    return None;
+                }
+
+                Some(InMemoryRateLimitRefreshTarget {
+                    account_id: account.id,
+                    base_url: account.base_url.clone(),
+                    chatgpt_account_id: account.chatgpt_account_id.clone(),
+                    access_token_enc: credential.access_token_enc.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        targets.sort_by(|left, right| left.account_id.cmp(&right.account_id));
+        targets.truncate(limit);
+        targets
+    }
+
+    fn count_rate_limit_refresh_targets(&self) -> u64 {
+        let now = Utc::now();
+        let accounts = self.accounts.read().unwrap().clone();
+        let providers = self.account_auth_providers.read().unwrap().clone();
+        let credentials = self.oauth_credentials.read().unwrap().clone();
+
+        accounts
+            .values()
+            .filter(|account| account.enabled)
+            .filter(|account| {
+                providers
+                    .get(&account.id)
+                    .is_some_and(|provider| *provider == UpstreamAuthProvider::OAuthRefreshToken)
+            })
+            .filter_map(|account| credentials.get(&account.id))
+            .filter(|credential| {
+                credential.token_expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC)
+                    && !credential.refresh_reused_detected
+                    && !(matches!(credential.last_refresh_status, OAuthRefreshStatus::Failed)
+                        && is_fatal_refresh_error_code(
+                            credential.last_refresh_error_code.as_deref(),
+                        ))
+            })
+            .count() as u64
+    }
+
+    async fn fetch_live_rate_limits_result(
+        &self,
+        target: &InMemoryRateLimitRefreshTarget,
+    ) -> Result<Vec<OAuthRateLimitSnapshot>, (String, String)> {
+        let Some(cipher) = self.credential_cipher.as_ref() else {
+            return Err((
+                "credential_cipher_missing".to_string(),
+                "oauth credential cipher is not configured".to_string(),
+            ));
+        };
+        let access_token = cipher
+            .decrypt(&target.access_token_enc)
+            .map_err(|err| ("credential_decrypt_failed".to_string(), err.to_string()))?;
+        if access_token.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.oauth_client
+            .fetch_rate_limits(
+                &access_token,
+                Some(&target.base_url),
+                target.chatgpt_account_id.as_deref(),
+            )
+            .await
+            .map_err(|err| (err.code().as_str().to_string(), err.to_string()))
+    }
+
+    fn persist_rate_limit_cache_success_inner(
+        &self,
+        account_id: Uuid,
+        rate_limits: Vec<OAuthRateLimitSnapshot>,
+        fetched_at: DateTime<Utc>,
+    ) {
+        self.oauth_rate_limit_caches.write().unwrap().insert(
+            account_id,
+            OAuthRateLimitCacheRecord {
+                rate_limits,
+                fetched_at: Some(fetched_at),
+                expires_at: Some(
+                    fetched_at + Duration::seconds(rate_limit_cache_ttl_sec_from_env()),
+                ),
+                last_error_code: None,
+                last_error: None,
+            },
+        );
+        self.revision.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn persist_rate_limit_cache_failure_inner(
+        &self,
+        account_id: Uuid,
+        error_code: &str,
+        error_message: &str,
+    ) {
+        let now = Utc::now();
+        let backoff_sec = rate_limit_failure_backoff_seconds(error_code, error_message);
+        let truncated_message = truncate_error_message(error_message.to_string());
+        let mut caches = self.oauth_rate_limit_caches.write().unwrap();
+        let cache = caches.entry(account_id).or_default();
+        if cache.rate_limits.is_empty() {
+            cache.fetched_at = None;
+        }
+        cache.expires_at = Some(now + Duration::seconds(backoff_sec));
+        cache.last_error_code = Some(error_code.to_string());
+        cache.last_error = Some(truncated_message);
+        drop(caches);
+
+        self.revision.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn append_rate_limit_refresh_job_progress(
+        &self,
+        job_id: Uuid,
+        stats: &InMemoryRateLimitRefreshBatchStats,
+    ) -> Result<()> {
+        let mut jobs = self.oauth_rate_limit_refresh_jobs.write().unwrap();
+        let summary = jobs
+            .get_mut(&job_id)
+            .ok_or_else(|| anyhow!("job not found"))?;
+        summary.processed = summary.processed.saturating_add(stats.processed);
+        summary.success_count = summary.success_count.saturating_add(stats.success);
+        summary.failed_count = summary.failed_count.saturating_add(stats.failed);
+        for (error_code, count) in &stats.error_counts {
+            if let Some(existing) = summary
+                .error_summary
+                .iter_mut()
+                .find(|item| item.error_code == *error_code)
+            {
+                existing.count = existing.count.saturating_add(*count);
+            } else {
+                summary.error_summary.push(OAuthRateLimitRefreshErrorSummary {
+                    error_code: error_code.clone(),
+                    count: *count,
+                });
+            }
+        }
+        summary
+            .error_summary
+            .sort_by(|left, right| right.count.cmp(&left.count).then_with(|| left.error_code.cmp(&right.error_code)));
+        Ok(())
+    }
+
+    fn finish_rate_limit_refresh_job(
+        &self,
+        job_id: Uuid,
+        status: OAuthRateLimitRefreshJobStatus,
+    ) -> Result<()> {
+        let mut jobs = self.oauth_rate_limit_refresh_jobs.write().unwrap();
+        let summary = jobs
+            .get_mut(&job_id)
+            .ok_or_else(|| anyhow!("job not found"))?;
+        let finished_at = Utc::now();
+        summary.status = status;
+        summary.finished_at = Some(finished_at);
+        summary.throughput_per_min = summary.started_at.and_then(|started_at| {
+            let elapsed_sec = (finished_at - started_at).num_seconds();
+            if elapsed_sec <= 0 {
+                return None;
+            }
+            Some((summary.processed as f64) * 60.0 / (elapsed_sec as f64))
+        });
+        Ok(())
+    }
+
+    fn mark_rate_limit_refresh_job_failed(
+        &self,
+        job_id: Uuid,
+        error_code: &str,
+    ) -> Result<()> {
+        let mut jobs = self.oauth_rate_limit_refresh_jobs.write().unwrap();
+        let summary = jobs
+            .get_mut(&job_id)
+            .ok_or_else(|| anyhow!("job not found"))?;
+        summary.status = OAuthRateLimitRefreshJobStatus::Failed;
+        summary.failed_count = summary.failed_count.saturating_add(1);
+        if let Some(existing) = summary
+            .error_summary
+            .iter_mut()
+            .find(|item| item.error_code == error_code)
+        {
+            existing.count = existing.count.saturating_add(1);
+        } else {
+            summary.error_summary.push(OAuthRateLimitRefreshErrorSummary {
+                error_code: error_code.to_string(),
+                count: 1,
+            });
+        }
+        let finished_at = Utc::now();
+        summary.finished_at = Some(finished_at);
+        summary.throughput_per_min = summary.started_at.and_then(|started_at| {
+            let elapsed_sec = (finished_at - started_at).num_seconds();
+            if elapsed_sec <= 0 {
+                return None;
+            }
+            Some((summary.processed as f64) * 60.0 / (elapsed_sec as f64))
+        });
+        Ok(())
+    }
+
+    async fn refresh_rate_limit_targets_batch(
+        &self,
+        targets: Vec<InMemoryRateLimitRefreshTarget>,
+        concurrency: usize,
+    ) -> InMemoryRateLimitRefreshBatchStats {
+        let results = futures_util::stream::iter(targets.into_iter())
+            .map(|target| async move {
+                let fetched_at = Utc::now();
+                match self.fetch_live_rate_limits_result(&target).await {
+                    Ok(rate_limits) => {
+                        self.persist_rate_limit_cache_success_inner(
+                            target.account_id,
+                            rate_limits,
+                            fetched_at,
+                        );
+                        (true, None)
+                    }
+                    Err((error_code, error_message)) => {
+                        self.persist_rate_limit_cache_failure_inner(
+                            target.account_id,
+                            &error_code,
+                            &error_message,
+                        );
+                        (false, Some(error_code))
+                    }
+                }
+            })
+            .buffer_unordered(concurrency.max(1))
+            .collect::<Vec<_>>()
+            .await;
+
+        let mut stats = InMemoryRateLimitRefreshBatchStats {
+            processed: results.len() as u64,
+            ..Default::default()
+        };
+        for (success, error_code) in results {
+            if success {
+                stats.success = stats.success.saturating_add(1);
+            } else {
+                stats.failed = stats.failed.saturating_add(1);
+                if let Some(error_code) = error_code {
+                    *stats.error_counts.entry(error_code).or_insert(0) += 1;
+                }
+            }
+        }
+        stats
     }
 
     async fn validate_oauth_refresh_token_inner(

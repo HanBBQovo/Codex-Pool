@@ -8,11 +8,12 @@ use chrono::{DateTime, Duration, Utc};
 use codex_pool_core::api::{
     CreateApiKeyRequest, CreateApiKeyResponse, CreateTenantRequest, CreateUpstreamAccountRequest,
     DataPlaneSnapshot, DataPlaneSnapshotEventsResponse, ImportOAuthRefreshTokenRequest,
-    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshJobSummary,
+    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary,
+    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
     OAuthRefreshStatus, SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
     UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
-    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest, UpdateModelRoutingSettingsRequest,
-    ValidateOAuthRefreshTokenRequest,
+    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
+    UpdateModelRoutingSettingsRequest, ValidateOAuthRefreshTokenRequest,
     ValidateOAuthRefreshTokenResponse,
 };
 use codex_pool_core::model::{
@@ -46,6 +47,25 @@ const OAUTH_REFRESH_CONCURRENCY_ENV: &str = "CONTROL_PLANE_OAUTH_REFRESH_CONCURR
 const DEFAULT_OAUTH_REFRESH_CONCURRENCY: usize = 8;
 const MIN_OAUTH_REFRESH_CONCURRENCY: usize = 1;
 const MAX_OAUTH_REFRESH_CONCURRENCY: usize = 64;
+const RATE_LIMIT_CACHE_TTL_SEC_ENV: &str = "CONTROL_PLANE_RATE_LIMIT_CACHE_TTL_SEC";
+const DEFAULT_RATE_LIMIT_CACHE_TTL_SEC: i64 = 180;
+const MIN_RATE_LIMIT_CACHE_TTL_SEC: i64 = 30;
+const MAX_RATE_LIMIT_CACHE_TTL_SEC: i64 = 86_400;
+const RATE_LIMIT_REFRESH_BATCH_SIZE_ENV: &str = "CONTROL_PLANE_RATE_LIMIT_REFRESH_BATCH_SIZE";
+const DEFAULT_RATE_LIMIT_REFRESH_BATCH_SIZE: usize = 200;
+const MIN_RATE_LIMIT_REFRESH_BATCH_SIZE: usize = 1;
+const MAX_RATE_LIMIT_REFRESH_BATCH_SIZE: usize = 2_000;
+const RATE_LIMIT_REFRESH_CONCURRENCY_ENV: &str = "CONTROL_PLANE_RATE_LIMIT_REFRESH_CONCURRENCY";
+const DEFAULT_RATE_LIMIT_REFRESH_CONCURRENCY: usize = 8;
+const MIN_RATE_LIMIT_REFRESH_CONCURRENCY: usize = 1;
+const MAX_RATE_LIMIT_REFRESH_CONCURRENCY: usize = 64;
+const RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC_ENV: &str =
+    "CONTROL_PLANE_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC";
+const DEFAULT_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC: i64 = 60;
+const MIN_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC: i64 = 5;
+const MAX_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC: i64 = 3_600;
+const PRIMARY_RATE_LIMIT_WINDOW_MINUTES: i64 = 300;
+const SECONDARY_RATE_LIMIT_WINDOW_MINUTES: i64 = 10_080;
 
 fn merge_localized_error_templates(
     base: &LocalizedErrorTemplates,
@@ -74,6 +94,309 @@ fn oauth_refresh_concurrency_from_env() -> usize {
         .and_then(|raw| raw.parse::<usize>().ok())
         .unwrap_or(DEFAULT_OAUTH_REFRESH_CONCURRENCY)
         .clamp(MIN_OAUTH_REFRESH_CONCURRENCY, MAX_OAUTH_REFRESH_CONCURRENCY)
+}
+
+fn rate_limit_cache_ttl_sec_from_env() -> i64 {
+    std::env::var(RATE_LIMIT_CACHE_TTL_SEC_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<i64>().ok())
+        .unwrap_or(DEFAULT_RATE_LIMIT_CACHE_TTL_SEC)
+        .clamp(MIN_RATE_LIMIT_CACHE_TTL_SEC, MAX_RATE_LIMIT_CACHE_TTL_SEC)
+}
+
+fn rate_limit_refresh_batch_size_from_env() -> usize {
+    std::env::var(RATE_LIMIT_REFRESH_BATCH_SIZE_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_RATE_LIMIT_REFRESH_BATCH_SIZE)
+        .clamp(
+            MIN_RATE_LIMIT_REFRESH_BATCH_SIZE,
+            MAX_RATE_LIMIT_REFRESH_BATCH_SIZE,
+        )
+}
+
+fn rate_limit_refresh_concurrency_from_env() -> usize {
+    std::env::var(RATE_LIMIT_REFRESH_CONCURRENCY_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_RATE_LIMIT_REFRESH_CONCURRENCY)
+        .clamp(
+            MIN_RATE_LIMIT_REFRESH_CONCURRENCY,
+            MAX_RATE_LIMIT_REFRESH_CONCURRENCY,
+        )
+}
+
+fn rate_limit_refresh_error_backoff_sec_from_env() -> i64 {
+    std::env::var(RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<i64>().ok())
+        .unwrap_or(DEFAULT_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC)
+        .clamp(
+            MIN_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC,
+            MAX_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC,
+        )
+}
+
+fn normalize_health_error_code(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase()
+}
+
+fn is_quota_error_signal(error_code: &str, error_message: &str) -> bool {
+    let code = normalize_health_error_code(error_code);
+    if matches!(
+        code.as_str(),
+        "quota_exhausted"
+            | "usage_limit"
+            | "insufficient_quota"
+            | "quota_exceeded"
+            | "billing_hard_limit_reached"
+    ) {
+        return true;
+    }
+
+    let message = error_message.to_ascii_lowercase();
+    message.contains("usage limit")
+        || message.contains("insufficient quota")
+        || message.contains("quota exceeded")
+        || message.contains("billing hard limit")
+        || message.contains("start a free trial of plus")
+}
+
+fn is_auth_error_signal(error_code: &str, error_message: &str) -> bool {
+    let code = normalize_health_error_code(error_code);
+    if matches!(
+        code.as_str(),
+        "auth_expired"
+            | "invalid_refresh_token"
+            | "refresh_token_reused"
+            | "refresh_token_revoked"
+            | "missing_client_id"
+            | "unauthorized_client"
+    ) {
+        return true;
+    }
+
+    let message = error_message.to_ascii_lowercase();
+    message.contains("access token could not be refreshed")
+        || message.contains("logged out")
+        || message.contains("signed in to another account")
+        || message.contains("invalid refresh token")
+}
+
+fn is_rate_limited_signal(error_code: &str, error_message: &str) -> bool {
+    let code = normalize_health_error_code(error_code);
+    if matches!(code.as_str(), "rate_limited") {
+        return true;
+    }
+
+    let message = error_message.to_ascii_lowercase();
+    message.contains("rate limit") || message.contains("too many requests")
+}
+
+fn is_fatal_refresh_error_code(error_code: Option<&str>) -> bool {
+    let Some(error_code) = error_code else {
+        return false;
+    };
+
+    matches!(
+        normalize_health_error_code(error_code).as_str(),
+        "refresh_token_reused"
+            | "refresh_token_revoked"
+            | "invalid_refresh_token"
+            | "missing_client_id"
+            | "unauthorized_client"
+    )
+}
+
+fn is_blocking_rate_limit_error(
+    rate_limits_last_error_code: Option<&str>,
+    rate_limits_last_error: Option<&str>,
+) -> bool {
+    let Some(error_code) = rate_limits_last_error_code else {
+        return false;
+    };
+    let error_message = rate_limits_last_error.unwrap_or_default();
+    is_quota_error_signal(error_code, error_message)
+        || is_auth_error_signal(error_code, error_message)
+}
+
+fn has_active_rate_limit_block(
+    now: DateTime<Utc>,
+    rate_limits_expires_at: Option<DateTime<Utc>>,
+    rate_limits_last_error_code: Option<&str>,
+    rate_limits_last_error: Option<&str>,
+) -> bool {
+    rate_limits_expires_at.is_some_and(|expires_at| expires_at > now)
+        && is_blocking_rate_limit_error(rate_limits_last_error_code, rate_limits_last_error)
+}
+
+fn rate_limit_failure_backoff_seconds(error_code: &str, error_message: &str) -> i64 {
+    if is_quota_error_signal(error_code, error_message) {
+        return 6 * 60 * 60;
+    }
+    if is_auth_error_signal(error_code, error_message) {
+        return 30 * 60;
+    }
+    if is_rate_limited_signal(error_code, error_message) {
+        return 120;
+    }
+
+    rate_limit_refresh_error_backoff_sec_from_env()
+}
+
+struct SeenOkRateLimitRefreshContext<'a> {
+    token_expires_at: Option<DateTime<Utc>>,
+    last_refresh_status: &'a OAuthRefreshStatus,
+    refresh_reused_detected: bool,
+    last_refresh_error_code: Option<&'a str>,
+    rate_limits_expires_at: Option<DateTime<Utc>>,
+    rate_limits_last_error_code: Option<&'a str>,
+    rate_limits_last_error: Option<&'a str>,
+}
+
+fn should_refresh_rate_limit_cache_on_seen_ok(
+    now: DateTime<Utc>,
+    ctx: SeenOkRateLimitRefreshContext<'_>,
+) -> bool {
+    if !ctx.token_expires_at.is_some_and(|expires_at| {
+        expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC)
+    }) {
+        return false;
+    }
+    if ctx.refresh_reused_detected {
+        return false;
+    }
+    if matches!(ctx.last_refresh_status, OAuthRefreshStatus::Failed)
+        && is_fatal_refresh_error_code(ctx.last_refresh_error_code)
+    {
+        return false;
+    }
+
+    if has_active_rate_limit_block(
+        now,
+        ctx.rate_limits_expires_at,
+        ctx.rate_limits_last_error_code,
+        ctx.rate_limits_last_error,
+    ) {
+        return true;
+    }
+
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
+fn oauth_effective_enabled(
+    enabled: bool,
+    auth_provider: &UpstreamAuthProvider,
+    credential_kind: Option<&SessionCredentialKind>,
+    token_expires_at: Option<DateTime<Utc>>,
+    last_refresh_status: &OAuthRefreshStatus,
+    refresh_reused_detected: bool,
+    last_refresh_error_code: Option<&str>,
+    rate_limits_expires_at: Option<DateTime<Utc>>,
+    rate_limits_last_error_code: Option<&str>,
+    rate_limits_last_error: Option<&str>,
+    now: DateTime<Utc>,
+) -> bool {
+    let base_enabled = match (auth_provider, credential_kind) {
+        (UpstreamAuthProvider::OAuthRefreshToken, _) => {
+            enabled
+                && token_expires_at.is_some_and(|expires_at| {
+                    expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC)
+                })
+        }
+        (_, Some(SessionCredentialKind::OneTimeAccessToken)) => {
+            enabled
+                && token_expires_at
+                    .map(|expires_at| expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC))
+                    .unwrap_or(true)
+        }
+        _ => enabled,
+    };
+    if !base_enabled {
+        return false;
+    }
+
+    if matches!(auth_provider, UpstreamAuthProvider::OAuthRefreshToken) {
+        if refresh_reused_detected {
+            return false;
+        }
+        if matches!(last_refresh_status, OAuthRefreshStatus::Failed)
+            && is_fatal_refresh_error_code(last_refresh_error_code)
+        {
+            return false;
+        }
+        if has_active_rate_limit_block(
+            now,
+            rate_limits_expires_at,
+            rate_limits_last_error_code,
+            rate_limits_last_error,
+        ) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn derive_rate_limit_block(
+    snapshots: &[OAuthRateLimitSnapshot],
+    now: DateTime<Utc>,
+) -> (Option<DateTime<Utc>>, Option<String>) {
+    if let Some(blocked_until) = find_blocked_until_for_window(
+        snapshots,
+        true,
+        Some(SECONDARY_RATE_LIMIT_WINDOW_MINUTES),
+        now,
+    ) {
+        return (
+            Some(blocked_until),
+            Some("secondary_window_exhausted".to_string()),
+        );
+    }
+    if let Some(blocked_until) = find_blocked_until_for_window(
+        snapshots,
+        false,
+        Some(PRIMARY_RATE_LIMIT_WINDOW_MINUTES),
+        now,
+    ) {
+        return (
+            Some(blocked_until),
+            Some("primary_window_exhausted".to_string()),
+        );
+    }
+
+    (None, None)
+}
+
+fn find_blocked_until_for_window(
+    snapshots: &[OAuthRateLimitSnapshot],
+    secondary: bool,
+    window_minutes: Option<i64>,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            let window = if secondary {
+                snapshot.secondary.as_ref()
+            } else {
+                snapshot.primary.as_ref()
+            }?;
+            if window.used_percent < 100.0 {
+                return None;
+            }
+            if let Some(expected_minutes) = window_minutes {
+                if let Some(actual_minutes) = window.window_minutes {
+                    if actual_minutes != expected_minutes {
+                        return None;
+                    }
+                }
+            }
+            let resets_at = window.resets_at?;
+            (resets_at > now).then_some(resets_at)
+        })
+        .max()
 }
 
 fn resolve_oauth_import_mode(
@@ -632,6 +955,15 @@ struct AccountModelSupportRecord {
     supported_models: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct OAuthRateLimitCacheRecord {
+    rate_limits: Vec<OAuthRateLimitSnapshot>,
+    fetched_at: Option<DateTime<Utc>>,
+    expires_at: Option<DateTime<Utc>>,
+    last_error_code: Option<String>,
+    last_error: Option<String>,
+}
+
 pub struct InMemoryStore {
     tenants: Arc<RwLock<HashMap<Uuid, Tenant>>>,
     api_keys: Arc<RwLock<HashMap<Uuid, ApiKey>>>,
@@ -642,6 +974,8 @@ pub struct InMemoryStore {
     session_profiles: Arc<RwLock<HashMap<Uuid, SessionProfileRecord>>>,
     account_health_states: Arc<RwLock<HashMap<Uuid, UpstreamAccountHealthStateRecord>>>,
     account_model_support: Arc<RwLock<HashMap<Uuid, AccountModelSupportRecord>>>,
+    oauth_rate_limit_caches: Arc<RwLock<HashMap<Uuid, OAuthRateLimitCacheRecord>>>,
+    oauth_rate_limit_refresh_jobs: Arc<RwLock<HashMap<Uuid, OAuthRateLimitRefreshJobSummary>>>,
     policies: Arc<RwLock<HashMap<Uuid, RoutingPolicy>>>,
     routing_profiles: Arc<RwLock<HashMap<Uuid, RoutingProfile>>>,
     model_routing_policies: Arc<RwLock<HashMap<Uuid, ModelRoutingPolicy>>>,

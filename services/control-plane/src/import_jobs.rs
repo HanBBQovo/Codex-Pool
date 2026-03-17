@@ -263,14 +263,14 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
             .cloned()
             .ok_or_else(|| anyhow!("job not found"))?;
         let mut guard = job.lock().await;
+        let resuming_running_job = guard.summary.status == OAuthImportJobStatus::Running;
 
         if guard.cancel_requested {
             return Ok(Vec::new());
         }
         if matches!(
             guard.summary.status,
-            OAuthImportJobStatus::Running
-                | OAuthImportJobStatus::Paused
+            OAuthImportJobStatus::Paused
                 | OAuthImportJobStatus::Completed
                 | OAuthImportJobStatus::Failed
                 | OAuthImportJobStatus::Cancelled
@@ -283,6 +283,14 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
             guard.summary.started_at = Some(Utc::now());
         }
         guard.summary.finished_at = None;
+
+        if resuming_running_job {
+            for item in &mut guard.items {
+                if item.item.status == OAuthImportItemStatus::Processing {
+                    item.item.status = OAuthImportItemStatus::Pending;
+                }
+            }
+        }
 
         let mut tasks = Vec::new();
         let mut claimed = 0usize;
