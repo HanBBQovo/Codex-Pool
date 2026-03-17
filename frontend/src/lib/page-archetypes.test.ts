@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  describeDashboardShellLayout,
   describePageRegions,
   resolvePageArchetype,
   type PageArchetype,
@@ -70,5 +71,12 @@ test('describePageRegions separates auth stage and keeps workspace summary after
     contentLayout: 'split',
     secondaryPlacement: 'aside',
     stageEmphasis: 'low',
+  })
+})
+
+test('describeDashboardShellLayout keeps dashboard metrics ahead of the rail on mobile and avoids stretched headers on desktop', () => {
+  assert.deepEqual(describeDashboardShellLayout(), {
+    mobileRailPlacement: 'after-content',
+    desktopAlignment: 'start',
   })
 })

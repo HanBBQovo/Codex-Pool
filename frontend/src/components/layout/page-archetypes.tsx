@@ -1,6 +1,7 @@
 import { type HTMLAttributes, type ReactNode } from 'react'
 
 import {
+  describeDashboardShellLayout,
   describePageRegions,
   resolvePageArchetype,
   type PageArchetype,
@@ -236,28 +237,43 @@ export function DashboardShell({
   ...props
 }: DashboardShellProps) {
   const config = resolvePageArchetype('dashboard')
+  const layout = describeDashboardShellLayout()
 
   return (
-    <section className={cn('space-y-6 md:space-y-8', className)} {...props}>
-      <div
+    <section
+      className={cn(
+        'grid gap-6 md:gap-8',
+        rail && 'xl:grid-cols-[minmax(0,1.08fr)_minmax(19rem,0.92fr)] 2xl:grid-cols-[minmax(0,1.16fr)_minmax(20rem,0.84fr)]',
+        layout.desktopAlignment === 'start' && 'xl:items-start',
+        className,
+      )}
+      {...props}
+    >
+      <PagePanel
         className={cn(
-          'grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(19rem,0.92fr)] 2xl:grid-cols-[minmax(0,1.16fr)_minmax(20rem,0.84fr)]',
-          !rail && 'grid-cols-1',
+          'relative order-1 overflow-hidden',
+          rail && 'xl:col-start-1 xl:row-start-1',
+          config.headerSurface === 'panel' && 'rounded-[1.75rem] p-6 sm:p-7 lg:p-8',
         )}
       >
-        <PagePanel
+        <div className="page-grid-wash pointer-events-none absolute inset-0 opacity-55 dark:opacity-35" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.76),rgba(255,255,255,0.16)_32%,rgba(255,255,255,0)_60%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.12),rgba(148,163,184,0)_32%)]" />
+        <div className="relative">{intro}</div>
+      </PagePanel>
+      <div className={cn('order-2 min-w-0 space-y-6 md:space-y-8', rail && 'xl:order-3 xl:col-span-2')}>
+        {children}
+      </div>
+      {rail ? (
+        <div
           className={cn(
-            'relative overflow-hidden',
-            config.headerSurface === 'panel' && 'rounded-[1.75rem] p-6 sm:p-7 lg:p-8',
+            'min-w-0 space-y-4',
+            layout.mobileRailPlacement === 'after-content' ? 'order-3' : 'order-2',
+            'xl:order-2 xl:col-start-2 xl:row-start-1',
           )}
         >
-          <div className="page-grid-wash pointer-events-none absolute inset-0 opacity-55 dark:opacity-35" />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.76),rgba(255,255,255,0.16)_32%,rgba(255,255,255,0)_60%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.12),rgba(148,163,184,0)_32%)]" />
-          <div className="relative">{intro}</div>
-        </PagePanel>
-        {rail ? <div className="space-y-4">{rail}</div> : null}
-      </div>
-      {children}
+          {rail}
+        </div>
+      ) : null}
     </section>
   )
 }

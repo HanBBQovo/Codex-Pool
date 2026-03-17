@@ -22,6 +22,11 @@ export interface PageArchetypeRegions {
   stageEmphasis: 'high' | 'medium' | 'low'
 }
 
+export interface DashboardShellLayout {
+  mobileRailPlacement: 'after-content' | 'after-intro'
+  desktopAlignment: 'start' | 'stretch'
+}
+
 const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   auth: {
     name: 'auth',
@@ -141,5 +146,12 @@ export function describePageRegions(name: PageArchetype | string | undefined): P
         secondaryPlacement: 'after',
         stageEmphasis: 'low',
       }
+  }
+}
+
+export function describeDashboardShellLayout(): DashboardShellLayout {
+  return {
+    mobileRailPlacement: 'after-content',
+    desktopAlignment: 'start',
   }
 }
