@@ -230,7 +230,7 @@ export function AppLayout({
                 {mobileSidebarOpen ? (
                     <button
                         type="button"
-                        className="fixed inset-0 z-30 bg-black/40 backdrop-blur-[1px] md:hidden"
+                        className="fixed inset-0 z-30 bg-slate-950/30 md:hidden"
                         onClick={() => setMobileSidebarOpen(false)}
                         aria-label={t('nav.closeNavigation', { defaultValue: 'Close navigation menu' })}
                     />
@@ -246,61 +246,38 @@ export function AppLayout({
                     aria-modal={mobileSidebarOpen ? true : undefined}
                     aria-label={t('nav.mainNavigation', { defaultValue: 'Main navigation' })}
                     className={cn(
-                        "relative overflow-hidden border-r border-border/40 bg-card/40 backdrop-blur-2xl flex flex-col shrink-0 z-40",
+                        "relative flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar/96 z-40 supports-[backdrop-filter]:bg-sidebar/88 supports-[backdrop-filter]:backdrop-blur-xl",
                         "fixed inset-y-0 left-0 w-56 transform transition-transform md:static md:translate-x-0",
                         sidebarCollapsed ? "md:w-20" : "md:w-56",
                         mobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
                     )}
                 >
                     <div
-                        aria-hidden="true"
-                        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[300px] bg-[linear-gradient(180deg,rgba(248,250,252,0.96)_0%,rgba(226,232,240,0.82)_22%,rgba(203,213,225,0.42)_48%,rgba(148,163,184,0.12)_72%,transparent_92%)] dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.98)_0%,rgba(15,23,42,0.88)_24%,rgba(51,65,85,0.46)_50%,rgba(148,163,184,0.12)_74%,transparent_92%)]"
-                    />
-                    <div
-                        aria-hidden="true"
-                        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[220px] bg-[radial-gradient(circle_at_14%_10%,rgba(255,255,255,0.62)_0%,rgba(255,255,255,0.20)_18%,rgba(255,255,255,0.06)_34%,transparent_58%)] dark:bg-[radial-gradient(circle_at_14%_10%,rgba(226,232,240,0.18)_0%,rgba(148,163,184,0.09)_22%,rgba(125,211,252,0.04)_36%,transparent_58%)]"
-                    />
-                    <div
                         className={cn(
-                            "relative z-[1] overflow-hidden flex items-center justify-start border-b border-border/30 shrink-0 bg-white/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur-[2px] dark:border-white/5 dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-                            sidebarCollapsed ? "h-16 px-3 pr-10" : "h-24 px-4 pr-12",
+                            "relative z-[1] flex shrink-0 items-center justify-start border-b border-sidebar-border/80 bg-sidebar/94",
+                            sidebarCollapsed ? "h-16 px-3 pr-10" : "h-20 px-4 pr-12",
                         )}
                     >
-                        <div
-                            aria-hidden="true"
-                            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.54)_0%,rgba(255,255,255,0.10)_36%,rgba(255,255,255,0.28)_100%)] dark:bg-[linear-gradient(90deg,rgba(255,255,255,0.08)_0%,rgba(255,255,255,0.02)_36%,rgba(226,232,240,0.12)_100%)]"
-                        />
-                        <div
-                            aria-hidden="true"
-                            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_24%,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.08)_18%,transparent_44%)] dark:bg-[radial-gradient(circle_at_12%_24%,rgba(226,232,240,0.08)_0%,rgba(148,163,184,0.04)_24%,transparent_48%)]"
-                        />
                         <div className="relative z-[1] flex min-w-0 flex-1 items-center justify-start gap-3.5 pr-2">
                             <div
                                 className={cn(
-                                    "relative isolate shrink-0 flex items-center justify-start",
-                                    sidebarCollapsed ? "h-10 w-10" : "h-14 w-14",
+                                    "relative flex shrink-0 items-center justify-start rounded-[0.95rem] border border-sidebar-border/80 bg-background/76",
+                                    sidebarCollapsed ? "h-10 w-10" : "h-11 w-11",
                                 )}
                             >
-                                <div
-                                    aria-hidden="true"
-                                    className={cn(
-                                        "pointer-events-none absolute inset-0 -z-10 rounded-full blur-xl bg-[radial-gradient(circle,rgba(255,255,255,0.26)_0%,rgba(203,213,225,0.16)_30%,rgba(148,163,184,0.08)_50%,transparent_78%)] dark:bg-[radial-gradient(circle,rgba(241,245,249,0.18)_0%,rgba(148,163,184,0.12)_34%,rgba(125,211,252,0.05)_56%,transparent_80%)]",
-                                        sidebarCollapsed ? "scale-90 opacity-55" : "scale-110 opacity-70",
-                                    )}
-                                />
                                 <img
                                     src={codexPoolLogo}
                                     alt=""
                                     aria-hidden="true"
                                     className={cn(
-                                        "relative z-[1] object-contain [filter:drop-shadow(0_10px_18px_rgba(15,23,42,0.14))] dark:[filter:drop-shadow(0_0_12px_rgba(226,232,240,0.10))_drop-shadow(0_12px_26px_rgba(2,6,23,0.50))]",
-                                        sidebarCollapsed ? "h-10 w-10" : "h-14 w-14",
+                                        "relative z-[1] object-contain",
+                                        sidebarCollapsed ? "h-8 w-8" : "h-9 w-9",
                                     )}
                                 />
                             </div>
                             {!sidebarCollapsed ? (
                                 <div className="min-w-0 flex-1">
-                                    <h1 className="max-h-[2.5rem] overflow-hidden break-words text-[13px] font-semibold leading-5 tracking-[0.01em] text-slate-700 [text-shadow:0_1px_0_rgba(255,255,255,0.20)] dark:text-slate-200 dark:[text-shadow:0_1px_0_rgba(255,255,255,0.08)]">
+                                    <h1 className="max-h-[2.5rem] overflow-hidden break-words text-[13px] font-semibold leading-5 tracking-[0.01em] text-sidebar-foreground">
                                         {appName}
                                     </h1>
                                 </div>
@@ -322,12 +299,12 @@ export function AppLayout({
 
                     <nav
                         aria-label={t('nav.mainNavigation', { defaultValue: 'Main navigation' })}
-                        className={cn("flex-1 overflow-y-auto py-6 scrollbar-none", sidebarCollapsed ? "space-y-4" : "space-y-8")}
+                        className={cn("flex-1 overflow-y-auto py-6 scrollbar-none", sidebarCollapsed ? "space-y-4" : "space-y-7")}
                     >
                         {visibleMenuGroups.map((group, i) => (
                             <div key={i} className={cn(sidebarCollapsed ? "px-2" : "px-4")}>
                                 {!sidebarCollapsed ? (
-                                    <h2 className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                                    <h2 className="mb-2 px-2 text-[11px] font-medium tracking-[0.05em] text-muted-foreground/78">
                                         {group.label}
                                     </h2>
                                 ) : null}
@@ -340,11 +317,11 @@ export function AppLayout({
                                                 onClick={() => setMobileSidebarOpen(false)}
                                                 className={({ isActive }) =>
                                                     cn(
-                                                        "relative flex items-center rounded-md text-sm font-medium transition-colors group",
-                                                        sidebarCollapsed ? "justify-center px-2 py-2" : "px-2 py-1.5",
+                                                        "group relative flex items-center rounded-[0.95rem] border border-transparent text-sm font-medium transition-[background-color,border-color,color]",
+                                                        sidebarCollapsed ? "justify-center px-2 py-2.5" : "px-3 py-2",
                                                         isActive
-                                                            ? "text-primary"
-                                                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                                            ? "border-sidebar-border bg-background/80 text-foreground"
+                                                            : "text-muted-foreground hover:border-sidebar-border/70 hover:bg-background/56 hover:text-foreground"
                                                     )
                                                 }
                                             >
@@ -353,12 +330,12 @@ export function AppLayout({
                                                         {isActive && (
                                                             <motion.div
                                                                 layoutId="activeNavIndicator"
-                                                                className="absolute inset-0 bg-primary/10 rounded-md"
+                                                                className="absolute inset-y-[5px] left-0 w-[2px] rounded-full bg-primary"
                                                                 initial={false}
-                                                                transition={{ type: "spring", stiffness: 350, damping: 30 }}
+                                                                transition={{ duration: 0.18 }}
                                                             />
                                                         )}
-                                                        <item.icon className={cn("h-4 w-4 relative z-10 transition-transform group-hover:scale-110", !sidebarCollapsed && "mr-2.5", isActive && "text-primary")} />
+                                                        <item.icon className={cn("relative z-10 h-4 w-4", !sidebarCollapsed && "mr-2.5", isActive && "text-primary")} />
                                                         {!sidebarCollapsed ? (
                                                             <span className="relative z-10">{item.label}</span>
                                                         ) : null}
@@ -371,7 +348,7 @@ export function AppLayout({
                             </div>
                         ))}
                     </nav>
-                    <div className={cn("p-4 border-t border-border/40 text-xs text-muted-foreground/60 flex items-center", sidebarCollapsed ? "flex-col justify-center gap-3" : "justify-between gap-3")}>
+                    <div className={cn("flex items-center border-t border-sidebar-border/80 p-4 text-xs text-muted-foreground/72", sidebarCollapsed ? "flex-col justify-center gap-3" : "justify-between gap-3")}>
                         {!sidebarCollapsed ? <span>v1.0.0</span> : null}
                         <div className={cn("flex items-center", sidebarCollapsed ? "flex-col gap-3" : "ml-auto gap-3")}>
                             <span className="flex items-center gap-1.5" title={t('nav.online')}>
@@ -381,7 +358,7 @@ export function AppLayout({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="hidden h-7 w-7 rounded-full border border-white/35 bg-white/20 text-muted-foreground/75 shadow-sm backdrop-blur-sm hover:bg-white/30 hover:text-foreground dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 md:inline-flex"
+                                className="hidden h-7 w-7 rounded-[0.7rem] border border-sidebar-border/80 bg-background/60 text-muted-foreground hover:bg-background/82 hover:text-foreground md:inline-flex"
                                 onClick={() => setSidebarCollapsed((prev) => !prev)}
                                 aria-label={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
                                 title={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
@@ -395,7 +372,7 @@ export function AppLayout({
                 {/* Main Content */}
                 <main id="main-content" tabIndex={-1} className="flex-1 bg-transparent relative overflow-hidden flex flex-col z-20">
                     {/* Top Action Header */}
-                    <header className="h-14 flex items-center justify-between gap-3 border-b border-border/25 bg-background/70 px-4 backdrop-blur-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] sm:px-6 lg:px-8 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                    <header className="h-14 flex items-center justify-between gap-3 border-b border-border/50 bg-background/84 px-4 supports-[backdrop-filter]:bg-background/78 supports-[backdrop-filter]:backdrop-blur-xl sm:px-6 lg:px-8">
                         <div className="md:hidden">
                             <Button
                                 ref={mobileOpenButtonRef}

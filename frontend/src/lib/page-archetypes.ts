@@ -8,7 +8,7 @@ export interface PageArchetypeConfig {
   primaryZone: 'form' | 'task' | 'content'
   secondaryDensity: 'narrative' | 'balanced' | 'summary-first'
   surfaceTone: 'refined' | 'neutral' | 'quiet'
-  effectProfile: 'subtle' | 'minimal' | 'none'
+  effectProfile: 'controlled' | 'restrained' | 'none'
   mobile: {
     stageCompression: 'condense' | 'hide' | 'keep'
     primaryFirst: boolean
@@ -19,7 +19,7 @@ export interface PageArchetypeRegions {
   introAlignment: 'start' | 'between'
   contentLayout: 'split' | 'stack'
   secondaryPlacement: 'after' | 'aside'
-  stageEmphasis: 'high' | 'medium' | 'low'
+  stageEmphasis: 'controlled' | 'medium' | 'low'
 }
 
 export interface DashboardShellLayout {
@@ -85,7 +85,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     primaryZone: 'form',
     secondaryDensity: 'narrative',
     surfaceTone: 'refined',
-    effectProfile: 'subtle',
+    effectProfile: 'controlled',
     mobile: {
       stageCompression: 'condense',
       primaryFirst: true,
@@ -99,7 +99,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     primaryZone: 'content',
     secondaryDensity: 'balanced',
     surfaceTone: 'refined',
-    effectProfile: 'minimal',
+    effectProfile: 'restrained',
     mobile: {
       stageCompression: 'condense',
       primaryFirst: true,
@@ -112,7 +112,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     headerSurface: 'panel',
     primaryZone: 'task',
     secondaryDensity: 'summary-first',
-    surfaceTone: 'neutral',
+    surfaceTone: 'quiet',
     effectProfile: 'none',
     mobile: {
       stageCompression: 'hide',
@@ -170,7 +170,7 @@ export function describePageRegions(name: PageArchetype | string | undefined): P
         introAlignment: 'start',
         contentLayout: 'split',
         secondaryPlacement: 'after',
-        stageEmphasis: 'high',
+        stageEmphasis: 'controlled',
       }
     case 'workspace':
       return {

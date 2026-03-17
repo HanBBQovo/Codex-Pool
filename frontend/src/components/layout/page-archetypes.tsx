@@ -42,17 +42,17 @@ export function PageIntro({
     >
       <div className={cn('min-w-0 space-y-3', config.introStyle === 'stage' && 'max-w-2xl md:space-y-4')}>
         {eyebrow ? (
-          <div className="inline-flex w-fit items-center rounded-full border border-slate-300/70 bg-white/85 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-950/65 dark:text-slate-300">
+          <div className="inline-flex w-fit items-center rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
             {eyebrow}
           </div>
         ) : null}
         <div className="space-y-2">
           <h1
             className={cn(
-              'text-balance font-semibold tracking-[-0.03em] text-slate-950 dark:text-slate-50',
+              'text-balance font-semibold tracking-[-0.026em] text-foreground',
               config.introStyle === 'stage'
-                ? 'text-[clamp(2.35rem,5vw,4.9rem)] leading-[0.94]'
-                : 'text-[clamp(1.9rem,4vw,3.1rem)] leading-[1.02]',
+                ? 'text-[clamp(2.15rem,4.8vw,4.2rem)] leading-[0.97]'
+                : 'text-[clamp(1.75rem,3.6vw,2.65rem)] leading-[1]',
             )}
           >
             {title}
@@ -60,17 +60,15 @@ export function PageIntro({
           {description ? (
             <p
               className={cn(
-                'text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base',
-                config.introStyle === 'stage' && 'max-w-2xl text-[15px] leading-7 sm:text-[17px]',
+                'text-sm leading-6 text-muted-foreground sm:text-base',
+                config.introStyle === 'stage' && 'max-w-2xl text-[15px] leading-7 sm:text-[16px]',
               )}
             >
               {description}
             </p>
           ) : null}
         </div>
-        {meta ? (
-          <div className="text-sm leading-6 text-slate-500 dark:text-slate-400">{meta}</div>
-        ) : null}
+        {meta ? <div className="text-sm leading-6 text-muted-foreground">{meta}</div> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -97,38 +95,38 @@ export function BrandStage({
   return (
     <section
       className={cn(
-        'page-stage-surface relative overflow-hidden rounded-[1.75rem] p-6 sm:p-8 lg:p-10',
+        'page-stage-surface relative overflow-hidden rounded-[1.35rem] p-6 sm:p-7 lg:p-8',
         className,
       )}
       {...props}
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.65),rgba(255,255,255,0.12),rgba(255,255,255,0.42))] dark:bg-[linear-gradient(90deg,rgba(255,255,255,0.14),rgba(255,255,255,0.02),rgba(255,255,255,0.10))]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-border/70" />
       <div className="relative z-10 space-y-6">
         {badge ? <div>{badge}</div> : null}
-        <div className="space-y-4">
-          <h1 className="max-w-3xl text-balance text-[clamp(2.4rem,5vw,5rem)] font-semibold leading-[0.93] tracking-[-0.04em] text-slate-950 dark:text-slate-50">
+        <div className="space-y-3">
+          <h1 className="max-w-3xl text-balance text-[clamp(2rem,4.6vw,3.85rem)] font-semibold leading-[0.98] tracking-[-0.028em] text-foreground">
             {title}
           </h1>
           {subtitle ? (
-            <p className="max-w-2xl text-[15px] leading-7 text-slate-600 dark:text-slate-300 sm:text-[17px]">
+            <p className="max-w-2xl text-[15px] leading-7 text-muted-foreground sm:text-[16px]">
               {subtitle}
             </p>
           ) : null}
         </div>
         {points.length > 0 ? (
-          <ul className="grid gap-3 text-sm text-slate-700 dark:text-slate-200 sm:grid-cols-2">
+          <ul className="grid gap-2.5 text-sm text-foreground/86 sm:grid-cols-2">
             {points.map((point, index) => (
               <li
                 key={index}
-                className="flex items-start gap-3 rounded-2xl border border-white/55 bg-white/72 px-4 py-3 shadow-[0_14px_28px_rgba(15,23,42,0.08)] dark:border-white/8 dark:bg-white/[0.04] dark:shadow-none"
+                className="flex items-start gap-3 rounded-[1rem] border border-border/55 bg-background/56 px-4 py-3"
               >
-                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-900 dark:bg-slate-100" />
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/80" />
                 <span className="leading-6">{point}</span>
               </li>
             ))}
           </ul>
         ) : null}
-        {footer ? <div className="text-sm text-slate-500 dark:text-slate-400">{footer}</div> : null}
+        {footer ? <div className="text-sm text-muted-foreground">{footer}</div> : null}
       </div>
     </section>
   )
@@ -150,7 +148,7 @@ export function PagePanel({
     <Component
       className={cn(
         tone === 'primary' ? 'page-panel-surface' : 'page-panel-surface-muted',
-        'rounded-[1.6rem] p-5 sm:p-6',
+        'rounded-[1.25rem] p-5 sm:p-6',
         className,
       )}
       {...props}
@@ -264,13 +262,13 @@ export function ReportMetricCard({
   return (
     <PagePanel tone="secondary" className={cn('h-full space-y-3', className)} {...props}>
       <div className="space-y-1.5">
-        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{title}</p>
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
         {loading ? (
           <div className="h-9 w-28 animate-pulse rounded-xl bg-slate-200/75 dark:bg-slate-800/75" />
         ) : (
           <p
             title={valueTitle}
-            className="text-[clamp(1.4rem,2.4vw,2.05rem)] font-semibold leading-none tracking-[-0.03em] text-slate-950 dark:text-slate-50"
+            className="text-[clamp(1.36rem,2.3vw,1.95rem)] font-semibold leading-none tracking-[-0.022em] text-foreground"
           >
             {value}
           </p>
@@ -280,7 +278,7 @@ export function ReportMetricCard({
         loading ? (
           <div className="h-3.5 w-36 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
         ) : (
-          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
         )
       ) : null}
     </PagePanel>
@@ -312,15 +310,15 @@ export function SectionHeader({
     >
       <div className="min-w-0 space-y-1.5">
         {eyebrow ? (
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+          <p className="text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
             {eyebrow}
           </p>
         ) : null}
-        <h2 className="text-lg font-semibold tracking-[-0.02em] text-slate-950 dark:text-slate-50">
+        <h2 className="text-lg font-semibold tracking-[-0.018em] text-foreground">
           {title}
         </h2>
         {description ? (
-          <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p>
+          <p className="text-sm leading-6 text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
@@ -357,11 +355,9 @@ export function DashboardShell({
         className={cn(
           'relative order-1 overflow-hidden',
           rail && 'xl:col-start-1 xl:row-start-1',
-          config.headerSurface === 'panel' && 'rounded-[1.75rem] p-6 sm:p-7 lg:p-8',
+          config.headerSurface === 'panel' && 'rounded-[1.35rem] p-6 sm:p-7 lg:p-8',
         )}
       >
-        <div className="page-grid-wash pointer-events-none absolute inset-0 opacity-55 dark:opacity-35" />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.76),rgba(255,255,255,0.16)_32%,rgba(255,255,255,0)_60%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.12),rgba(148,163,184,0)_32%)]" />
         <div className="relative">{intro}</div>
       </PagePanel>
       <div className={cn('order-2 min-w-0 space-y-6 md:space-y-8', rail && 'xl:order-3 xl:col-span-2')}>
@@ -425,14 +421,14 @@ export function DashboardMetricCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1.5">
           {eyebrow ? (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            <p className="text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
               {eyebrow}
             </p>
           ) : null}
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
+          <p className="text-sm font-medium text-foreground/82">{title}</p>
         </div>
         {icon ? (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200/80 bg-white/80 text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-200">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/78 text-muted-foreground">
             {icon}
           </div>
         ) : null}
@@ -443,7 +439,7 @@ export function DashboardMetricCard({
         ) : (
           <p
             title={valueTitle}
-            className="text-[clamp(1.7rem,3vw,2.45rem)] font-semibold leading-none tracking-[-0.04em] text-slate-950 dark:text-slate-50"
+            className="text-[clamp(1.6rem,2.8vw,2.2rem)] font-semibold leading-none tracking-[-0.026em] text-foreground"
           >
             {value}
           </p>
@@ -452,7 +448,7 @@ export function DashboardMetricCard({
           loading ? (
             <div className="h-3.5 w-40 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
           ) : (
-            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+            <p className="text-xs leading-5 text-muted-foreground">{description}</p>
           )
         ) : null}
       </div>
