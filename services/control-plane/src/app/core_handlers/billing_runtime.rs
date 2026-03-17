@@ -149,6 +149,7 @@ fn map_internal_billing_error(err: anyhow::Error) -> (StatusCode, Json<ErrorEnve
     }
     tracing::warn!(
         error = %err,
+        error_chain = %format_anyhow_error_chain(&err),
         "falling back to generic tenant error mapping for internal billing error"
     );
     map_tenant_error(err)
@@ -616,6 +617,19 @@ async fn sync_openai_admin_models_catalog(
 #[cfg(test)]
 mod billing_runtime_tests {
     use super::*;
+
+    #[test]
+    fn format_anyhow_error_chain_preserves_nested_contexts() {
+        let err = anyhow::anyhow!("root cause")
+            .context("mid layer")
+            .context("top layer");
+
+        let formatted = format_anyhow_error_chain(&err);
+
+        assert!(formatted.contains("top layer"));
+        assert!(formatted.contains("mid layer"));
+        assert!(formatted.contains("root cause"));
+    }
 
     #[test]
     fn map_internal_billing_error_maps_model_missing_precisely() {

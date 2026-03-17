@@ -667,15 +667,25 @@ where
         "{}/internal/v1/billing/{operation}",
         base_url.trim_end_matches('/')
     );
+    let billing_context = internal_billing_log_context(operation, payload);
     let response = state
         .http_client
-        .post(endpoint)
+        .post(endpoint.clone())
         .bearer_auth(state.control_plane_internal_auth_token.as_ref())
         .json(payload)
         .timeout(Duration::from_secs(INTERNAL_BILLING_TIMEOUT_SEC))
         .send()
         .await
-        .map_err(|_| {
+        .map_err(|err| {
+            warn!(
+                operation = operation,
+                endpoint = %endpoint,
+                error = %err,
+                error_chain = %format!("{err:#}"),
+                error_kind = classify_reqwest_error(&err),
+                billing = %billing_context,
+                "failed to call internal billing endpoint"
+            );
             Box::new(json_error(
                 StatusCode::BAD_GATEWAY,
                 "billing_service_error",
@@ -684,7 +694,16 @@ where
         })?;
 
     if response.status().is_success() {
-        return response.json::<TResp>().await.map_err(|_| {
+        return response.json::<TResp>().await.map_err(|err| {
+            warn!(
+                operation = operation,
+                endpoint = %endpoint,
+                error = %err,
+                error_chain = %format!("{err:#}"),
+                error_kind = classify_reqwest_error(&err),
+                billing = %billing_context,
+                "failed to decode internal billing response payload"
+            );
             Box::new(json_error(
                 StatusCode::BAD_GATEWAY,
                 "billing_service_error",
@@ -696,10 +715,22 @@ where
     let status = response.status();
     let envelope = response.json::<InternalBillingErrorEnvelope>().await.ok();
     if let Some(item) = envelope.as_ref() {
-        tracing::warn!(
-            status = %status,
+        warn!(
+            operation = operation,
+            endpoint = %endpoint,
+            status = status.as_u16(),
+            code = %item.error.code,
             message = %item.error.message,
+            billing = %billing_context,
             "internal billing endpoint returned error"
+        );
+    } else {
+        warn!(
+            operation = operation,
+            endpoint = %endpoint,
+            status = status.as_u16(),
+            billing = %billing_context,
+            "internal billing endpoint returned non-json error"
         );
     }
     let (mapped_status, code, message) = match status {
@@ -735,6 +766,78 @@ where
     };
 
     Err(Box::new(json_error(mapped_status, code, message)))
+}
+
+fn internal_billing_log_context<TReq>(operation: &str, payload: &TReq) -> Value
+where
+    TReq: Serialize + ?Sized,
+{
+    let mut context = serde_json::Map::new();
+    context.insert("operation".to_string(), Value::String(operation.to_string()));
+
+    let Some(payload) = serde_json::to_value(payload).ok() else {
+        return Value::Object(context);
+    };
+    let Some(payload) = payload.as_object() else {
+        return Value::Object(context);
+    };
+
+    for key in [
+        "tenant_id",
+        "api_key_id",
+        "request_id",
+        "trace_request_id",
+        "session_key",
+        "model",
+        "service_tier",
+        "request_kind",
+        "reserved_microcredits",
+        "ttl_sec",
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "is_stream",
+        "release_reason",
+        "upstream_status_code",
+        "upstream_error_code",
+        "failover_action",
+        "failover_reason_class",
+        "recovery_action",
+        "recovery_outcome",
+        "cross_account_failover_attempted",
+    ] {
+        if let Some(value) = payload.get(key).filter(|value| !value.is_null()) {
+            context.insert(key.to_string(), value.clone());
+        }
+    }
+
+    Value::Object(context)
+}
+
+fn classify_reqwest_error(err: &reqwest::Error) -> &'static str {
+    if err.is_timeout() {
+        return "timeout";
+    }
+    if err.is_connect() {
+        return "connect";
+    }
+    if err.is_request() {
+        return "request";
+    }
+    if err.is_body() {
+        return "body";
+    }
+    if err.is_decode() {
+        return "decode";
+    }
+    if err.is_redirect() {
+        return "redirect";
+    }
+    if err.is_builder() {
+        return "builder";
+    }
+    "other"
 }
 
 async fn release_billing_hold_best_effort(
@@ -1272,5 +1375,48 @@ impl SseUsageTracker {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod billing_stream_logging_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn internal_billing_log_context_includes_authorize_identifiers() {
+        let payload = InternalBillingAuthorizePayload {
+            tenant_id: Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap(),
+            api_key_id: Some(Uuid::parse_str("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb").unwrap()),
+            request_id: "internal-billing-request".to_string(),
+            trace_request_id: Some("external-request".to_string()),
+            model: "gpt-5.4".to_string(),
+            service_tier: Some("default".to_string()),
+            session_key: Some("session-key".to_string()),
+            request_kind: Some("response".to_string()),
+            reserved_microcredits: 1234,
+            ttl_sec: Some(900),
+            is_stream: true,
+        };
+
+        let context = internal_billing_log_context("authorize", &payload);
+
+        assert_eq!(
+            context,
+            json!({
+                "operation": "authorize",
+                "tenant_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "api_key_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                "request_id": "internal-billing-request",
+                "trace_request_id": "external-request",
+                "session_key": "session-key",
+                "model": "gpt-5.4",
+                "service_tier": "default",
+                "request_kind": "response",
+                "reserved_microcredits": 1234,
+                "ttl_sec": 900,
+                "is_stream": true
+            })
+        );
     }
 }

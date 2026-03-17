@@ -302,6 +302,10 @@ fn localized_message(locale: i18n::Locale, en: &'static str, zh_cn: &'static str
     locale.message(en, zh_cn)
 }
 
+fn format_anyhow_error_chain(err: &anyhow::Error) -> String {
+    format!("{err:#}")
+}
+
 fn internal_error_with_locale(
     locale: i18n::Locale,
     err: anyhow::Error,
@@ -359,7 +363,11 @@ fn internal_error_with_locale(
         );
     }
 
-    tracing::error!(error = %err, "control-plane store request failed");
+    tracing::error!(
+        error = %err,
+        error_chain = %format_anyhow_error_chain(&err),
+        "control-plane store request failed"
+    );
 
     (
         StatusCode::INTERNAL_SERVER_ERROR,
