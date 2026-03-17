@@ -841,8 +841,8 @@ async fn main() -> anyhow::Result<()> {
     );
     let app = match edition {
         ProductEdition::Personal => {
-            let sqlite_store = personal_runtime_store
-                .expect("personal edition should keep sqlite runtime store");
+            let sqlite_store =
+                personal_runtime_store.expect("personal edition should keep sqlite runtime store");
             let usage_ingest_repo = personal_sqlite_usage_repo
                 .clone()
                 .expect("personal edition should keep sqlite usage ingest repo")

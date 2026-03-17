@@ -621,8 +621,7 @@ admin_jwt_ttl_sec = 600
         let old_admin_jwt_secret = set_env("ADMIN_JWT_SECRET", None);
         let old_admin_jwt_ttl = set_env("ADMIN_JWT_TTL_SEC", None);
         let old_oauth_refresh_enabled = set_env("CONTROL_PLANE_OAUTH_REFRESH_ENABLED", None);
-        let old_oauth_refresh_interval =
-            set_env("CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC", None);
+        let old_oauth_refresh_interval = set_env("CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC", None);
 
         let cfg = ControlPlaneConfig::from_env(30).expect("load config");
 
@@ -698,8 +697,7 @@ admin_jwt_ttl_sec = 900
         let old_admin_jwt_secret = set_env("ADMIN_JWT_SECRET", None);
         let old_admin_jwt_ttl = set_env("ADMIN_JWT_TTL_SEC", None);
         let old_oauth_refresh_enabled = set_env("CONTROL_PLANE_OAUTH_REFRESH_ENABLED", None);
-        let old_oauth_refresh_interval =
-            set_env("CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC", None);
+        let old_oauth_refresh_interval = set_env("CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC", None);
 
         let cfg = ControlPlaneConfig::from_env(30).expect("load config");
         cfg.apply_runtime_env_defaults();

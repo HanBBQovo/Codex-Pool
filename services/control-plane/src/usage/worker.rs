@@ -10,8 +10,7 @@ use uuid::Uuid;
 
 use crate::usage::{
     aggregate_by_hour, request_log_row_from_event, HourlyAccountUsageRow,
-    HourlyTenantAccountUsageRow, HourlyTenantApiKeyUsageRow, RequestLogRow,
-    UsageAggregationEvent,
+    HourlyTenantAccountUsageRow, HourlyTenantApiKeyUsageRow, RequestLogRow, UsageAggregationEvent,
 };
 
 #[derive(Debug, Clone)]

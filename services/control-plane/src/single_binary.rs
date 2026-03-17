@@ -239,15 +239,15 @@ fn content_type_for(path: &Path) -> &'static str {
 mod tests {
     use super::{
         apply_single_binary_runtime_env_defaults, merge_personal_single_binary_app,
-        merge_single_binary_app,
-        single_binary_frontend_response, single_binary_runtime_env_defaults,
+        merge_single_binary_app, single_binary_frontend_response,
+        single_binary_runtime_env_defaults,
     };
     use std::sync::Arc;
 
-    use axum::Router;
     use axum::body::to_bytes;
     use axum::http::Request;
     use axum::http::{header, StatusCode};
+    use axum::Router;
     use codex_pool_core::api::{CreateUpstreamAccountRequest, UsageSummary};
     use codex_pool_core::model::{UpstreamAuthProvider, UpstreamMode};
     use tower::util::ServiceExt;

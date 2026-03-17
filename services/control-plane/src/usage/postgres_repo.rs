@@ -12,8 +12,8 @@ use sqlx_core::query_builder::QueryBuilder;
 use sqlx_postgres::{PgPool, Postgres};
 use uuid::Uuid;
 
-use crate::Row;
 use crate::cost::{calculate_estimated_cost_microusd, TokenPriceMicrousd};
+use crate::Row;
 
 use crate::usage::clickhouse_repo::UsageQueryRepository;
 use crate::usage::{
@@ -941,7 +941,9 @@ impl UsageQueryRepository for PostgresUsageRepo {
 
         let dashboard_metrics = match dashboard_summary.as_ref() {
             Some(dashboard_summary) => match tokio::try_join!(
-                self.fetch_dashboard_token_trends(start_ts, end_ts, tenant_id, account_id, api_key_id),
+                self.fetch_dashboard_token_trends(
+                    start_ts, end_ts, tenant_id, account_id, api_key_id
+                ),
                 self.fetch_dashboard_model_distribution(
                     start_ts, end_ts, tenant_id, account_id, api_key_id, false
                 ),

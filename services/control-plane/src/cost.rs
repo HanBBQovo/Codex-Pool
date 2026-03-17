@@ -30,21 +30,18 @@ pub fn calculate_estimated_cost_microusd(
 ) -> i64 {
     let normalized_input_tokens = input_tokens.max(0);
     let normalized_cached_input_tokens = cached_input_tokens.max(0).min(normalized_input_tokens);
-    let billable_input_tokens = normalized_input_tokens.saturating_sub(normalized_cached_input_tokens);
+    let billable_input_tokens =
+        normalized_input_tokens.saturating_sub(normalized_cached_input_tokens);
     let normalized_output_tokens = output_tokens.max(0);
 
-    let input_charge = charge_tokens_by_per_million_price(
-        billable_input_tokens,
-        pricing.input_price_microusd,
-    );
+    let input_charge =
+        charge_tokens_by_per_million_price(billable_input_tokens, pricing.input_price_microusd);
     let cached_input_charge = charge_tokens_by_per_million_price(
         normalized_cached_input_tokens,
         pricing.cached_input_price_microusd,
     );
-    let output_charge = charge_tokens_by_per_million_price(
-        normalized_output_tokens,
-        pricing.output_price_microusd,
-    );
+    let output_charge =
+        charge_tokens_by_per_million_price(normalized_output_tokens, pricing.output_price_microusd);
     input_charge
         .saturating_add(cached_input_charge)
         .saturating_add(output_charge)

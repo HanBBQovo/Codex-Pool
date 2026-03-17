@@ -1278,8 +1278,8 @@ mod usage_cost_surface_tests {
     use axum::http::{Request, StatusCode};
     use chrono::Utc;
     use codex_pool_core::api::{
-        UsageDashboardMetrics, UsageDashboardModelDistributionItem,
-        UsageDashboardTokenBreakdown, UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse,
+        UsageDashboardMetrics, UsageDashboardModelDistributionItem, UsageDashboardTokenBreakdown,
+        UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse,
     };
     use serde_json::{json, Value};
     use std::sync::Arc;
