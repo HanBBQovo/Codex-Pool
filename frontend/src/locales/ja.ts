@@ -490,6 +490,8 @@ export default {
         filters: {
             apiKeyAriaLabel: "API キーフィルター",
             apiKeyPlaceholder: "APIキーを選択",
+            description: "ホットスポットを素早く切り分けたいときは、表示をテナントや API キーまで絞り込みます。",
+            eyebrow: "コンテキスト",
             range: {
                 last24Hours: "過去 24 時間",
                 last30Days: "過去 30 日間",
@@ -498,7 +500,14 @@ export default {
             rangeAriaLabel: "期間",
             scopeAriaLabel: "表示範囲フィルター",
             tenantAriaLabel: "テナントフィルター",
-            tenantPlaceholder: "テナントの選択"
+            tenantPlaceholder: "テナントの選択",
+            title: "表示範囲とフィルター"
+        },
+        hero: {
+            eyebrow: "運用の概要"
+        },
+        meta: {
+            autoRefresh: "30 秒ごとに自動更新"
         },
         kpi: {
             activeApiKeysInRange: "アクティブな API キー (選択された範囲)",
@@ -559,6 +568,19 @@ export default {
             modeTokens: "Token 量で表示",
             other: "その他",
             title: "モデルリクエスト分布"
+        },
+        overview: {
+            attentionNeeded: "対応を推奨",
+            autoRefresh: "30 秒ごとに自動更新",
+            degraded: "劣化",
+            description: "チャートに入る前に、アラート圧力、利用パイプラインの健全性、管理対象の在庫状況を手早く確認できます。",
+            eyebrow: "パルス",
+            inventory: "利用可能なアップストリーム在庫",
+            managedScope: "現在の管理対象範囲",
+            openAlerts: "未対応アラート",
+            stable: "進行中の障害はありません",
+            title: "運用パルス",
+            usagePipeline: "利用パイプライン"
         },
         tokenComponents: {
             cached: "キャッシュ入力",

@@ -490,6 +490,8 @@ export default {
         filters: {
             apiKeyAriaLabel: "Фильтр API-ключа",
             apiKeyPlaceholder: "Выберите ключ API",
+            description: "Когда нужно быстро локализовать перегрузку, сузьте обзор до арендатора или конкретного API-ключа.",
+            eyebrow: "Контекст",
             range: {
                 last24Hours: "Последние 24 часа",
                 last30Days: "Последние 30 дней",
@@ -498,7 +500,14 @@ export default {
             rangeAriaLabel: "Диапазон времени",
             scopeAriaLabel: "Фильтр области",
             tenantAriaLabel: "Фильтр по арендатору",
-            tenantPlaceholder: "Выберите арендатора"
+            tenantPlaceholder: "Выберите арендатора",
+            title: "Область и фильтры"
+        },
+        hero: {
+            eyebrow: "Операционный обзор"
+        },
+        meta: {
+            autoRefresh: "Автообновление каждые 30 секунд"
         },
         kpi: {
             activeApiKeysInRange: "Активные ключи API (выбранный диапазон)",
@@ -559,6 +568,19 @@ export default {
             modeTokens: "По Token",
             other: "Другое",
             title: "Распределение запросов по моделям"
+        },
+        overview: {
+            attentionNeeded: "Требуется действие",
+            autoRefresh: "Автообновление каждые 30 секунд",
+            degraded: "Деградация",
+            description: "Перед тем как углубляться в графики, быстро оцените давление по алертам, состояние контура учета и доступный инвентарь.",
+            eyebrow: "Пульс",
+            inventory: "Доступный апстрим-инвентарь",
+            managedScope: "Текущий управляемый контур",
+            openAlerts: "Открытые алерты",
+            stable: "Активных инцидентов нет",
+            title: "Операционный пульс",
+            usagePipeline: "Контур учета"
         },
         tokenComponents: {
             cached: "Кэшированный ввод",

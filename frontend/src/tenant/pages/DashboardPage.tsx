@@ -5,11 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
   Button as NextButton,
-  Card,
-  CardBody,
-  CardHeader,
   Chip,
-  Divider,
   Select,
   SelectItem,
   Skeleton,
@@ -28,6 +24,14 @@ import {
 
 import { tenantKeysApi } from '@/api/tenantKeys'
 import { tenantUsageApi } from '@/api/tenantUsage'
+import {
+  DashboardMetricCard,
+  DashboardMetricGrid,
+  DashboardShell,
+  PageIntro,
+  PagePanel,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
 import {
   ChartAccessibility,
   type ChartAccessibilityColumn,
@@ -273,8 +277,6 @@ export function TenantDashboardPage() {
       color: TOKEN_COMPONENT_CHART_COLORS.reasoning,
     },
   ]
-  const surfaceCardClassName = 'h-full border border-border/60 bg-card/95 shadow-sm'
-  const sectionCardClassName = 'border border-border/60 bg-card/95 shadow-sm'
   const emptyStateClassName =
     'flex h-[320px] items-center justify-center rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground'
   const tokenSummaryTileClassName = 'rounded-xl border border-border/60 bg-muted/20 p-3'
@@ -467,195 +469,165 @@ export function TenantDashboardPage() {
   }, [keys, selectedApiKeyId, t])
 
   return (
-    <div className="flex-1 overflow-y-auto bg-muted/20">
-      <div className="space-y-4 p-4 sm:space-y-6 sm:p-6 lg:p-8">
-        <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-          <div className="h-full">
-            <Card shadow="sm" className={surfaceCardClassName}>
-              <CardHeader className="flex flex-col items-start gap-4 p-5 pb-2 sm:p-6 sm:pb-2">
-                <Chip color="primary" variant="flat" className="font-medium">
-                  {t('tenantDashboard.hero.badge', { defaultValue: 'Tenant Workspace Overview' })}
-                </Chip>
-                <div className="space-y-2">
-                  <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                    {t('tenantDashboard.title', { defaultValue: 'Tenant Dashboard' })}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {t('tenantDashboard.hero.summaryPrefix', { defaultValue: 'Scope: current tenant ' })}
-                    {selectedApiKeyId
-                      ? t('tenantDashboard.hero.summarySingleApiKey', { defaultValue: '(single API key)' })
-                      : t('tenantDashboard.hero.summaryAllApiKeys', { defaultValue: '(all API keys)' })}
-                    {' · '}
-                    {rangeLabel(rangePreset)}
-                  </p>
-                </div>
-              </CardHeader>
-              <CardBody className="p-5 pt-3 sm:p-6 sm:pt-3">
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {t('tenantDashboard.subtitle.metricsFocus', {
-                    defaultValue: 'Focus metrics: TPM, RPM, total token consumption, total requests, and first-token speed.',
-                  })}
-                </p>
-              </CardBody>
-            </Card>
-          </div>
-
-          <div className="h-full">
-            <Card shadow="sm" className={surfaceCardClassName}>
-              <CardHeader className="p-5 pb-3 sm:p-6 sm:pb-3">
-                <p className="text-sm font-medium text-foreground">
-                  {t('tenantDashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
-                </p>
-              </CardHeader>
-              <CardBody className="space-y-3 p-5 pt-0 sm:p-6 sm:pt-0">
-                <Select
-                  aria-label={t('tenantDashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
-                  disallowEmptySelection
-                  selectedKeys={[String(rangePreset)]}
-                  onChange={(event) => setRangePreset(Number(event.target.value) as RangePreset)}
-                  variant="bordered"
-                  size="sm"
+    <div className="flex-1 overflow-y-auto bg-muted/20 px-4 py-4 sm:px-6 lg:px-8">
+      <DashboardShell
+        intro={(
+          <PageIntro
+            archetype="dashboard"
+            eyebrow={t('tenantDashboard.hero.badge', { defaultValue: 'Tenant Workspace Overview' })}
+            title={t('tenantDashboard.title', { defaultValue: 'Tenant Dashboard' })}
+            description={t('tenantDashboard.subtitle.metricsFocus', {
+              defaultValue: 'Focus metrics: TPM, RPM, total token consumption, total requests, and first-token speed.',
+            })}
+            meta={(
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-6">
+                <span>{t('tenantDashboard.hero.summaryPrefix', { defaultValue: 'Scope: current tenant ' })}</span>
+                <span>
+                  {selectedApiKeyId
+                    ? t('tenantDashboard.hero.summarySingleApiKey', { defaultValue: '(single API key)' })
+                    : t('tenantDashboard.hero.summaryAllApiKeys', { defaultValue: '(all API keys)' })}
+                </span>
+                <span className="text-slate-300 dark:text-slate-600">·</span>
+                <span>{rangeLabel(rangePreset)}</span>
+                <span className="text-slate-300 dark:text-slate-600">·</span>
+                <span>{t('dashboard.meta.autoRefresh', { defaultValue: 'Auto-refresh every 30 seconds' })}</span>
+              </div>
+            )}
+            actions={(
+              <>
+                <NextButton
+                  variant="flat"
+                  color="primary"
+                  className="min-h-11"
+                  onPress={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
                 >
-                  {rangeOptions.map((option) => (
-                    <SelectItem key={option.key}>{option.label}</SelectItem>
-                  ))}
-                </Select>
-                <Select
-                  aria-label={t('tenantDashboard.filters.apiKeyAriaLabel', { defaultValue: 'API key' })}
-                  disallowEmptySelection
-                  selectedKeys={[apiKeyId]}
-                  onChange={(event) => setApiKeyId(event.target.value)}
-                  variant="bordered"
-                  size="sm"
-                  items={apiKeyOptions}
+                  {t('tenantDashboard.actions.viewRequestLogs', { defaultValue: 'View request logs' })}
+                </NextButton>
+                <NextButton
+                  variant="flat"
+                  color="default"
+                  className="min-h-11"
+                  onPress={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
                 >
-                  {(item) => <SelectItem key={item.key}>{item.label}</SelectItem>}
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t('tenantDashboard.filters.apiKeyHint', {
-                    defaultValue: 'Tip: use API key filter to isolate model and token hotspots quickly.',
-                  })}
-                </p>
-                <Divider className="my-1" />
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <NextButton
-                    variant="flat"
-                    color="primary"
-                    className="min-h-11"
-                    onPress={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
-                  >
-                    {t('tenantDashboard.actions.viewRequestLogs', { defaultValue: 'View request logs' })}
-                  </NextButton>
-                  <NextButton
-                    variant="flat"
-                    color="default"
-                    className="min-h-11"
-                    onPress={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
-                  >
-                    {t('tenantDashboard.actions.viewBilling', { defaultValue: 'View billing' })}
-                  </NextButton>
-                  <NextButton
-                    variant="flat"
-                    color="secondary"
-                    className="min-h-11 sm:col-span-2"
-                    onPress={() => navigate('/api-keys')}
-                  >
-                    {t('tenantDashboard.actions.manageApiKeys', { defaultValue: 'Manage API keys' })}
-                  </NextButton>
-                </div>
+                  {t('tenantDashboard.actions.viewBilling', { defaultValue: 'View billing' })}
+                </NextButton>
+                <NextButton
+                  variant="flat"
+                  color="secondary"
+                  className="min-h-11"
+                  onPress={() => navigate('/api-keys')}
+                >
+                  {t('tenantDashboard.actions.manageApiKeys', { defaultValue: 'Manage API keys' })}
+                </NextButton>
                 <NextButton
                   variant="bordered"
-                  size="sm"
-                  className="min-h-11 w-full"
+                  className="min-h-11"
                   onPress={handleRefresh}
                   isDisabled={isRefreshing}
                   startContent={<RefreshCcw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />}
                 >
                   {t('tenantDashboard.actions.refresh', { defaultValue: 'Refresh' })}
                 </NextButton>
-              </CardBody>
-            </Card>
-          </div>
-        </div>
-
-        <div className="h-full">
-          <Card className={sectionCardClassName}>
-            <CardHeader className="space-y-1">
-              <p className="text-lg font-semibold text-foreground">
-                {t('tenantDashboard.groupOverview.title', { defaultValue: 'API key group overview' })}
+              </>
+            )}
+          />
+        )}
+        rail={(
+          <PagePanel tone="secondary" className="space-y-4">
+            <SectionHeader
+              eyebrow={t('dashboard.filters.eyebrow', { defaultValue: 'Context' })}
+              title={t('dashboard.filters.title', { defaultValue: 'Scope and filters' })}
+              description={t('dashboard.filters.description', {
+                defaultValue: 'Tighten the view to a tenant or API key when you need to isolate hotspots quickly.',
+              })}
+            />
+            <div className="space-y-3">
+              <Select
+                aria-label={t('tenantDashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
+                disallowEmptySelection
+                selectedKeys={[String(rangePreset)]}
+                onChange={(event) => setRangePreset(Number(event.target.value) as RangePreset)}
+                variant="bordered"
+                size="sm"
+              >
+                {rangeOptions.map((option) => (
+                  <SelectItem key={option.key}>{option.label}</SelectItem>
+                ))}
+              </Select>
+              <Select
+                aria-label={t('tenantDashboard.filters.apiKeyAriaLabel', { defaultValue: 'API key' })}
+                disallowEmptySelection
+                selectedKeys={[apiKeyId]}
+                onChange={(event) => setApiKeyId(event.target.value)}
+                variant="bordered"
+                size="sm"
+                items={apiKeyOptions}
+              >
+                {(item) => <SelectItem key={item.key}>{item.label}</SelectItem>}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('tenantDashboard.filters.apiKeyHint', {
+                  defaultValue: 'Tip: use API key filter to isolate model and token hotspots quickly.',
+                })}
               </p>
-              <p className="text-sm text-muted-foreground">
-                {selectedApiKeyId
-                  ? t('tenantDashboard.groupOverview.singleDescription', { defaultValue: 'Current API key group binding and validity state.' })
-                  : t('tenantDashboard.groupOverview.allDescription', { defaultValue: 'How your current API keys are distributed across pricing groups.' })}
-              </p>
-            </CardHeader>
-            <CardBody className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {groupOverviewItems.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border/60 px-4 py-5 text-sm text-muted-foreground">
-                  {t('tenantDashboard.groupOverview.empty', { defaultValue: 'No API key groups to show yet.' })}
-                </div>
-              ) : (
-                groupOverviewItems.map((item) => (
-                  <div key={item.id} className={overviewTileClassName}>
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-medium text-foreground">{item.label}</p>
-                      <Chip color={item.invalid ? 'danger' : 'success'} variant="flat">
-                        {item.invalid
-                          ? t('tenantDashboard.groupOverview.invalid', { defaultValue: 'Invalid' })
-                          : t('tenantDashboard.groupOverview.valid', { defaultValue: 'Valid' })}
-                      </Chip>
-                    </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{item.groupName}</p>
-                  </div>
-                ))
-              )}
-            </CardBody>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {kpiCards.map((item) => (
-            <div key={item.title} className="h-full">
-              <Card className={surfaceCardClassName}>
-                <CardHeader className="pb-2">
-                  <p className="text-sm text-muted-foreground">{item.title}</p>
-                </CardHeader>
-                <CardBody className="pt-0">
-                  <div className="min-h-10 flex items-center">
-                    {isFetchingSummary && !summary ? (
-                      <Skeleton className="h-10 w-32 rounded-xl" />
-                    ) : (
-                      <p
-                        className="flex items-center gap-2 text-3xl font-semibold leading-none text-foreground"
-                        title={item.exactValue}
-                      >
-                        <item.icon className="h-5 w-5 text-primary" />
-                        {item.value}
-                      </p>
-                    )}
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{item.desc}</p>
-                </CardBody>
-              </Card>
             </div>
+          </PagePanel>
+        )}
+      >
+        <DashboardMetricGrid className="xl:grid-cols-3">
+          {kpiCards.map((item) => (
+            <DashboardMetricCard
+              key={item.title}
+              title={item.title}
+              value={item.value}
+              valueTitle={item.exactValue}
+              description={item.desc}
+              loading={isFetchingSummary && !summary}
+              icon={<item.icon className="h-4 w-4" />}
+            />
           ))}
-        </div>
+        </DashboardMetricGrid>
 
-        <div className="grid gap-4 2xl:grid-cols-[1.65fr_1fr]">
-          <div className="h-full">
-            <Card className={surfaceCardClassName}>
-              <CardHeader className="space-y-3">
-                <div className="space-y-1">
-                  <p className="text-lg font-semibold text-foreground">
-                    {t('tenantDashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {t('tenantDashboard.tokenTrend.description', {
-                      defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
-                    })}
-                  </p>
+        <PagePanel tone="secondary">
+          <SectionHeader
+            title={t('tenantDashboard.groupOverview.title', { defaultValue: 'API key group overview' })}
+            description={
+              selectedApiKeyId
+                ? t('tenantDashboard.groupOverview.singleDescription', { defaultValue: 'Current API key group binding and validity state.' })
+                : t('tenantDashboard.groupOverview.allDescription', { defaultValue: 'How your current API keys are distributed across pricing groups.' })
+            }
+          />
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {groupOverviewItems.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border/60 px-4 py-5 text-sm text-muted-foreground">
+                {t('tenantDashboard.groupOverview.empty', { defaultValue: 'No API key groups to show yet.' })}
+              </div>
+            ) : (
+              groupOverviewItems.map((item) => (
+                <div key={item.id} className={overviewTileClassName}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-foreground">{item.label}</p>
+                    <Chip color={item.invalid ? 'danger' : 'success'} variant="flat">
+                      {item.invalid
+                        ? t('tenantDashboard.groupOverview.invalid', { defaultValue: 'Invalid' })
+                        : t('tenantDashboard.groupOverview.valid', { defaultValue: 'Valid' })}
+                    </Chip>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{item.groupName}</p>
                 </div>
+              ))
+            )}
+          </div>
+        </PagePanel>
+
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+          <PagePanel className="space-y-5">
+            <SectionHeader
+              title={t('tenantDashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}
+              description={t('tenantDashboard.tokenTrend.description', {
+                defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
+              })}
+              actions={(
                 <div className="flex flex-wrap gap-2">
                   {tokenBreakdownRows.map((item) => (
                     <ToggleBadgeButton
@@ -675,95 +647,87 @@ export function TenantDashboardPage() {
                     </ToggleBadgeButton>
                   ))}
                 </div>
-              </CardHeader>
-              <CardBody>
-                <ChartAccessibility
-                  summaryId="tenant-dashboard-token-trend-a11y"
-                  summary={tokenTrendA11ySummary}
-                  tableLabel={t('tenantDashboard.tokenTrend.a11y.tableLabel', {
-                    defaultValue: 'Token usage trend data table',
-                  })}
-                  columns={tokenTrendA11yColumns}
-                  rows={tokenTrendA11yRows}
-                />
-                {isFetchingSummary && tokenTrendData.length === 0 ? (
-                  <div className="space-y-3">
-                    <Skeleton className="h-8 w-48 rounded-xl" />
-                    <Skeleton className="h-[300px] w-full rounded-xl" />
-                  </div>
-                ) : tokenTrendData.length === 0 ? (
-                  <div className={emptyStateClassName}>
-                    {t('tenantDashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
-                  </div>
-                ) : (
-                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                        <XAxis
-                          dataKey="timestamp"
-                          tickFormatter={(value) =>
-                            new Intl.DateTimeFormat(undefined, {
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              hour12: false,
-                            }).format(new Date(value))
-                          }
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickFormatter={(value) =>
-                            typeof value === 'number'
-                              ? formatDashboardTokenCount(value)
-                              : String(value ?? '')
-                          }
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <Tooltip
-                          formatter={(value) =>
-                            typeof value === 'number'
-                              ? formatDashboardTokenCount(value)
-                              : String(value ?? '')
-                          }
-                          labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
-                        />
-                        {showTokenArea && tokenComponents.input ? (
-                          <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.input} fill={TOKEN_COMPONENT_CHART_COLORS.input} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.input', { defaultValue: 'Input' })} />
-                        ) : null}
-                        {showTokenArea && tokenComponents.cached ? (
-                          <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.cached} fill={TOKEN_COMPONENT_CHART_COLORS.cached} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
-                        ) : null}
-                        {showTokenArea && tokenComponents.output ? (
-                          <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.output} fill={TOKEN_COMPONENT_CHART_COLORS.output} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.output', { defaultValue: 'Output' })} />
-                        ) : null}
-                        {showTokenArea && tokenComponents.reasoning ? (
-                          <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.reasoning} fill={TOKEN_COMPONENT_CHART_COLORS.reasoning} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
-                        ) : null}
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardBody>
-            </Card>
-          </div>
+              )}
+            />
+            <ChartAccessibility
+              summaryId="tenant-dashboard-token-trend-a11y"
+              summary={tokenTrendA11ySummary}
+              tableLabel={t('tenantDashboard.tokenTrend.a11y.tableLabel', {
+                defaultValue: 'Token usage trend data table',
+              })}
+              columns={tokenTrendA11yColumns}
+              rows={tokenTrendA11yRows}
+            />
+            {isFetchingSummary && tokenTrendData.length === 0 ? (
+              <div className="space-y-3">
+                <Skeleton className="h-8 w-48 rounded-xl" />
+                <Skeleton className="h-[300px] w-full rounded-xl" />
+              </div>
+            ) : tokenTrendData.length === 0 ? (
+              <div className={emptyStateClassName}>
+                {t('tenantDashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
+              </div>
+            ) : (
+              <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                    <XAxis
+                      dataKey="timestamp"
+                      tickFormatter={(value) =>
+                        new Intl.DateTimeFormat(undefined, {
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                        }).format(new Date(value))
+                      }
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickFormatter={(value) =>
+                        typeof value === 'number'
+                          ? formatDashboardTokenCount(value)
+                          : String(value ?? '')
+                      }
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      formatter={(value) =>
+                        typeof value === 'number'
+                          ? formatDashboardTokenCount(value)
+                          : String(value ?? '')
+                      }
+                      labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
+                    />
+                    {showTokenArea && tokenComponents.input ? (
+                      <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.input} fill={TOKEN_COMPONENT_CHART_COLORS.input} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.input', { defaultValue: 'Input' })} />
+                    ) : null}
+                    {showTokenArea && tokenComponents.cached ? (
+                      <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.cached} fill={TOKEN_COMPONENT_CHART_COLORS.cached} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
+                    ) : null}
+                    {showTokenArea && tokenComponents.output ? (
+                      <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.output} fill={TOKEN_COMPONENT_CHART_COLORS.output} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.output', { defaultValue: 'Output' })} />
+                    ) : null}
+                    {showTokenArea && tokenComponents.reasoning ? (
+                      <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.reasoning} fill={TOKEN_COMPONENT_CHART_COLORS.reasoning} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
+                    ) : null}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </PagePanel>
 
-          <div className="h-full">
-            <Card className={surfaceCardClassName}>
-              <CardHeader className="space-y-3">
-                <div className="space-y-1">
-                  <p className="text-lg font-semibold text-foreground">
-                    {t('tenantDashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {t('tenantDashboard.modelDistribution.description', { defaultValue: 'Top models by request count or token usage.' })}
-                  </p>
-                </div>
+          <PagePanel className="space-y-5">
+            <SectionHeader
+              title={t('tenantDashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}
+              description={t('tenantDashboard.modelDistribution.description', { defaultValue: 'Top models by request count or token usage.' })}
+              actions={(
                 <div className="flex gap-2">
                   <ToggleBadgeButton
                     variant="outline"
@@ -782,101 +746,97 @@ export function TenantDashboardPage() {
                     {t('tenantDashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
                   </ToggleBadgeButton>
                 </div>
-              </CardHeader>
-              <CardBody>
-                <ChartAccessibility
-                  summaryId="tenant-dashboard-model-distribution-a11y"
-                  summary={modelDistributionA11ySummary}
-                  tableLabel={t('tenantDashboard.modelDistribution.a11y.tableLabel', {
-                    defaultValue: 'Model distribution data table',
-                  })}
-                  columns={modelDistributionA11yColumns}
-                  rows={modelDistributionData}
-                />
-                {isFetchingSummary && modelDistributionData.length === 0 ? (
-                  <div className="space-y-3">
-                    <Skeleton className="h-8 w-40 rounded-xl" />
-                    <Skeleton className="h-[300px] w-full rounded-xl" />
-                  </div>
-                ) : modelDistributionData.length === 0 ? (
-                  <div className={emptyStateClassName}>
-                    {t('tenantDashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
-                  </div>
-                ) : (
-                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <BarChart
-                        data={modelDistributionData}
-                        layout="vertical"
-                        margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-                        <XAxis
-                          type="number"
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickFormatter={(value) =>
-                            typeof value === 'number'
-                              ? (modelMode === 'tokens'
-                                  ? formatDashboardTokenCount(value)
-                                  : formatDashboardCount(value))
-                              : String(value ?? '')
-                          }
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          dataKey="model"
-                          type="category"
-                          width={120}
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickLine={false}
-                          axisLine={false}
-                          tickFormatter={(value) =>
-                            value === 'other'
-                              ? t('tenantDashboard.modelDistribution.other', { defaultValue: 'Other' })
-                              : String(value)
-                          }
-                        />
-                        <Tooltip
-                          formatter={(value) =>
-                            typeof value === 'number'
-                              ? (modelMode === 'tokens'
-                                  ? formatDashboardTokenCount(value)
-                                  : formatDashboardCount(value))
-                              : String(value ?? '')
-                          }
-                          labelFormatter={(label) =>
-                            label === 'other'
-                              ? t('tenantDashboard.modelDistribution.other', { defaultValue: 'Other' })
-                              : String(label)
-                          }
-                        />
-                        <Bar dataKey="value" fill={MODEL_DISTRIBUTION_BAR_COLOR} radius={[0, 8, 8, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardBody>
-            </Card>
-          </div>
+              )}
+            />
+            <ChartAccessibility
+              summaryId="tenant-dashboard-model-distribution-a11y"
+              summary={modelDistributionA11ySummary}
+              tableLabel={t('tenantDashboard.modelDistribution.a11y.tableLabel', {
+                defaultValue: 'Model distribution data table',
+              })}
+              columns={modelDistributionA11yColumns}
+              rows={modelDistributionData}
+            />
+            {isFetchingSummary && modelDistributionData.length === 0 ? (
+              <div className="space-y-3">
+                <Skeleton className="h-8 w-40 rounded-xl" />
+                <Skeleton className="h-[300px] w-full rounded-xl" />
+              </div>
+            ) : modelDistributionData.length === 0 ? (
+              <div className={emptyStateClassName}>
+                {t('tenantDashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
+              </div>
+            ) : (
+              <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart
+                    data={modelDistributionData}
+                    layout="vertical"
+                    margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickFormatter={(value) =>
+                        typeof value === 'number'
+                          ? (modelMode === 'tokens'
+                              ? formatDashboardTokenCount(value)
+                              : formatDashboardCount(value))
+                          : String(value ?? '')
+                      }
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      dataKey="model"
+                      type="category"
+                      width={120}
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(value) =>
+                        value === 'other'
+                          ? t('tenantDashboard.modelDistribution.other', { defaultValue: 'Other' })
+                          : String(value)
+                      }
+                    />
+                    <Tooltip
+                      formatter={(value) =>
+                        typeof value === 'number'
+                          ? (modelMode === 'tokens'
+                              ? formatDashboardTokenCount(value)
+                              : formatDashboardCount(value))
+                          : String(value ?? '')
+                      }
+                      labelFormatter={(label) =>
+                        label === 'other'
+                          ? t('tenantDashboard.modelDistribution.other', { defaultValue: 'Other' })
+                          : String(label)
+                      }
+                    />
+                    <Bar dataKey="value" fill={MODEL_DISTRIBUTION_BAR_COLOR} radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </PagePanel>
         </div>
 
-        <Card className={sectionCardClassName}>
-          <CardHeader>
-            <p className="text-sm font-semibold text-foreground">
-              {t('tenantDashboard.tokenSummary.title', { defaultValue: 'Token component summary' })}
-            </p>
-          </CardHeader>
-          <CardBody className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <PagePanel tone="secondary">
+          <SectionHeader
+            title={t('tenantDashboard.tokenSummary.title', { defaultValue: 'Token component summary' })}
+          />
+          <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {tokenBreakdownRows.map((row) => (
               <div key={row.key} className={tokenSummaryTileClassName}>
                 <p className="text-xs text-muted-foreground">{row.label}</p>
                 <p className="text-lg font-semibold text-foreground">{formatDashboardTokenCount(row.value)}</p>
               </div>
             ))}
-          </CardBody>
-        </Card>
-      </div>
+          </div>
+        </PagePanel>
+      </DashboardShell>
     </div>
   )
 }

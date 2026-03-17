@@ -490,6 +490,8 @@ export default {
         filters: {
             apiKeyAriaLabel: "API key filter",
             apiKeyPlaceholder: "Select API key",
+            description: "Tighten the view to a tenant or API key when you need to isolate hotspots quickly.",
+            eyebrow: "Context",
             range: {
                 last24Hours: "Last 24 hours",
                 last30Days: "Last 30 days",
@@ -498,7 +500,14 @@ export default {
             rangeAriaLabel: "Time range",
             scopeAriaLabel: "Scope filter",
             tenantAriaLabel: "Tenant filter",
-            tenantPlaceholder: "Select tenant"
+            tenantPlaceholder: "Select tenant",
+            title: "Scope and filters"
+        },
+        hero: {
+            eyebrow: "Operations overview"
+        },
+        meta: {
+            autoRefresh: "Auto-refresh every 30 seconds"
         },
         kpi: {
             activeApiKeysInRange: "Active API keys (selected range)",
@@ -549,6 +558,19 @@ export default {
             modeTokens: "By tokens",
             other: "Other",
             title: "Model request distribution"
+        },
+        overview: {
+            attentionNeeded: "Action recommended",
+            autoRefresh: "Auto-refresh every 30 seconds",
+            degraded: "Degraded",
+            description: "A quick read on alert pressure, pipeline health, and managed inventory before you dive into charts.",
+            eyebrow: "Pulse",
+            inventory: "Available upstream inventory",
+            managedScope: "Managed scope right now",
+            openAlerts: "Open alerts",
+            stable: "No active incidents",
+            title: "Operational pulse",
+            usagePipeline: "Usage pipeline"
         },
         scope: {
             apiKey: "API Key View",

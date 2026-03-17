@@ -258,7 +258,7 @@ export function AppLayout({
                     <div
                         className={cn(
                             "relative z-[1] overflow-hidden flex items-center justify-start border-b border-border/30 shrink-0 bg-white/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur-[2px] dark:border-white/5 dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-                            sidebarCollapsed ? "h-16 px-3 pr-10" : "h-20 px-4 pr-12",
+                            sidebarCollapsed ? "h-16 px-3 pr-10" : "h-24 px-4 pr-12",
                         )}
                     >
                         <div
@@ -269,7 +269,7 @@ export function AppLayout({
                             aria-hidden="true"
                             className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_24%,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.08)_18%,transparent_44%)] dark:bg-[radial-gradient(circle_at_12%_24%,rgba(226,232,240,0.08)_0%,rgba(148,163,184,0.04)_24%,transparent_48%)]"
                         />
-                        <div className="relative z-[1] flex min-w-0 flex-1 items-center justify-start gap-3 pr-2">
+                        <div className="relative z-[1] flex min-w-0 flex-1 items-center justify-start gap-3.5 pr-2">
                             <div
                                 className={cn(
                                     "relative isolate shrink-0 flex items-center justify-start",
@@ -294,9 +294,11 @@ export function AppLayout({
                                 />
                             </div>
                             {!sidebarCollapsed ? (
-                                <h1 className="min-w-0 flex-1 truncate text-[13.5px] font-semibold tracking-[0.01em] text-slate-700 [text-shadow:0_1px_0_rgba(255,255,255,0.20)] dark:text-slate-200 dark:[text-shadow:0_1px_0_rgba(255,255,255,0.08)]">
-                                    {appName}
-                                </h1>
+                                <div className="min-w-0 flex-1">
+                                    <h1 className="max-h-[2.5rem] overflow-hidden break-words text-[13px] font-semibold leading-5 tracking-[0.01em] text-slate-700 [text-shadow:0_1px_0_rgba(255,255,255,0.20)] dark:text-slate-200 dark:[text-shadow:0_1px_0_rgba(255,255,255,0.08)]">
+                                        {appName}
+                                    </h1>
+                                </div>
                             ) : null}
                         </div>
                         <Button
@@ -388,7 +390,7 @@ export function AppLayout({
                 {/* Main Content */}
                 <main id="main-content" tabIndex={-1} className="flex-1 bg-transparent relative overflow-hidden flex flex-col z-20">
                     {/* Top Action Header */}
-                    <header className="h-14 flex items-center justify-between px-4 sm:px-6 lg:px-8 shrink-0 z-30 gap-3 border-b border-border/10 bg-background/10 backdrop-blur-xl">
+                    <header className="h-14 flex items-center justify-between gap-3 border-b border-border/25 bg-background/70 px-4 backdrop-blur-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] sm:px-6 lg:px-8 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                         <div className="md:hidden">
                             <Button
                                 ref={mobileOpenButtonRef}

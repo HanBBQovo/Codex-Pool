@@ -490,6 +490,8 @@ export default {
         filters: {
             apiKeyAriaLabel: "API 密钥筛选",
             apiKeyPlaceholder: "选择 API 密钥",
+            description: "当你需要快速定位热点时，可将视角收窄到租户或 API 密钥。",
+            eyebrow: "上下文",
             range: {
                 last24Hours: "过去 24 小时",
                 last30Days: "过去 30 天",
@@ -498,7 +500,14 @@ export default {
             rangeAriaLabel: "时间范围",
             scopeAriaLabel: "范围筛选",
             tenantAriaLabel: "租户筛选",
-            tenantPlaceholder: "选择租户"
+            tenantPlaceholder: "选择租户",
+            title: "范围与筛选"
+        },
+        hero: {
+            eyebrow: "运行总览"
+        },
+        meta: {
+            autoRefresh: "每 30 秒自动刷新"
         },
         kpi: {
             activeApiKeysInRange: "活动 API 密钥（选定范围）",
@@ -559,6 +568,19 @@ export default {
             modeTokens: "按 Token",
             other: "其他",
             title: "模型请求分布"
+        },
+        overview: {
+            attentionNeeded: "建议尽快处理",
+            autoRefresh: "每 30 秒自动刷新",
+            degraded: "已降级",
+            description: "在进入图表前，先快速查看告警压力、用量链路健康度和当前托管盘面。",
+            eyebrow: "运行脉搏",
+            inventory: "可用上游库存",
+            managedScope: "当前纳管范围",
+            openAlerts: "待处理告警",
+            stable: "当前无活跃事故",
+            title: "运行脉搏",
+            usagePipeline: "用量链路"
         },
         tokenComponents: {
             cached: "缓存输入",

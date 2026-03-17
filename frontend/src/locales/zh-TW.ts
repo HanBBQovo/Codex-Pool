@@ -490,6 +490,8 @@ export default {
         filters: {
             apiKeyAriaLabel: "API 金鑰篩選",
             apiKeyPlaceholder: "選擇 API 金鑰",
+            description: "當你需要快速定位熱點時，可將視角收斂到租戶或 API 金鑰。",
+            eyebrow: "上下文",
             range: {
                 last24Hours: "過去 24 小時",
                 last30Days: "過去 30 天",
@@ -498,7 +500,14 @@ export default {
             rangeAriaLabel: "時間範圍",
             scopeAriaLabel: "範圍篩選",
             tenantAriaLabel: "租戶篩選",
-            tenantPlaceholder: "選擇租戶"
+            tenantPlaceholder: "選擇租戶",
+            title: "範圍與篩選"
+        },
+        hero: {
+            eyebrow: "運行總覽"
+        },
+        meta: {
+            autoRefresh: "每 30 秒自動刷新"
         },
         kpi: {
             activeApiKeysInRange: "活動 API 金鑰（選定範圍）",
@@ -559,6 +568,19 @@ export default {
             modeTokens: "依 Token",
             other: "其他",
             title: "模型請求分布"
+        },
+        overview: {
+            attentionNeeded: "建議盡快處理",
+            autoRefresh: "每 30 秒自動刷新",
+            degraded: "已降級",
+            description: "在進入圖表前，先快速查看告警壓力、用量鏈路健康度與目前託管盤面。",
+            eyebrow: "運行脈搏",
+            inventory: "可用上游庫存",
+            managedScope: "目前納管範圍",
+            openAlerts: "待處理告警",
+            stable: "目前沒有活躍事故",
+            title: "運行脈搏",
+            usagePipeline: "用量鏈路"
         },
         tokenComponents: {
             cached: "快取輸入",

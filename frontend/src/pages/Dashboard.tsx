@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
 import { Building2, Gauge, RefreshCcw, Timer, TrendingUp, Users, Zap } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -22,12 +21,19 @@ import { adminTenantsApi } from '@/api/adminTenants'
 import { dashboardApi } from '@/api/dashboard'
 import { usageApi } from '@/api/usage'
 import {
+  DashboardMetricCard,
+  DashboardMetricGrid,
+  DashboardShell,
+  PageIntro,
+  PagePanel,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
+import {
   ChartAccessibility,
   type ChartAccessibilityColumn,
 } from '@/components/ui/chart-accessibility'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -110,23 +116,6 @@ interface TokenBreakdownRow {
 const DASHBOARD_FILTERS_STORAGE_KEY = 'cp:admin-dashboard-filters:v1'
 const ADMIN_TOKEN_COMPONENT_STORAGE_KEY = 'cp:admin-dashboard-token-components:v1'
 const ADMIN_MODEL_MODE_STORAGE_KEY = 'cp:admin-dashboard-model-mode:v1'
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
-}
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { type: 'spring' as const, stiffness: 300, damping: 24 },
-  },
-}
 
 function loadStoredFilters(): StoredDashboardFilters {
   if (typeof window === 'undefined') {
@@ -775,172 +764,262 @@ export default function Dashboard() {
     [i18n.resolvedLanguage, modelMode, t],
   )
 
+  const rangeLabel =
+    rangePreset === 1
+      ? t('dashboard.filters.range.last24Hours', { defaultValue: 'Last 24 hours' })
+      : rangePreset === 7
+        ? t('dashboard.filters.range.last7Days', { defaultValue: 'Last 7 days' })
+        : t('dashboard.filters.range.last30Days', { defaultValue: 'Last 30 days' })
+
+  const operationalPulseItems = [
+    {
+      id: 'alerts',
+      label: t('dashboard.overview.openAlerts', { defaultValue: 'Open alerts' }),
+      value: formatDashboardCount(openAlertCount),
+      tone:
+        openAlertCount > 0
+          ? 'text-amber-700 dark:text-amber-300'
+          : 'text-emerald-700 dark:text-emerald-300',
+      meta:
+        openAlertCount > 0
+          ? t('dashboard.overview.attentionNeeded', { defaultValue: 'Action recommended' })
+          : t('dashboard.overview.stable', { defaultValue: 'No active incidents' }),
+    },
+    {
+      id: 'usageRepo',
+      label: t('dashboard.overview.usagePipeline', { defaultValue: 'Usage pipeline' }),
+      value: systemState?.usage_repo_available
+        ? t('nav.online', { defaultValue: 'Online' })
+        : t('dashboard.overview.degraded', { defaultValue: 'Degraded' }),
+      tone: systemState?.usage_repo_available
+        ? 'text-emerald-700 dark:text-emerald-300'
+        : 'text-amber-700 dark:text-amber-300',
+      meta: t('dashboard.overview.autoRefresh', { defaultValue: 'Auto-refresh every 30 seconds' }),
+    },
+    {
+      id: 'tenants',
+      label: t('dashboard.kpi.tenants', { defaultValue: 'Tenants' }),
+      value: formatDashboardCount(systemState?.counts.tenants ?? 0),
+      tone: 'text-slate-900 dark:text-slate-50',
+      meta: t('dashboard.overview.managedScope', { defaultValue: 'Managed scope right now' }),
+    },
+    {
+      id: 'accounts',
+      label: t('dashboard.kpi.accounts', { defaultValue: 'Accounts' }),
+      value: formatDashboardCount(systemState?.counts.total_accounts ?? 0),
+      tone: 'text-slate-900 dark:text-slate-50',
+      meta: t('dashboard.overview.inventory', { defaultValue: 'Available upstream inventory' }),
+    },
+  ]
+
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8 w-full overflow-y-auto">
-      <motion.div className="space-y-8" initial="hidden" animate="show" variants={containerVariants}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <motion.div variants={itemVariants}>
-            <h2 className="text-3xl font-semibold tracking-tight">{t('dashboard.title')}</h2>
-            <p className="text-muted-foreground mt-1">
-              {t('dashboard.subtitle')} ·{' '}
-              {t('dashboard.currentScope', { defaultValue: 'Current: {{scope}}', scope: scopeLabel(scope) })}
-            </p>
-          </motion.div>
-          <motion.div variants={itemVariants} className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn('w-full sm:w-auto', dashboardButtonClassName)}
-              onClick={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
-            >
-              {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn('w-full sm:w-auto', dashboardButtonClassName)}
-              onClick={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
-            >
-              {t('dashboard.actions.viewBilling', { defaultValue: 'View billing' })}
-            </Button>
-            <Select value={scope} onValueChange={(value) => setScope(value as DashboardScope)}>
-              <SelectTrigger
-                className={cn('w-full sm:w-[160px]', dashboardSelectTriggerClassName)}
-                aria-label={t('dashboard.filters.scopeAriaLabel', { defaultValue: 'Scope' })}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="global">{scopeLabel('global')}</SelectItem>
-                <SelectItem value="tenant">{scopeLabel('tenant')}</SelectItem>
-                <SelectItem value="api_key">{scopeLabel('api_key')}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={String(rangePreset)}
-              onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
-            >
-              <SelectTrigger
-                className={cn('w-full sm:w-[170px]', dashboardSelectTriggerClassName)}
-                aria-label={t('dashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">{t('dashboard.filters.range.last24Hours', { defaultValue: 'Last 24 hours' })}</SelectItem>
-                <SelectItem value="7">{t('dashboard.filters.range.last7Days', { defaultValue: 'Last 7 days' })}</SelectItem>
-                <SelectItem value="30">{t('dashboard.filters.range.last30Days', { defaultValue: 'Last 30 days' })}</SelectItem>
-              </SelectContent>
-            </Select>
-            {scope !== 'global' ? (
-              <Select
-                value={tenantSelectValue}
-                onValueChange={(value) => {
-                  setSelectedTenantId(value === '__none__' ? '' : value)
-                  setSelectedApiKeyId('')
-                }}
-              >
-                <SelectTrigger
-                  className={cn('w-full sm:min-w-[220px]', dashboardSelectTriggerClassName)}
-                  aria-label={t('dashboard.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}
+    <div className="flex-1 w-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+      <DashboardShell
+        intro={(
+          <PageIntro
+            archetype="dashboard"
+            eyebrow={t('dashboard.hero.eyebrow', { defaultValue: 'Operations Overview' })}
+            title={t('dashboard.title')}
+            description={t('dashboard.subtitle')}
+            meta={(
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-6">
+                <span>
+                  {t('dashboard.currentScope', {
+                    defaultValue: 'Current: {{scope}}',
+                    scope: scopeLabel(scope),
+                  })}
+                </span>
+                <span className="text-slate-300 dark:text-slate-600">·</span>
+                <span>{rangeLabel}</span>
+                <span className="text-slate-300 dark:text-slate-600">·</span>
+                <span>
+                  {t('dashboard.meta.autoRefresh', {
+                    defaultValue: 'Auto-refresh every 30 seconds',
+                  })}
+                </span>
+              </div>
+            )}
+            actions={(
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn('w-full sm:w-auto', dashboardButtonClassName)}
+                  onClick={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">
-                    {t('dashboard.filters.tenantPlaceholder', { defaultValue: 'Select tenant' })}
-                  </SelectItem>
-                  {tenants.map((tenant) => (
-                    <SelectItem key={tenant.id} value={tenant.id} title={`${tenant.name} (${tenant.id})`}>
-                      {tenant.name} ({compactTenantId(tenant.id)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-            {scope === 'api_key' ? (
-              <Select
-                value={apiKeySelectValue}
-                onValueChange={(value) => setSelectedApiKeyId(value === '__none__' ? '' : value)}
-              >
-                <SelectTrigger
-                  className={cn('w-full sm:min-w-[220px]', dashboardSelectTriggerClassName)}
-                  aria-label={t('dashboard.filters.apiKeyAriaLabel', { defaultValue: 'API key' })}
+                  {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn('w-full sm:w-auto', dashboardButtonClassName)}
+                  onClick={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">
-                    {t('dashboard.filters.apiKeyPlaceholder', { defaultValue: 'Select API key' })}
-                  </SelectItem>
-                  {filteredApiKeys.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name} ({item.key_prefix})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className={cn('group w-full transition-colors sm:w-auto', dashboardButtonClassName)}
-            >
-              <RefreshCcw
-                className={cn(
-                  'mr-2 h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors',
-                  isRefreshing && 'animate-spin text-primary',
-                )}
-              />
-              {t('common.refresh')}
-            </Button>
-          </motion.div>
-        </div>
-
-        <motion.div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" variants={containerVariants}>
-          {metrics.map((m) => (
-            <motion.div key={m.id} variants={itemVariants}>
-              <Card className="shadow-sm border-border/50 hover:shadow-md transition-shadow duration-300">
-                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">{m.title}</CardTitle>
-                  <div className="p-2 bg-primary/5 rounded-md">
-                    <m.icon className="h-4 w-4 text-primary/70" />
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-1">
-                  <div
-                    className="min-h-8 flex items-center text-2xl font-bold font-sans tracking-tight leading-tight"
-                    title={isLoading ? undefined : m.exactValue}
-                  >
-                    {isLoading ? <div className="h-8 w-28 bg-muted animate-pulse rounded" /> : m.value}
-                  </div>
-                  <div className="h-4 flex items-center">
-                    {isLoading ? (
-                      <div className="h-3 w-40 bg-muted/80 animate-pulse rounded" />
-                    ) : (
-                      <p className="text-xs text-muted-foreground">{m.change}</p>
+                  {t('dashboard.actions.viewBilling', { defaultValue: 'View billing' })}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  className={cn('group w-full transition-colors sm:w-auto', dashboardButtonClassName)}
+                >
+                  <RefreshCcw
+                    className={cn(
+                      'mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground',
+                      isRefreshing && 'animate-spin text-primary',
                     )}
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </motion.div>
+                  />
+                  {t('common.refresh')}
+                </Button>
+              </>
+            )}
+          />
+        )}
+        rail={(
+          <>
+            <PagePanel tone="secondary" className="space-y-4">
+              <SectionHeader
+                eyebrow={t('dashboard.filters.eyebrow', { defaultValue: 'Context' })}
+                title={t('dashboard.filters.title', { defaultValue: 'Scope and filters' })}
+                description={t('dashboard.filters.description', {
+                  defaultValue: 'Tighten the view to a tenant or API key when you need to isolate hotspots quickly.',
+                })}
+              />
+              <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
+                <Select value={scope} onValueChange={(value) => setScope(value as DashboardScope)}>
+                  <SelectTrigger
+                    className={cn('w-full', dashboardSelectTriggerClassName)}
+                    aria-label={t('dashboard.filters.scopeAriaLabel', { defaultValue: 'Scope' })}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="global">{scopeLabel('global')}</SelectItem>
+                    <SelectItem value="tenant">{scopeLabel('tenant')}</SelectItem>
+                    <SelectItem value="api_key">{scopeLabel('api_key')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={String(rangePreset)}
+                  onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
+                >
+                  <SelectTrigger
+                    className={cn('w-full', dashboardSelectTriggerClassName)}
+                    aria-label={t('dashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">{t('dashboard.filters.range.last24Hours', { defaultValue: 'Last 24 hours' })}</SelectItem>
+                    <SelectItem value="7">{t('dashboard.filters.range.last7Days', { defaultValue: 'Last 7 days' })}</SelectItem>
+                    <SelectItem value="30">{t('dashboard.filters.range.last30Days', { defaultValue: 'Last 30 days' })}</SelectItem>
+                  </SelectContent>
+                </Select>
+                {scope !== 'global' ? (
+                  <Select
+                    value={tenantSelectValue}
+                    onValueChange={(value) => {
+                      setSelectedTenantId(value === '__none__' ? '' : value)
+                      setSelectedApiKeyId('')
+                    }}
+                  >
+                    <SelectTrigger
+                      className={cn('w-full sm:col-span-2 2xl:col-span-1', dashboardSelectTriggerClassName)}
+                      aria-label={t('dashboard.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">
+                        {t('dashboard.filters.tenantPlaceholder', { defaultValue: 'Select tenant' })}
+                      </SelectItem>
+                      {tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={tenant.id} title={`${tenant.name} (${tenant.id})`}>
+                          {tenant.name} ({compactTenantId(tenant.id)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+                {scope === 'api_key' ? (
+                  <Select
+                    value={apiKeySelectValue}
+                    onValueChange={(value) => setSelectedApiKeyId(value === '__none__' ? '' : value)}
+                  >
+                    <SelectTrigger
+                      className={cn('w-full sm:col-span-2 2xl:col-span-1', dashboardSelectTriggerClassName)}
+                      aria-label={t('dashboard.filters.apiKeyAriaLabel', { defaultValue: 'API key' })}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">
+                        {t('dashboard.filters.apiKeyPlaceholder', { defaultValue: 'Select API key' })}
+                      </SelectItem>
+                      {filteredApiKeys.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.name} ({item.key_prefix})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+              </div>
+            </PagePanel>
 
-        <div className="grid gap-6 xl:grid-cols-7">
-          <motion.div className="xl:col-span-4" variants={itemVariants}>
-            <Card className="h-full shadow-sm border-border/50">
-              <CardHeader className="space-y-3">
-                <div className="space-y-1">
-                  <CardTitle>{t('dashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}</CardTitle>
-                  <CardDescription>
-                    {t('dashboard.tokenTrend.description', {
-                      defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
-                    })}
-                  </CardDescription>
-                </div>
+            <PagePanel tone="secondary" className="space-y-4">
+              <SectionHeader
+                eyebrow={t('dashboard.overview.eyebrow', { defaultValue: 'Pulse' })}
+                title={t('dashboard.overview.title', { defaultValue: 'Operational pulse' })}
+                description={t('dashboard.overview.description', {
+                  defaultValue: 'A quick read on alert pressure, pipeline health, and managed inventory before you dive into charts.',
+                })}
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                {operationalPulseItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-slate-200/75 bg-white/70 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950/55"
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                      {item.label}
+                    </p>
+                    <p className={cn('mt-2 text-xl font-semibold tracking-[-0.03em]', item.tone)}>
+                      {item.value}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                      {item.meta}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </PagePanel>
+          </>
+        )}
+      >
+        <DashboardMetricGrid className="xl:grid-cols-4">
+          {metrics.map((metric) => (
+            <DashboardMetricCard
+              key={metric.id}
+              title={metric.title}
+              value={metric.value}
+              valueTitle={isLoading ? undefined : metric.exactValue}
+              description={metric.change}
+              loading={isLoading}
+              icon={<metric.icon className="h-4 w-4" />}
+            />
+          ))}
+        </DashboardMetricGrid>
+
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+          <PagePanel className="space-y-5">
+            <SectionHeader
+              title={t('dashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}
+              description={t('dashboard.tokenTrend.description', {
+                defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
+              })}
+              actions={(
                 <div className="flex flex-wrap gap-2">
                   {tokenBreakdownRows.map((row) => (
                     <ToggleBadgeButton
@@ -960,88 +1039,86 @@ export default function Dashboard() {
                     </ToggleBadgeButton>
                   ))}
                 </div>
-              </CardHeader>
-              <CardContent>
-                <ChartAccessibility
-                  summaryId="admin-dashboard-token-trend-a11y"
-                  summary={tokenTrendA11ySummary}
-                  tableLabel={t('dashboard.tokenTrend.a11y.tableLabel', {
-                    defaultValue: 'Token usage trend data table',
-                  })}
-                  columns={tokenTrendA11yColumns}
-                  rows={tokenTrendA11yRows}
-                />
-                {isLoading ? (
-                  <div className="w-full h-[320px] bg-muted/50 animate-pulse rounded-md" />
-                ) : tokenTrendData.length === 0 ? (
-                  <div className="flex h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                    {t('dashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
-                  </div>
-                ) : (
-                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                        <XAxis
-                          dataKey="timestamp"
-                          tickFormatter={(value) =>
-                            new Intl.DateTimeFormat(undefined, {
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              hour12: false,
-                            }).format(new Date(value))
-                          }
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickFormatter={(value) =>
-                            typeof value === 'number'
-                              ? formatDashboardTokenCount(value)
-                              : String(value ?? '')
-                          }
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <Tooltip
-                          labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
-                          formatter={(value) =>
-                            typeof value === 'number'
-                              ? formatDashboardTokenCount(value)
-                              : String(value ?? '')
-                          }
-                        />
-                        {tokenComponents.input ? (
-                          <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.input} fill={TOKEN_COMPONENT_CHART_COLORS.input} fillOpacity={0.6} name={t('dashboard.tokenComponents.input', { defaultValue: 'Input' })} />
-                        ) : null}
-                        {tokenComponents.cached ? (
-                          <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.cached} fill={TOKEN_COMPONENT_CHART_COLORS.cached} fillOpacity={0.6} name={t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
-                        ) : null}
-                        {tokenComponents.output ? (
-                          <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.output} fill={TOKEN_COMPONENT_CHART_COLORS.output} fillOpacity={0.6} name={t('dashboard.tokenComponents.output', { defaultValue: 'Output' })} />
-                        ) : null}
-                        {tokenComponents.reasoning ? (
-                          <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.reasoning} fill={TOKEN_COMPONENT_CHART_COLORS.reasoning} fillOpacity={0.6} name={t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
-                        ) : null}
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+              )}
+            />
+            <ChartAccessibility
+              summaryId="admin-dashboard-token-trend-a11y"
+              summary={tokenTrendA11ySummary}
+              tableLabel={t('dashboard.tokenTrend.a11y.tableLabel', {
+                defaultValue: 'Token usage trend data table',
+              })}
+              columns={tokenTrendA11yColumns}
+              rows={tokenTrendA11yRows}
+            />
+            {isLoading ? (
+              <div className="h-[320px] w-full animate-pulse rounded-2xl bg-slate-200/70 dark:bg-slate-800/70" />
+            ) : tokenTrendData.length === 0 ? (
+              <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-slate-300/80 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                {t('dashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
+              </div>
+            ) : (
+              <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                    <XAxis
+                      dataKey="timestamp"
+                      tickFormatter={(value) =>
+                        new Intl.DateTimeFormat(undefined, {
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                        }).format(new Date(value))
+                      }
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickFormatter={(value) =>
+                        typeof value === 'number'
+                          ? formatDashboardTokenCount(value)
+                          : String(value ?? '')
+                      }
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
+                      formatter={(value) =>
+                        typeof value === 'number'
+                          ? formatDashboardTokenCount(value)
+                          : String(value ?? '')
+                      }
+                    />
+                    {tokenComponents.input ? (
+                      <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.input} fill={TOKEN_COMPONENT_CHART_COLORS.input} fillOpacity={0.6} name={t('dashboard.tokenComponents.input', { defaultValue: 'Input' })} />
+                    ) : null}
+                    {tokenComponents.cached ? (
+                      <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.cached} fill={TOKEN_COMPONENT_CHART_COLORS.cached} fillOpacity={0.6} name={t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
+                    ) : null}
+                    {tokenComponents.output ? (
+                      <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.output} fill={TOKEN_COMPONENT_CHART_COLORS.output} fillOpacity={0.6} name={t('dashboard.tokenComponents.output', { defaultValue: 'Output' })} />
+                    ) : null}
+                    {tokenComponents.reasoning ? (
+                      <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.reasoning} fill={TOKEN_COMPONENT_CHART_COLORS.reasoning} fillOpacity={0.6} name={t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
+                    ) : null}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </PagePanel>
 
-          <motion.div className="xl:col-span-3" variants={itemVariants}>
-            <Card className="h-full shadow-sm border-border/50">
-              <CardHeader className="space-y-3">
-                <div className="space-y-1">
-                  <CardTitle>{t('dashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}</CardTitle>
-                  <CardDescription>{t('dashboard.modelDistribution.description', { defaultValue: 'Top models by request count or token usage.' })}</CardDescription>
-                </div>
+          <PagePanel className="space-y-5">
+            <SectionHeader
+              title={t('dashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}
+              description={t('dashboard.modelDistribution.description', {
+                defaultValue: 'Top models by request count or token usage.',
+              })}
+              actions={(
                 <div className="flex gap-2">
                   <ToggleBadgeButton
                     variant="outline"
@@ -1060,151 +1137,143 @@ export default function Dashboard() {
                     {t('dashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
                   </ToggleBadgeButton>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <ChartAccessibility
-                  summaryId="admin-dashboard-model-distribution-a11y"
-                  summary={modelDistributionA11ySummary}
-                  tableLabel={t('dashboard.modelDistribution.a11y.tableLabel', {
-                    defaultValue: 'Model distribution data table',
-                  })}
-                  columns={modelDistributionA11yColumns}
-                  rows={modelDistributionData}
-                />
-                {isLoading ? (
-                  <div className="w-full h-[320px] bg-muted/50 animate-pulse rounded-md" />
-                ) : modelDistributionData.length === 0 ? (
-                  <div className="flex h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                    {t('dashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
-                  </div>
-                ) : (
-                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <BarChart data={modelDistributionData} layout="vertical" margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-                        <XAxis
-                          type="number"
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickFormatter={(value) =>
-                            typeof value === 'number'
-                              ? (modelMode === 'tokens'
-                                  ? formatDashboardTokenCount(value)
-                                  : formatDashboardCount(value))
-                              : String(value ?? '')
-                          }
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          type="category"
-                          dataKey="model"
-                          width={110}
-                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                          tickFormatter={(value) =>
-                            value === 'other'
-                              ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
-                              : String(value)
-                          }
-                        />
-                        <Tooltip
-                          formatter={(value) =>
-                            typeof value === 'number'
-                              ? (modelMode === 'tokens'
-                                  ? formatDashboardTokenCount(value)
-                                  : formatDashboardCount(value))
-                              : String(value ?? '')
-                          }
-                          labelFormatter={(label) =>
-                            label === 'other'
-                              ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
-                              : String(label)
-                          }
-                        />
-                        <Bar dataKey="value" fill={MODEL_DISTRIBUTION_BAR_COLOR} radius={[0, 8, 8, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+              )}
+            />
+            <ChartAccessibility
+              summaryId="admin-dashboard-model-distribution-a11y"
+              summary={modelDistributionA11ySummary}
+              tableLabel={t('dashboard.modelDistribution.a11y.tableLabel', {
+                defaultValue: 'Model distribution data table',
+              })}
+              columns={modelDistributionA11yColumns}
+              rows={modelDistributionData}
+            />
+            {isLoading ? (
+              <div className="h-[320px] w-full animate-pulse rounded-2xl bg-slate-200/70 dark:bg-slate-800/70" />
+            ) : modelDistributionData.length === 0 ? (
+              <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-slate-300/80 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                {t('dashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
+              </div>
+            ) : (
+              <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={modelDistributionData} layout="vertical" margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickFormatter={(value) =>
+                        typeof value === 'number'
+                          ? (modelMode === 'tokens'
+                              ? formatDashboardTokenCount(value)
+                              : formatDashboardCount(value))
+                          : String(value ?? '')
+                      }
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="model"
+                      width={110}
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickFormatter={(value) =>
+                        value === 'other'
+                          ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
+                          : String(value)
+                      }
+                    />
+                    <Tooltip
+                      formatter={(value) =>
+                        typeof value === 'number'
+                          ? (modelMode === 'tokens'
+                              ? formatDashboardTokenCount(value)
+                              : formatDashboardCount(value))
+                          : String(value ?? '')
+                      }
+                      labelFormatter={(label) =>
+                        label === 'other'
+                          ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
+                          : String(label)
+                      }
+                    />
+                    <Bar dataKey="value" fill={MODEL_DISTRIBUTION_BAR_COLOR} radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </PagePanel>
         </div>
 
         <div className="grid gap-6 xl:grid-cols-7">
-          <motion.div className="xl:col-span-4" variants={itemVariants}>
-            <Card className="h-full shadow-sm border-border/50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  {t('dashboard.alerts.title')}
-                  {openAlertCount > 0 && (
-                    <Badge variant="destructive" className="ml-auto rounded-full px-2">
-                      {openAlertCount}
-                    </Badge>
-                  )}
-                </CardTitle>
-                <CardDescription>{t('dashboard.alerts.subtitle')}</CardDescription>
-              </CardHeader>
-              <CardContent className="h-[320px] min-h-0">
-                {isLoading ? (
-                  <div className="space-y-3">
-                    {Array.from({ length: 6 }).map((_, index) => (
-                      <div key={index} className="h-9 rounded bg-muted animate-pulse" />
-                    ))}
-                  </div>
-                ) : (
-                  <StandardDataTable
-                    columns={alertColumns}
-                    data={alerts}
-                    density="compact"
-                    defaultPageSize={6}
-                    pageSizeOptions={[6, 12, 24, 48]}
-                    className="h-full"
-                    emptyText={t('dashboard.alerts.empty')}
-                    searchPlaceholder={t('dashboard.alerts.searchPlaceholder')}
-                    searchFn={(row, keyword) =>
-                      `${row.message} ${row.source} ${row.severity} ${row.status}`
-                        .toLowerCase()
-                        .includes(keyword)
-                    }
-                  />
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+          <PagePanel className="xl:col-span-4">
+            <SectionHeader
+              title={t('dashboard.alerts.title')}
+              description={t('dashboard.alerts.subtitle')}
+              actions={
+                openAlertCount > 0 ? (
+                  <Badge variant="destructive" className="rounded-full px-2">
+                    {openAlertCount}
+                  </Badge>
+                ) : null
+              }
+            />
+            <div className="mt-5 h-[320px] min-h-0">
+              {isLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="h-9 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
+                  ))}
+                </div>
+              ) : (
+                <StandardDataTable
+                  columns={alertColumns}
+                  data={alerts}
+                  density="compact"
+                  defaultPageSize={6}
+                  pageSizeOptions={[6, 12, 24, 48]}
+                  className="h-full"
+                  emptyText={t('dashboard.alerts.empty')}
+                  searchPlaceholder={t('dashboard.alerts.searchPlaceholder')}
+                  searchFn={(row, keyword) =>
+                    `${row.message} ${row.source} ${row.severity} ${row.status}`
+                      .toLowerCase()
+                      .includes(keyword)
+                  }
+                />
+              )}
+            </div>
+          </PagePanel>
 
-          <motion.div className="xl:col-span-3" variants={itemVariants}>
-            <Card className="h-full shadow-sm border-border/50">
-              <CardHeader>
-                <CardTitle>{t('dashboard.topApiKeys.title', { defaultValue: 'Top API Keys' })}</CardTitle>
-                <CardDescription>
-                  {t('dashboard.topApiKeys.scopeDescription', {
-                    defaultValue: 'Scope: {{scope}} / selected time window',
-                    scope: scopeLabel(scope),
-                  })}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="h-[320px] min-h-0">
-                {isLoadingLeaderboard ? (
-                  <div className="space-y-2">
-                    {Array.from({ length: 6 }).map((_, index) => (
-                      <div key={index} className="h-8 bg-muted rounded" />
-                    ))}
-                  </div>
-                ) : (
-                  <StandardDataTable
-                    columns={topKeyColumns}
-                    data={topKeyRows}
-                    density="compact"
-                    defaultPageSize={8}
-                    pageSizeOptions={[8, 16, 32]}
-                    emptyText={t('dashboard.topApiKeys.empty', { defaultValue: 'No ranking data yet' })}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+          <PagePanel className="xl:col-span-3">
+            <SectionHeader
+              title={t('dashboard.topApiKeys.title', { defaultValue: 'Top API Keys' })}
+              description={t('dashboard.topApiKeys.scopeDescription', {
+                defaultValue: 'Scope: {{scope}} / selected time window',
+                scope: scopeLabel(scope),
+              })}
+            />
+            <div className="mt-5 h-[320px] min-h-0">
+              {isLoadingLeaderboard ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="h-8 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
+                  ))}
+                </div>
+              ) : (
+                <StandardDataTable
+                  columns={topKeyColumns}
+                  data={topKeyRows}
+                  density="compact"
+                  defaultPageSize={8}
+                  pageSizeOptions={[8, 16, 32]}
+                  emptyText={t('dashboard.topApiKeys.empty', { defaultValue: 'No ranking data yet' })}
+                />
+              )}
+            </div>
+          </PagePanel>
         </div>
-      </motion.div>
+      </DashboardShell>
     </div>
   )
 }
