@@ -44,6 +44,9 @@ const MOBILE_FOCUSABLE_SELECTOR = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
+const MOBILE_ICON_BUTTON_CLASS_NAME = 'h-11 w-11 md:h-8 md:w-8'
+const MOBILE_INLINE_BUTTON_CLASS_NAME = 'min-h-11 px-4 md:min-h-0'
+
 function getFocusableElements(container: HTMLElement) {
     return Array.from(container.querySelectorAll<HTMLElement>(MOBILE_FOCUSABLE_SELECTOR))
         .filter((element) =>
@@ -299,7 +302,10 @@ export function AppLayout({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md text-muted-foreground hover:text-foreground md:hidden"
+                            className={cn(
+                                'absolute right-1 top-1/2 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground md:hidden',
+                                MOBILE_ICON_BUTTON_CLASS_NAME,
+                            )}
                             onClick={() => setMobileSidebarOpen(false)}
                             aria-label={t('nav.closeNavigation', { defaultValue: 'Close navigation menu' })}
                         >
@@ -388,7 +394,7 @@ export function AppLayout({
                                 ref={mobileOpenButtonRef}
                                 variant="outline"
                                 size="icon"
-                                className="h-8 w-8"
+                                className={MOBILE_ICON_BUTTON_CLASS_NAME}
                                 onClick={() => {
                                     setSidebarCollapsed(false)
                                     setMobileSidebarOpen(true)
@@ -404,6 +410,7 @@ export function AppLayout({
                             <Button
                                 variant="outline"
                                 size="sm"
+                                className={MOBILE_INLINE_BUTTON_CLASS_NAME}
                                 onClick={async () => {
                                     try {
                                         await onLogout()

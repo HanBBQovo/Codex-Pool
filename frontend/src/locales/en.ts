@@ -537,6 +537,12 @@ export default {
             oauthLabel: "OAuth"
         },
         modelDistribution: {
+            a11y: {
+                model: "Model",
+                summary: "Model distribution includes {{count}} rows sorted by {{mode}}. Leading model: {{top}}. Accessible data table follows.",
+                summaryEmpty: "No model distribution data is available for the current selection.",
+                tableLabel: "Model distribution data table"
+            },
             description: "Top models by request count or token usage.",
             empty: "No model distribution data yet",
             modeRequests: "By requests",
@@ -561,6 +567,12 @@ export default {
             reasoning: "Reasoning"
         },
         tokenTrend: {
+            a11y: {
+                summary: "Hourly token trend covering {{count}} time points from {{start}} to {{end}}. Accessible data table follows.",
+                summaryEmpty: "No token trend data is available for the current selection.",
+                tableLabel: "Token usage trend data table",
+                timestamp: "Timestamp"
+            },
             description: "Hourly token trend by component. Toggle components to focus specific consumption.",
             empty: "No token trend data yet",
             title: "Token usage trend"
@@ -2205,6 +2217,12 @@ export default {
             timeWindow: ", time window: "
         },
         modelDistribution: {
+            a11y: {
+                model: "Model",
+                summary: "Model distribution includes {{count}} rows sorted by {{mode}}. Leading model: {{top}}. Accessible data table follows.",
+                summaryEmpty: "No model distribution data is available for the current selection.",
+                tableLabel: "Model distribution data table"
+            },
             description: "Top models by request count or token usage.",
             empty: "No model distribution data yet",
             modeRequests: "By requests",
@@ -2222,6 +2240,12 @@ export default {
             title: "Token component summary"
         },
         tokenTrend: {
+            a11y: {
+                summary: "Hourly token trend covering {{count}} time points from {{start}} to {{end}}. Accessible data table follows.",
+                summaryEmpty: "No token trend data is available for the current selection.",
+                tableLabel: "Token usage trend data table",
+                timestamp: "Timestamp"
+            },
             description: "Hourly token trend by component. Toggle components to focus specific consumption.",
             empty: "No token trend data yet",
             title: "Token usage trend"

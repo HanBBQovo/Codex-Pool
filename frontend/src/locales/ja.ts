@@ -547,6 +547,12 @@ export default {
             requests: "リクエスト"
         },
         modelDistribution: {
+            a11y: {
+                model: "モデル",
+                summary: "モデル分布は {{mode}} で並んだ {{count}} 行です。先頭のモデルは {{top}} です。続けてアクセシブルなデータ表を表示します。",
+                summaryEmpty: "現在の条件ではモデル分布データがありません。",
+                tableLabel: "モデル分布データ表"
+            },
             description: "リクエスト数または Token 使用量でモデル Top を表示します。",
             empty: "モデル分布データはまだありません",
             modeRequests: "リクエスト数で表示",
@@ -561,6 +567,12 @@ export default {
             reasoning: "推論"
         },
         tokenTrend: {
+            a11y: {
+                summary: "{{start}} から {{end}} までの {{count}} 時点を含む Token 推移です。続けてアクセシブルなデータ表を表示します。",
+                summaryEmpty: "現在の条件では Token 推移データがありません。",
+                tableLabel: "Token 使用推移データ表",
+                timestamp: "時刻"
+            },
             description: "Token コンポーネントごとの時間別トレンド。表示切替で消費元を絞り込めます。",
             empty: "Token トレンドデータはまだありません",
             title: "Token 使用トレンド"
@@ -2205,6 +2217,12 @@ export default {
             timeWindow: "、時間枠:"
         },
         modelDistribution: {
+            a11y: {
+                model: "モデル",
+                summary: "モデル分布は {{mode}} で並んだ {{count}} 行です。先頭のモデルは {{top}} です。続けてアクセシブルなデータ表を表示します。",
+                summaryEmpty: "現在の条件ではモデル分布データがありません。",
+                tableLabel: "モデル分布データ表"
+            },
             description: "リクエスト数または Token 使用量でモデル Top を表示します。",
             empty: "モデル分布データはまだありません",
             modeRequests: "リクエスト数で表示",
@@ -2222,6 +2240,12 @@ export default {
             title: "Token コンポーネント集計"
         },
         tokenTrend: {
+            a11y: {
+                summary: "{{start}} から {{end}} までの {{count}} 時点を含む Token 推移です。続けてアクセシブルなデータ表を表示します。",
+                summaryEmpty: "現在の条件では Token 推移データがありません。",
+                tableLabel: "Token 使用推移データ表",
+                timestamp: "時刻"
+            },
             description: "Token コンポーネントごとの時間別トレンド。表示切替で消費元を絞り込めます。",
             empty: "Token トレンドデータはまだありません",
             title: "Token 使用トレンド"

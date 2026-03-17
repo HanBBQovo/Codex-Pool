@@ -21,6 +21,10 @@ import { adminKeysApi } from '@/api/adminKeys'
 import { adminTenantsApi } from '@/api/adminTenants'
 import { dashboardApi } from '@/api/dashboard'
 import { usageApi } from '@/api/usage'
+import {
+  ChartAccessibility,
+  type ChartAccessibilityColumn,
+} from '@/components/ui/chart-accessibility'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -32,6 +36,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { ToggleBadgeButton } from '@/components/ui/toggle-badge-button'
+import {
+  buildTokenTrendA11yRows,
+  getVisibleTokenComponentKeys,
+  summarizeModelDistribution,
+  summarizeTokenTrendRows,
+  type TokenTrendA11yRow,
+} from '@/lib/dashboard-chart-a11y'
+import {
+  MODEL_DISTRIBUTION_BAR_COLOR,
+  TOKEN_COMPONENT_CHART_COLORS,
+} from '@/lib/dashboard-chart-theme'
 import {
   buildModelDistributionPoints,
   buildTokenTrendChartPoints,
@@ -39,7 +55,9 @@ import {
   loadTokenComponentSelection,
   persistTokenComponentSelection,
   toggleTokenComponent,
+  type ModelDistributionPoint,
   type ModelDistributionMode,
+  type TokenComponentKey,
   type TokenComponentSelection,
 } from '@/lib/dashboard-metrics'
 import {
@@ -80,6 +98,13 @@ interface StoredDashboardFilters {
   rangePreset: RangePreset
   tenantId: string
   apiKeyId: string
+}
+
+interface TokenBreakdownRow {
+  key: TokenComponentKey
+  label: string
+  value: number
+  color: string
 }
 
 const DASHBOARD_FILTERS_STORAGE_KEY = 'cp:admin-dashboard-filters:v1'
@@ -372,6 +397,10 @@ export default function Dashboard() {
     reasoning_tokens: 0,
     total_tokens: 0,
   }
+  const inputTokens = tokenBreakdown.input_tokens
+  const cachedInputTokens = tokenBreakdown.cached_input_tokens
+  const outputTokens = tokenBreakdown.output_tokens
+  const reasoningTokens = tokenBreakdown.reasoning_tokens
   const totalRequests = dashboardMetrics?.total_requests
     ?? (scope === 'global'
       ? summaryData?.account_total_requests ?? 0
@@ -596,32 +625,155 @@ export default function Dashboard() {
   const tenantSelectValue = effectiveTenantId || '__none__'
   const apiKeySelectValue = effectiveApiKeyId || '__none__'
 
-  const tokenBreakdownRows = [
+  const tokenLabelByKey = useMemo<Record<TokenComponentKey, string>>(
+    () => ({
+      input: t('dashboard.tokenComponents.input', { defaultValue: 'Input' }),
+      cached: t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' }),
+      output: t('dashboard.tokenComponents.output', { defaultValue: 'Output' }),
+      reasoning: t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' }),
+    }),
+    [t],
+  )
+  const tokenBreakdownRows: TokenBreakdownRow[] = [
     {
-      key: 'input' as const,
-      label: t('dashboard.tokenComponents.input', { defaultValue: 'Input' }),
-      value: tokenBreakdown.input_tokens,
-      color: '#0ea5e9',
+      key: 'input',
+      label: tokenLabelByKey.input,
+      value: inputTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.input,
     },
     {
-      key: 'cached' as const,
-      label: t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' }),
-      value: tokenBreakdown.cached_input_tokens,
-      color: '#14b8a6',
+      key: 'cached',
+      label: tokenLabelByKey.cached,
+      value: cachedInputTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.cached,
     },
     {
-      key: 'output' as const,
-      label: t('dashboard.tokenComponents.output', { defaultValue: 'Output' }),
-      value: tokenBreakdown.output_tokens,
-      color: '#f59e0b',
+      key: 'output',
+      label: tokenLabelByKey.output,
+      value: outputTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.output,
     },
     {
-      key: 'reasoning' as const,
-      label: t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' }),
-      value: tokenBreakdown.reasoning_tokens,
-      color: '#8b5cf6',
+      key: 'reasoning',
+      label: tokenLabelByKey.reasoning,
+      value: reasoningTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.reasoning,
     },
   ]
+  const dashboardSelectTriggerClassName = 'min-h-11 md:min-h-0 md:h-9'
+  const dashboardButtonClassName = 'min-h-11 px-4 md:min-h-0'
+  const toggleBadgeButtonClassName = (pressed: boolean) =>
+    cn(
+      'gap-2 rounded-full border-border/60 bg-background/80 px-3 py-1.5 text-xs font-medium shadow-none',
+      pressed
+        ? 'bg-accent text-accent-foreground hover:bg-accent/90'
+        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+    )
+  const visibleTokenComponentKeys = useMemo(
+    () => getVisibleTokenComponentKeys(tokenComponents),
+    [tokenComponents],
+  )
+  const tokenTrendA11yRows = useMemo(
+    () => buildTokenTrendA11yRows(tokenTrendData, tokenComponents),
+    [tokenComponents, tokenTrendData],
+  )
+  const tokenTrendA11yColumns = useMemo<ChartAccessibilityColumn<TokenTrendA11yRow>[]>(
+    () => [
+      {
+        key: 'timestamp',
+        header: t('dashboard.tokenTrend.a11y.timestamp', {
+          defaultValue: 'Timestamp',
+        }),
+        render: (row: TokenTrendA11yRow) =>
+          formatDashboardTrendTimestampLabel(row.timestamp, {
+            locale: i18n.resolvedLanguage,
+          }),
+      },
+      ...visibleTokenComponentKeys.map(
+        (key): ChartAccessibilityColumn<TokenTrendA11yRow> => ({
+          key,
+          header: tokenLabelByKey[key],
+          render: (row: TokenTrendA11yRow) =>
+            formatDashboardTokenCount(
+              row.values.find(
+                (value: TokenTrendA11yRow['values'][number]) => value.key === key,
+              )?.value ?? 0,
+              i18n.resolvedLanguage,
+            ),
+        }),
+      ),
+    ],
+    [i18n.resolvedLanguage, t, tokenLabelByKey, visibleTokenComponentKeys],
+  )
+  const tokenTrendA11ySummary = useMemo(() => {
+    const summary = summarizeTokenTrendRows(tokenTrendA11yRows)
+
+    if (summary.rowCount === 0 || summary.startTimestamp === null || summary.endTimestamp === null) {
+      return t('dashboard.tokenTrend.a11y.summaryEmpty', {
+        defaultValue: 'No token trend data is available for the current selection.',
+      })
+    }
+
+    return t('dashboard.tokenTrend.a11y.summary', {
+      defaultValue: 'Hourly token trend covering {{count}} time points from {{start}} to {{end}}. Accessible data table follows.',
+      count: summary.rowCount,
+      start: formatDashboardTrendTimestampLabel(summary.startTimestamp, {
+        locale: i18n.resolvedLanguage,
+      }),
+      end: formatDashboardTrendTimestampLabel(summary.endTimestamp, {
+        locale: i18n.resolvedLanguage,
+      }),
+    })
+  }, [i18n.resolvedLanguage, t, tokenTrendA11yRows])
+  const modelDistributionA11ySummary = useMemo(() => {
+    const summary = summarizeModelDistribution(modelDistributionData)
+
+    if (summary.rowCount === 0 || !summary.topLabel) {
+      return t('dashboard.modelDistribution.a11y.summaryEmpty', {
+        defaultValue: 'No model distribution data is available for the current selection.',
+      })
+    }
+
+    return t('dashboard.modelDistribution.a11y.summary', {
+      defaultValue: 'Model distribution includes {{count}} rows sorted by {{mode}}. Leading model: {{top}}. Accessible data table follows.',
+      count: summary.rowCount,
+      mode:
+        modelMode === 'tokens'
+          ? t('dashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })
+          : t('dashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' }),
+      top: summary.topLabel,
+    })
+  }, [modelDistributionData, modelMode, t])
+  const modelDistributionA11yColumns = useMemo<ChartAccessibilityColumn<ModelDistributionPoint>[]>(
+    () => [
+      {
+        key: 'model',
+        header: t('dashboard.modelDistribution.a11y.model', {
+          defaultValue: 'Model',
+        }),
+        render: (row) =>
+          row.model === 'other'
+            ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
+            : row.model,
+      },
+      {
+        key: 'value',
+        header:
+          modelMode === 'tokens'
+            ? t('dashboard.modelDistribution.modeTokens', {
+                defaultValue: 'By tokens',
+              })
+            : t('dashboard.modelDistribution.modeRequests', {
+                defaultValue: 'By requests',
+              }),
+        render: (row) =>
+          modelMode === 'tokens'
+            ? formatDashboardTokenCount(row.value, i18n.resolvedLanguage)
+            : formatDashboardCount(row.value, i18n.resolvedLanguage),
+      },
+    ],
+    [i18n.resolvedLanguage, modelMode, t],
+  )
 
   return (
     <div className="flex-1 p-4 sm:p-6 lg:p-8 w-full overflow-y-auto">
@@ -634,10 +786,11 @@ export default function Dashboard() {
               {t('dashboard.currentScope', { defaultValue: 'Current: {{scope}}', scope: scopeLabel(scope) })}
             </p>
           </motion.div>
-          <motion.div variants={itemVariants} className="flex items-center gap-2">
+          <motion.div variants={itemVariants} className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
             <Button
               variant="outline"
               size="sm"
+              className={cn('w-full sm:w-auto', dashboardButtonClassName)}
               onClick={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
             >
               {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
@@ -645,12 +798,16 @@ export default function Dashboard() {
             <Button
               variant="outline"
               size="sm"
+              className={cn('w-full sm:w-auto', dashboardButtonClassName)}
               onClick={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
             >
               {t('dashboard.actions.viewBilling', { defaultValue: 'View billing' })}
             </Button>
             <Select value={scope} onValueChange={(value) => setScope(value as DashboardScope)}>
-              <SelectTrigger className="w-[160px]" aria-label={t('dashboard.filters.scopeAriaLabel', { defaultValue: 'Scope' })}>
+              <SelectTrigger
+                className={cn('w-full sm:w-[160px]', dashboardSelectTriggerClassName)}
+                aria-label={t('dashboard.filters.scopeAriaLabel', { defaultValue: 'Scope' })}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -663,7 +820,10 @@ export default function Dashboard() {
               value={String(rangePreset)}
               onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
             >
-              <SelectTrigger className="w-[170px]" aria-label={t('dashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}>
+              <SelectTrigger
+                className={cn('w-full sm:w-[170px]', dashboardSelectTriggerClassName)}
+                aria-label={t('dashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -680,7 +840,10 @@ export default function Dashboard() {
                   setSelectedApiKeyId('')
                 }}
               >
-                <SelectTrigger className="min-w-[220px]" aria-label={t('dashboard.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}>
+                <SelectTrigger
+                  className={cn('w-full sm:min-w-[220px]', dashboardSelectTriggerClassName)}
+                  aria-label={t('dashboard.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -700,7 +863,10 @@ export default function Dashboard() {
                 value={apiKeySelectValue}
                 onValueChange={(value) => setSelectedApiKeyId(value === '__none__' ? '' : value)}
               >
-                <SelectTrigger className="min-w-[220px]" aria-label={t('dashboard.filters.apiKeyAriaLabel', { defaultValue: 'API key' })}>
+                <SelectTrigger
+                  className={cn('w-full sm:min-w-[220px]', dashboardSelectTriggerClassName)}
+                  aria-label={t('dashboard.filters.apiKeyAriaLabel', { defaultValue: 'API key' })}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -715,7 +881,13 @@ export default function Dashboard() {
                 </SelectContent>
               </Select>
             ) : null}
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="group transition-colors">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className={cn('group w-full transition-colors sm:w-auto', dashboardButtonClassName)}
+            >
               <RefreshCcw
                 className={cn(
                   'mr-2 h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors',
@@ -771,20 +943,34 @@ export default function Dashboard() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {tokenBreakdownRows.map((row) => (
-                    <Badge
+                    <ToggleBadgeButton
                       key={row.key}
-                      variant={tokenComponents[row.key] ? 'default' : 'outline'}
-                      className="cursor-pointer"
+                      variant="outline"
+                      pressed={tokenComponents[row.key]}
+                      className={toggleBadgeButtonClassName(tokenComponents[row.key])}
                       title={formatExactCount(row.value)}
-                      style={tokenComponents[row.key] ? { backgroundColor: row.color, color: '#fff' } : undefined}
                       onClick={() => setTokenComponents((prev) => toggleTokenComponent(prev, row.key))}
                     >
-                      {row.label}: {formatDashboardTokenCount(row.value)}
-                    </Badge>
+                      <span
+                        aria-hidden="true"
+                        className="size-2 shrink-0 rounded-full border border-background/70"
+                        style={{ backgroundColor: row.color }}
+                      />
+                      <span>{row.label}: {formatDashboardTokenCount(row.value)}</span>
+                    </ToggleBadgeButton>
                   ))}
                 </div>
               </CardHeader>
               <CardContent>
+                <ChartAccessibility
+                  summaryId="admin-dashboard-token-trend-a11y"
+                  summary={tokenTrendA11ySummary}
+                  tableLabel={t('dashboard.tokenTrend.a11y.tableLabel', {
+                    defaultValue: 'Token usage trend data table',
+                  })}
+                  columns={tokenTrendA11yColumns}
+                  rows={tokenTrendA11yRows}
+                />
                 {isLoading ? (
                   <div className="w-full h-[320px] bg-muted/50 animate-pulse rounded-md" />
                 ) : tokenTrendData.length === 0 ? (
@@ -792,7 +978,7 @@ export default function Dashboard() {
                     {t('dashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
                   </div>
                 ) : (
-                  <div style={{ width: '100%', minHeight: 320 }}>
+                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
                     <ResponsiveContainer width="100%" height={320}>
                       <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
@@ -830,16 +1016,16 @@ export default function Dashboard() {
                           }
                         />
                         {tokenComponents.input ? (
-                          <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.6} name={t('dashboard.tokenComponents.input', { defaultValue: 'Input' })} />
+                          <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.input} fill={TOKEN_COMPONENT_CHART_COLORS.input} fillOpacity={0.6} name={t('dashboard.tokenComponents.input', { defaultValue: 'Input' })} />
                         ) : null}
                         {tokenComponents.cached ? (
-                          <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.6} name={t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
+                          <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.cached} fill={TOKEN_COMPONENT_CHART_COLORS.cached} fillOpacity={0.6} name={t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
                         ) : null}
                         {tokenComponents.output ? (
-                          <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.6} name={t('dashboard.tokenComponents.output', { defaultValue: 'Output' })} />
+                          <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.output} fill={TOKEN_COMPONENT_CHART_COLORS.output} fillOpacity={0.6} name={t('dashboard.tokenComponents.output', { defaultValue: 'Output' })} />
                         ) : null}
                         {tokenComponents.reasoning ? (
-                          <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.6} name={t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
+                          <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.reasoning} fill={TOKEN_COMPONENT_CHART_COLORS.reasoning} fillOpacity={0.6} name={t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
                         ) : null}
                       </AreaChart>
                     </ResponsiveContainer>
@@ -857,23 +1043,34 @@ export default function Dashboard() {
                   <CardDescription>{t('dashboard.modelDistribution.description', { defaultValue: 'Top models by request count or token usage.' })}</CardDescription>
                 </div>
                 <div className="flex gap-2">
-                  <Badge
-                    variant={modelMode === 'requests' ? 'default' : 'outline'}
-                    className="cursor-pointer"
+                  <ToggleBadgeButton
+                    variant="outline"
+                    pressed={modelMode === 'requests'}
+                    className={toggleBadgeButtonClassName(modelMode === 'requests')}
                     onClick={() => setModelMode('requests')}
                   >
                     {t('dashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' })}
-                  </Badge>
-                  <Badge
-                    variant={modelMode === 'tokens' ? 'default' : 'outline'}
-                    className="cursor-pointer"
+                  </ToggleBadgeButton>
+                  <ToggleBadgeButton
+                    variant="outline"
+                    pressed={modelMode === 'tokens'}
+                    className={toggleBadgeButtonClassName(modelMode === 'tokens')}
                     onClick={() => setModelMode('tokens')}
                   >
                     {t('dashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
-                  </Badge>
+                  </ToggleBadgeButton>
                 </div>
               </CardHeader>
               <CardContent>
+                <ChartAccessibility
+                  summaryId="admin-dashboard-model-distribution-a11y"
+                  summary={modelDistributionA11ySummary}
+                  tableLabel={t('dashboard.modelDistribution.a11y.tableLabel', {
+                    defaultValue: 'Model distribution data table',
+                  })}
+                  columns={modelDistributionA11yColumns}
+                  rows={modelDistributionData}
+                />
                 {isLoading ? (
                   <div className="w-full h-[320px] bg-muted/50 animate-pulse rounded-md" />
                 ) : modelDistributionData.length === 0 ? (
@@ -881,7 +1078,7 @@ export default function Dashboard() {
                     {t('dashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
                   </div>
                 ) : (
-                  <div style={{ width: '100%', minHeight: 320 }}>
+                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={modelDistributionData} layout="vertical" margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
@@ -923,7 +1120,7 @@ export default function Dashboard() {
                               : String(label)
                           }
                         />
-                        <Bar dataKey="value" fill="#0ea5e9" radius={[0, 8, 8, 0]} />
+                        <Bar dataKey="value" fill={MODEL_DISTRIBUTION_BAR_COLOR} radius={[0, 8, 8, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

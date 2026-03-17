@@ -28,17 +28,32 @@ import {
 
 import { tenantKeysApi } from '@/api/tenantKeys'
 import { tenantUsageApi } from '@/api/tenantUsage'
-import AnimatedContent from '@/components/AnimatedContent'
-import FadeContent from '@/components/FadeContent'
-import Threads from '@/components/Threads'
+import {
+  ChartAccessibility,
+  type ChartAccessibilityColumn,
+} from '@/components/ui/chart-accessibility'
+import { ToggleBadgeButton } from '@/components/ui/toggle-badge-button'
+import {
+  buildTokenTrendA11yRows,
+  getVisibleTokenComponentKeys,
+  summarizeModelDistribution,
+  summarizeTokenTrendRows,
+  type TokenTrendA11yRow,
+} from '@/lib/dashboard-chart-a11y'
+import {
+  MODEL_DISTRIBUTION_BAR_COLOR,
+  TOKEN_COMPONENT_CHART_COLORS,
+} from '@/lib/dashboard-chart-theme'
 import {
   buildModelDistributionPoints,
   buildTokenTrendChartPoints,
   computePerMinute,
+  type ModelDistributionPoint,
   type ModelDistributionMode,
   loadTokenComponentSelection,
   persistTokenComponentSelection,
   toggleTokenComponent,
+  type TokenComponentKey,
   type TokenComponentSelection,
 } from '@/lib/dashboard-metrics'
 import {
@@ -51,11 +66,19 @@ import {
   formatDashboardTrendTimestampLabel,
 } from '@/lib/dashboard-number-format'
 import { formatExactCount } from '@/lib/count-number-format'
+import { cn } from '@/lib/utils'
 
 type RangePreset = 1 | 7 | 30
 
 const TOKEN_COMPONENT_STORAGE_KEY = 'cp:tenant-dashboard-token-components:v1'
 const MODEL_MODE_STORAGE_KEY = 'cp:tenant-dashboard-model-mode:v1'
+
+interface TokenBreakdownRow {
+  key: TokenComponentKey
+  label: string
+  value: number
+  color: string
+}
 
 function loadModelMode(): ModelDistributionMode {
   if (typeof window === 'undefined') {
@@ -66,7 +89,7 @@ function loadModelMode(): ModelDistributionMode {
 }
 
 export function TenantDashboardPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [rangePreset, setRangePreset] = useState<RangePreset>(1)
   const [apiKeyId, setApiKeyId] = useState<string>('all')
@@ -190,6 +213,10 @@ export function TenantDashboardPage() {
     reasoning_tokens: 0,
     total_tokens: 0,
   }
+  const inputTokens = tokenBreakdown.input_tokens
+  const cachedInputTokens = tokenBreakdown.cached_input_tokens
+  const outputTokens = tokenBreakdown.output_tokens
+  const reasoningTokens = tokenBreakdown.reasoning_tokens
   const totalRequests = dashboardMetrics?.total_requests ?? summary?.tenant_api_key_total_requests ?? 0
   const totalTokens = tokenBreakdown.total_tokens
   const rpm = computePerMinute(totalRequests, range.start_ts, range.end_ts)
@@ -211,32 +238,159 @@ export function TenantDashboardPage() {
     || tokenComponents.output
     || tokenComponents.reasoning
 
-  const tokenBreakdownRows = [
+  const tokenLabelByKey = useMemo<Record<TokenComponentKey, string>>(
+    () => ({
+      input: t('tenantDashboard.tokenComponents.input', { defaultValue: 'Input' }),
+      cached: t('tenantDashboard.tokenComponents.cached', { defaultValue: 'Cached' }),
+      output: t('tenantDashboard.tokenComponents.output', { defaultValue: 'Output' }),
+      reasoning: t('tenantDashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' }),
+    }),
+    [t],
+  )
+  const tokenBreakdownRows: TokenBreakdownRow[] = [
     {
-      key: 'input' as const,
-      label: t('tenantDashboard.tokenComponents.input', { defaultValue: 'Input' }),
-      value: tokenBreakdown.input_tokens,
-      color: '#0ea5e9',
+      key: 'input',
+      label: tokenLabelByKey.input,
+      value: inputTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.input,
     },
     {
-      key: 'cached' as const,
-      label: t('tenantDashboard.tokenComponents.cached', { defaultValue: 'Cached' }),
-      value: tokenBreakdown.cached_input_tokens,
-      color: '#14b8a6',
+      key: 'cached',
+      label: tokenLabelByKey.cached,
+      value: cachedInputTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.cached,
     },
     {
-      key: 'output' as const,
-      label: t('tenantDashboard.tokenComponents.output', { defaultValue: 'Output' }),
-      value: tokenBreakdown.output_tokens,
-      color: '#f59e0b',
+      key: 'output',
+      label: tokenLabelByKey.output,
+      value: outputTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.output,
     },
     {
-      key: 'reasoning' as const,
-      label: t('tenantDashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' }),
-      value: tokenBreakdown.reasoning_tokens,
-      color: '#8b5cf6',
+      key: 'reasoning',
+      label: tokenLabelByKey.reasoning,
+      value: reasoningTokens,
+      color: TOKEN_COMPONENT_CHART_COLORS.reasoning,
     },
   ]
+  const surfaceCardClassName = 'h-full border border-border/60 bg-card/95 shadow-sm'
+  const sectionCardClassName = 'border border-border/60 bg-card/95 shadow-sm'
+  const emptyStateClassName =
+    'flex h-[320px] items-center justify-center rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground'
+  const tokenSummaryTileClassName = 'rounded-xl border border-border/60 bg-muted/20 p-3'
+  const overviewTileClassName = 'rounded-xl border border-border/60 bg-background/70 px-4 py-3'
+  const toggleBadgeButtonClassName = (pressed: boolean) =>
+    cn(
+      'gap-2 rounded-full border-border/60 bg-background/80 px-3 py-1.5 text-xs font-medium shadow-none',
+      pressed
+        ? 'bg-accent text-accent-foreground hover:bg-accent/90'
+        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+    )
+  const visibleTokenComponentKeys = useMemo(
+    () => getVisibleTokenComponentKeys(tokenComponents),
+    [tokenComponents],
+  )
+  const tokenTrendA11yRows = useMemo(
+    () => buildTokenTrendA11yRows(tokenTrendData, tokenComponents),
+    [tokenComponents, tokenTrendData],
+  )
+  const tokenTrendA11yColumns = useMemo<ChartAccessibilityColumn<TokenTrendA11yRow>[]>(
+    () => [
+      {
+        key: 'timestamp',
+        header: t('tenantDashboard.tokenTrend.a11y.timestamp', {
+          defaultValue: 'Timestamp',
+        }),
+        render: (row: TokenTrendA11yRow) =>
+          formatDashboardTrendTimestampLabel(row.timestamp, {
+            locale: i18n.resolvedLanguage,
+          }),
+      },
+      ...visibleTokenComponentKeys.map(
+        (key): ChartAccessibilityColumn<TokenTrendA11yRow> => ({
+          key,
+          header: tokenLabelByKey[key],
+          render: (row: TokenTrendA11yRow) =>
+            formatDashboardTokenCount(
+              row.values.find(
+                (value: TokenTrendA11yRow['values'][number]) => value.key === key,
+              )?.value ?? 0,
+              i18n.resolvedLanguage,
+            ),
+        }),
+      ),
+    ],
+    [i18n.resolvedLanguage, t, tokenLabelByKey, visibleTokenComponentKeys],
+  )
+  const tokenTrendA11ySummary = useMemo(() => {
+    const summary = summarizeTokenTrendRows(tokenTrendA11yRows)
+
+    if (summary.rowCount === 0 || summary.startTimestamp === null || summary.endTimestamp === null) {
+      return t('tenantDashboard.tokenTrend.a11y.summaryEmpty', {
+        defaultValue: 'No token trend data is available for the current selection.',
+      })
+    }
+
+    return t('tenantDashboard.tokenTrend.a11y.summary', {
+      defaultValue: 'Hourly token trend covering {{count}} time points from {{start}} to {{end}}. Accessible data table follows.',
+      count: summary.rowCount,
+      start: formatDashboardTrendTimestampLabel(summary.startTimestamp, {
+        locale: i18n.resolvedLanguage,
+      }),
+      end: formatDashboardTrendTimestampLabel(summary.endTimestamp, {
+        locale: i18n.resolvedLanguage,
+      }),
+    })
+  }, [i18n.resolvedLanguage, t, tokenTrendA11yRows])
+  const modelDistributionA11ySummary = useMemo(() => {
+    const summary = summarizeModelDistribution(modelDistributionData)
+
+    if (summary.rowCount === 0 || !summary.topLabel) {
+      return t('tenantDashboard.modelDistribution.a11y.summaryEmpty', {
+        defaultValue: 'No model distribution data is available for the current selection.',
+      })
+    }
+
+    return t('tenantDashboard.modelDistribution.a11y.summary', {
+      defaultValue: 'Model distribution includes {{count}} rows sorted by {{mode}}. Leading model: {{top}}. Accessible data table follows.',
+      count: summary.rowCount,
+      mode:
+        modelMode === 'tokens'
+          ? t('tenantDashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })
+          : t('tenantDashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' }),
+      top: summary.topLabel,
+    })
+  }, [modelDistributionData, modelMode, t])
+  const modelDistributionA11yColumns = useMemo<ChartAccessibilityColumn<ModelDistributionPoint>[]>(
+    () => [
+      {
+        key: 'model',
+        header: t('tenantDashboard.modelDistribution.a11y.model', {
+          defaultValue: 'Model',
+        }),
+        render: (row) =>
+          row.model === 'other'
+            ? t('tenantDashboard.modelDistribution.other', { defaultValue: 'Other' })
+            : row.model,
+      },
+      {
+        key: 'value',
+        header:
+          modelMode === 'tokens'
+            ? t('tenantDashboard.modelDistribution.modeTokens', {
+                defaultValue: 'By tokens',
+              })
+            : t('tenantDashboard.modelDistribution.modeRequests', {
+                defaultValue: 'By requests',
+              }),
+        render: (row) =>
+          modelMode === 'tokens'
+            ? formatDashboardTokenCount(row.value, i18n.resolvedLanguage)
+            : formatDashboardCount(row.value, i18n.resolvedLanguage),
+      },
+    ],
+    [i18n.resolvedLanguage, modelMode, t],
+  )
 
   const kpiCards = [
     {
@@ -313,27 +467,20 @@ export function TenantDashboardPage() {
   }, [keys, selectedApiKeyId, t])
 
   return (
-    <div className="relative flex-1 overflow-hidden">
-      <div className="pointer-events-none absolute inset-0" aria-hidden>
-        <div className="absolute inset-0 opacity-35 dark:opacity-55">
-          <Threads color={[0.14, 0.56, 0.94]} amplitude={0.75} distance={0.2} />
-        </div>
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.16),_transparent_55%),radial-gradient(circle_at_80%_20%,_rgba(14,116,144,0.14),_transparent_52%),linear-gradient(180deg,_rgba(255,255,255,0.7),_rgba(255,255,255,0.25))] dark:bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.2),_transparent_55%),radial-gradient(circle_at_80%_20%,_rgba(34,197,94,0.16),_transparent_50%),linear-gradient(180deg,_rgba(2,6,23,0.82),_rgba(2,6,23,0.58))]" />
-      </div>
-
-      <div className="relative z-10 space-y-4 p-4 sm:space-y-6 sm:p-6 lg:p-8">
+    <div className="flex-1 overflow-y-auto bg-muted/20">
+      <div className="space-y-4 p-4 sm:space-y-6 sm:p-6 lg:p-8">
         <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-          <FadeContent blur duration={320} className="h-full">
-            <Card shadow="lg" className="h-full border border-white/40 bg-white/70 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+          <div className="h-full">
+            <Card shadow="sm" className={surfaceCardClassName}>
               <CardHeader className="flex flex-col items-start gap-4 p-5 pb-2 sm:p-6 sm:pb-2">
                 <Chip color="primary" variant="flat" className="font-medium">
                   {t('tenantDashboard.hero.badge', { defaultValue: 'Tenant Workspace Overview' })}
                 </Chip>
                 <div className="space-y-2">
-                  <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                     {t('tenantDashboard.title', { defaultValue: 'Tenant Dashboard' })}
                   </h2>
-                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                  <p className="text-sm text-muted-foreground">
                     {t('tenantDashboard.hero.summaryPrefix', { defaultValue: 'Scope: current tenant ' })}
                     {selectedApiKeyId
                       ? t('tenantDashboard.hero.summarySingleApiKey', { defaultValue: '(single API key)' })
@@ -344,19 +491,19 @@ export function TenantDashboardPage() {
                 </div>
               </CardHeader>
               <CardBody className="p-5 pt-3 sm:p-6 sm:pt-3">
-                <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   {t('tenantDashboard.subtitle.metricsFocus', {
                     defaultValue: 'Focus metrics: TPM, RPM, total token consumption, total requests, and first-token speed.',
                   })}
                 </p>
               </CardBody>
             </Card>
-          </FadeContent>
+          </div>
 
-          <AnimatedContent distance={16} duration={0.28} ease="power3.out" className="h-full">
-            <Card shadow="lg" className="h-full border border-white/40 bg-white/70 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+          <div className="h-full">
+            <Card shadow="sm" className={surfaceCardClassName}>
               <CardHeader className="p-5 pb-3 sm:p-6 sm:pb-3">
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                <p className="text-sm font-medium text-foreground">
                   {t('tenantDashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
                 </p>
               </CardHeader>
@@ -384,7 +531,7 @@ export function TenantDashboardPage() {
                 >
                   {(item) => <SelectItem key={item.key}>{item.label}</SelectItem>}
                 </Select>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   {t('tenantDashboard.filters.apiKeyHint', {
                     defaultValue: 'Tip: use API key filter to isolate model and token hotspots quickly.',
                   })}
@@ -394,6 +541,7 @@ export function TenantDashboardPage() {
                   <NextButton
                     variant="flat"
                     color="primary"
+                    className="min-h-11"
                     onPress={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
                   >
                     {t('tenantDashboard.actions.viewRequestLogs', { defaultValue: 'View request logs' })}
@@ -401,6 +549,7 @@ export function TenantDashboardPage() {
                   <NextButton
                     variant="flat"
                     color="default"
+                    className="min-h-11"
                     onPress={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
                   >
                     {t('tenantDashboard.actions.viewBilling', { defaultValue: 'View billing' })}
@@ -408,7 +557,7 @@ export function TenantDashboardPage() {
                   <NextButton
                     variant="flat"
                     color="secondary"
-                    className="sm:col-span-2"
+                    className="min-h-11 sm:col-span-2"
                     onPress={() => navigate('/api-keys')}
                   >
                     {t('tenantDashboard.actions.manageApiKeys', { defaultValue: 'Manage API keys' })}
@@ -417,7 +566,7 @@ export function TenantDashboardPage() {
                 <NextButton
                   variant="bordered"
                   size="sm"
-                  className="w-full"
+                  className="min-h-11 w-full"
                   onPress={handleRefresh}
                   isDisabled={isRefreshing}
                   startContent={<RefreshCcw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />}
@@ -426,16 +575,16 @@ export function TenantDashboardPage() {
                 </NextButton>
               </CardBody>
             </Card>
-          </AnimatedContent>
+          </div>
         </div>
 
-        <AnimatedContent distance={12} duration={0.24} className="h-full">
-          <Card className="border border-white/40 bg-white/70 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+        <div className="h-full">
+          <Card className={sectionCardClassName}>
             <CardHeader className="space-y-1">
-              <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              <p className="text-lg font-semibold text-foreground">
                 {t('tenantDashboard.groupOverview.title', { defaultValue: 'API key group overview' })}
               </p>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+              <p className="text-sm text-muted-foreground">
                 {selectedApiKeyId
                   ? t('tenantDashboard.groupOverview.singleDescription', { defaultValue: 'Current API key group binding and validity state.' })
                   : t('tenantDashboard.groupOverview.allDescription', { defaultValue: 'How your current API keys are distributed across pricing groups.' })}
@@ -443,34 +592,34 @@ export function TenantDashboardPage() {
             </CardHeader>
             <CardBody className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {groupOverviewItems.length === 0 ? (
-                <div className="rounded-xl border border-dashed px-4 py-5 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <div className="rounded-xl border border-dashed border-border/60 px-4 py-5 text-sm text-muted-foreground">
                   {t('tenantDashboard.groupOverview.empty', { defaultValue: 'No API key groups to show yet.' })}
                 </div>
               ) : (
                 groupOverviewItems.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-200/70 bg-white/60 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-950/30">
+                  <div key={item.id} className={overviewTileClassName}>
                     <div className="flex items-center justify-between gap-3">
-                      <p className="font-medium text-slate-900 dark:text-slate-100">{item.label}</p>
+                      <p className="font-medium text-foreground">{item.label}</p>
                       <Chip color={item.invalid ? 'danger' : 'success'} variant="flat">
                         {item.invalid
                           ? t('tenantDashboard.groupOverview.invalid', { defaultValue: 'Invalid' })
                           : t('tenantDashboard.groupOverview.valid', { defaultValue: 'Valid' })}
                       </Chip>
                     </div>
-                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{item.groupName}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{item.groupName}</p>
                   </div>
                 ))
               )}
             </CardBody>
           </Card>
-        </AnimatedContent>
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {kpiCards.map((item) => (
-            <AnimatedContent key={item.title} distance={12} duration={0.24} className="h-full">
-              <Card className="h-full border border-white/40 bg-white/70 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+            <div key={item.title} className="h-full">
+              <Card className={surfaceCardClassName}>
                 <CardHeader className="pb-2">
-                  <p className="text-sm text-slate-600 dark:text-slate-300">{item.title}</p>
+                  <p className="text-sm text-muted-foreground">{item.title}</p>
                 </CardHeader>
                 <CardBody className="pt-0">
                   <div className="min-h-10 flex items-center">
@@ -478,30 +627,30 @@ export function TenantDashboardPage() {
                       <Skeleton className="h-10 w-32 rounded-xl" />
                     ) : (
                       <p
-                        className="flex items-center gap-2 text-3xl font-semibold leading-none text-slate-900 dark:text-slate-100"
+                        className="flex items-center gap-2 text-3xl font-semibold leading-none text-foreground"
                         title={item.exactValue}
                       >
-                        <item.icon className="h-5 w-5 text-cyan-500" />
+                        <item.icon className="h-5 w-5 text-primary" />
                         {item.value}
                       </p>
                     )}
                   </div>
-                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{item.desc}</p>
                 </CardBody>
               </Card>
-            </AnimatedContent>
+            </div>
           ))}
         </div>
 
         <div className="grid gap-4 2xl:grid-cols-[1.65fr_1fr]">
-          <FadeContent duration={280} className="h-full">
-            <Card className="h-full border border-white/40 bg-white/72 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+          <div className="h-full">
+            <Card className={surfaceCardClassName}>
               <CardHeader className="space-y-3">
                 <div className="space-y-1">
-                  <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  <p className="text-lg font-semibold text-foreground">
                     {t('tenantDashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}
                   </p>
-                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                  <p className="text-sm text-muted-foreground">
                     {t('tenantDashboard.tokenTrend.description', {
                       defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
                     })}
@@ -509,32 +658,45 @@ export function TenantDashboardPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {tokenBreakdownRows.map((item) => (
-                    <Chip
+                    <ToggleBadgeButton
                       key={item.key}
-                      variant={tokenComponents[item.key] ? 'solid' : 'bordered'}
-                      color={tokenComponents[item.key] ? 'primary' : 'default'}
-                      className="cursor-pointer"
+                      variant="outline"
+                      pressed={tokenComponents[item.key]}
+                      className={toggleBadgeButtonClassName(tokenComponents[item.key])}
                       title={formatExactCount(item.value)}
-                      style={tokenComponents[item.key] ? { backgroundColor: item.color, color: '#fff' } : undefined}
                       onClick={() => setTokenComponents((prev) => toggleTokenComponent(prev, item.key))}
                     >
-                      {item.label}: {formatDashboardTokenCount(item.value)}
-                    </Chip>
+                      <span
+                        aria-hidden="true"
+                        className="size-2 shrink-0 rounded-full border border-background/70"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span>{item.label}: {formatDashboardTokenCount(item.value)}</span>
+                    </ToggleBadgeButton>
                   ))}
                 </div>
               </CardHeader>
               <CardBody>
+                <ChartAccessibility
+                  summaryId="tenant-dashboard-token-trend-a11y"
+                  summary={tokenTrendA11ySummary}
+                  tableLabel={t('tenantDashboard.tokenTrend.a11y.tableLabel', {
+                    defaultValue: 'Token usage trend data table',
+                  })}
+                  columns={tokenTrendA11yColumns}
+                  rows={tokenTrendA11yRows}
+                />
                 {isFetchingSummary && tokenTrendData.length === 0 ? (
                   <div className="space-y-3">
                     <Skeleton className="h-8 w-48 rounded-xl" />
                     <Skeleton className="h-[300px] w-full rounded-xl" />
                   </div>
                 ) : tokenTrendData.length === 0 ? (
-                  <div className="flex h-[320px] items-center justify-center rounded-xl border border-dashed border-slate-300/80 text-sm text-slate-500 dark:border-slate-700/80 dark:text-slate-400">
+                  <div className={emptyStateClassName}>
                     {t('tenantDashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
                   </div>
                 ) : (
-                  <div style={{ width: '100%', minHeight: 320 }}>
+                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
                     <ResponsiveContainer width="100%" height={320}>
                       <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
@@ -572,16 +734,16 @@ export function TenantDashboardPage() {
                           labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
                         />
                         {showTokenArea && tokenComponents.input ? (
-                          <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.input', { defaultValue: 'Input' })} />
+                          <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.input} fill={TOKEN_COMPONENT_CHART_COLORS.input} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.input', { defaultValue: 'Input' })} />
                         ) : null}
                         {showTokenArea && tokenComponents.cached ? (
-                          <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
+                          <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.cached} fill={TOKEN_COMPONENT_CHART_COLORS.cached} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
                         ) : null}
                         {showTokenArea && tokenComponents.output ? (
-                          <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.output', { defaultValue: 'Output' })} />
+                          <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.output} fill={TOKEN_COMPONENT_CHART_COLORS.output} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.output', { defaultValue: 'Output' })} />
                         ) : null}
                         {showTokenArea && tokenComponents.reasoning ? (
-                          <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
+                          <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.reasoning} fill={TOKEN_COMPONENT_CHART_COLORS.reasoning} fillOpacity={0.6} name={t('tenantDashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
                         ) : null}
                       </AreaChart>
                     </ResponsiveContainer>
@@ -589,50 +751,59 @@ export function TenantDashboardPage() {
                 )}
               </CardBody>
             </Card>
-          </FadeContent>
+          </div>
 
-          <AnimatedContent distance={20} duration={0.3} className="h-full">
-            <Card className="h-full border border-white/40 bg-white/72 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+          <div className="h-full">
+            <Card className={surfaceCardClassName}>
               <CardHeader className="space-y-3">
                 <div className="space-y-1">
-                  <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  <p className="text-lg font-semibold text-foreground">
                     {t('tenantDashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}
                   </p>
-                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                  <p className="text-sm text-muted-foreground">
                     {t('tenantDashboard.modelDistribution.description', { defaultValue: 'Top models by request count or token usage.' })}
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Chip
-                    className="cursor-pointer"
-                    color={modelMode === 'requests' ? 'primary' : 'default'}
-                    variant={modelMode === 'requests' ? 'flat' : 'bordered'}
+                  <ToggleBadgeButton
+                    variant="outline"
+                    pressed={modelMode === 'requests'}
+                    className={toggleBadgeButtonClassName(modelMode === 'requests')}
                     onClick={() => setModelMode('requests')}
                   >
                     {t('tenantDashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' })}
-                  </Chip>
-                  <Chip
-                    className="cursor-pointer"
-                    color={modelMode === 'tokens' ? 'primary' : 'default'}
-                    variant={modelMode === 'tokens' ? 'flat' : 'bordered'}
+                  </ToggleBadgeButton>
+                  <ToggleBadgeButton
+                    variant="outline"
+                    pressed={modelMode === 'tokens'}
+                    className={toggleBadgeButtonClassName(modelMode === 'tokens')}
                     onClick={() => setModelMode('tokens')}
                   >
                     {t('tenantDashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
-                  </Chip>
+                  </ToggleBadgeButton>
                 </div>
               </CardHeader>
               <CardBody>
+                <ChartAccessibility
+                  summaryId="tenant-dashboard-model-distribution-a11y"
+                  summary={modelDistributionA11ySummary}
+                  tableLabel={t('tenantDashboard.modelDistribution.a11y.tableLabel', {
+                    defaultValue: 'Model distribution data table',
+                  })}
+                  columns={modelDistributionA11yColumns}
+                  rows={modelDistributionData}
+                />
                 {isFetchingSummary && modelDistributionData.length === 0 ? (
                   <div className="space-y-3">
                     <Skeleton className="h-8 w-40 rounded-xl" />
                     <Skeleton className="h-[300px] w-full rounded-xl" />
                   </div>
                 ) : modelDistributionData.length === 0 ? (
-                  <div className="flex h-[320px] items-center justify-center rounded-xl border border-dashed border-slate-300/80 text-sm text-slate-500 dark:border-slate-700/80 dark:text-slate-400">
+                  <div className={emptyStateClassName}>
                     {t('tenantDashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
                   </div>
                 ) : (
-                  <div style={{ width: '100%', minHeight: 320 }}>
+                  <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart
                         data={modelDistributionData}
@@ -680,27 +851,27 @@ export function TenantDashboardPage() {
                               : String(label)
                           }
                         />
-                        <Bar dataKey="value" fill="#0ea5e9" radius={[0, 8, 8, 0]} />
+                        <Bar dataKey="value" fill={MODEL_DISTRIBUTION_BAR_COLOR} radius={[0, 8, 8, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 )}
               </CardBody>
             </Card>
-          </AnimatedContent>
+          </div>
         </div>
 
-        <Card className="border border-white/40 bg-white/72 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/55">
+        <Card className={sectionCardClassName}>
           <CardHeader>
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <p className="text-sm font-semibold text-foreground">
               {t('tenantDashboard.tokenSummary.title', { defaultValue: 'Token component summary' })}
             </p>
           </CardHeader>
           <CardBody className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {tokenBreakdownRows.map((row) => (
-              <div key={row.key} className="rounded-xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-700/70 dark:bg-slate-900/50">
-                <p className="text-xs text-slate-500 dark:text-slate-400">{row.label}</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{formatDashboardTokenCount(row.value)}</p>
+              <div key={row.key} className={tokenSummaryTileClassName}>
+                <p className="text-xs text-muted-foreground">{row.label}</p>
+                <p className="text-lg font-semibold text-foreground">{formatDashboardTokenCount(row.value)}</p>
               </div>
             ))}
           </CardBody>

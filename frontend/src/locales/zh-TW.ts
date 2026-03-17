@@ -547,6 +547,12 @@ export default {
             requests: "請求數"
         },
         modelDistribution: {
+            a11y: {
+                model: "模型",
+                summary: "模型分布包含 {{count}} 行，依 {{mode}} 排序。領先模型：{{top}}。後附無障礙資料表。",
+                summaryEmpty: "目前篩選條件下沒有模型分布資料。",
+                tableLabel: "模型分布資料表"
+            },
             description: "依請求數或 Token 用量查看模型 Top 分布。",
             empty: "暫無模型分布資料",
             modeRequests: "依請求數",
@@ -561,6 +567,12 @@ export default {
             reasoning: "推理"
         },
         tokenTrend: {
+            a11y: {
+                summary: "Token 趨勢涵蓋 {{count}} 個時間點，範圍從 {{start}} 到 {{end}}。後附無障礙資料表。",
+                summaryEmpty: "目前篩選條件下沒有 Token 趨勢資料。",
+                tableLabel: "Token 使用趨勢資料表",
+                timestamp: "時間"
+            },
             description: "按小時展示 Token 元件趨勢，可透過開關聚焦消耗來源。",
             empty: "暫無 Token 趨勢資料",
             title: "Token 使用趨勢"
@@ -2205,6 +2217,12 @@ export default {
             timeWindow: "，時間窗口："
         },
         modelDistribution: {
+            a11y: {
+                model: "模型",
+                summary: "模型分布包含 {{count}} 行，依 {{mode}} 排序。領先模型：{{top}}。後附無障礙資料表。",
+                summaryEmpty: "目前篩選條件下沒有模型分布資料。",
+                tableLabel: "模型分布資料表"
+            },
             description: "依請求數或 Token 用量查看模型 Top 分布。",
             empty: "暫無模型分布資料",
             modeRequests: "依請求數",
@@ -2222,6 +2240,12 @@ export default {
             title: "Token 元件彙總"
         },
         tokenTrend: {
+            a11y: {
+                summary: "Token 趨勢涵蓋 {{count}} 個時間點，範圍從 {{start}} 到 {{end}}。後附無障礙資料表。",
+                summaryEmpty: "目前篩選條件下沒有 Token 趨勢資料。",
+                tableLabel: "Token 使用趨勢資料表",
+                timestamp: "時間"
+            },
             description: "按小時展示 Token 元件趨勢，可透過開關聚焦消耗來源。",
             empty: "暫無 Token 趨勢資料",
             title: "Token 使用趨勢"
