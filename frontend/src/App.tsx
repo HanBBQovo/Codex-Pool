@@ -18,7 +18,13 @@ import { LoadingScreen } from '@/components/ui/loading-overlay'
 import { NotificationCenter } from '@/components/ui/notification-center'
 import { applyRouteSeo } from '@/lib/seo'
 import type { SystemCapabilitiesResponse } from '@/api/types'
-import { shouldShowStandaloneAdminApiKeys } from '@/features/api-keys/admin-capabilities'
+import { resolveAppShellTarget } from '@/lib/edition-shell-routing'
+import {
+  LEGACY_STANDALONE_ADMIN_API_KEYS_PATH,
+  resolveAdminCapabilityRedirect,
+  STANDALONE_ADMIN_API_KEYS_PATH,
+  shouldShowStandaloneAdminApiKeys,
+} from '@/features/api-keys/admin-capabilities'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,6 +146,11 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
   }, [t])
 
   const showStandaloneAdminApiKeys = shouldShowStandaloneAdminApiKeys(capabilities)
+  const adminApiKeysRedirect = resolveAdminCapabilityRedirect(
+    STANDALONE_ADMIN_API_KEYS_PATH,
+    capabilities,
+  )
+  const tenantsRedirect = resolveAdminCapabilityRedirect('/tenants', capabilities)
 
   useEffect(() => {
     if (!authenticated || !capabilities.features.multi_tenant) {
@@ -291,26 +302,34 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
               </Suspense>
             )}
           />
-          {showStandaloneAdminApiKeys ? (
-            <Route
-              path="/api-keys"
-              element={(
+          <Route
+            path={STANDALONE_ADMIN_API_KEYS_PATH}
+            element={
+              adminApiKeysRedirect || !showStandaloneAdminApiKeys ? (
+                <Navigate to={adminApiKeysRedirect ?? '/dashboard'} replace />
+              ) : (
                 <Suspense fallback={<RouteSkeleton />}>
                   <AdminApiKeys />
                 </Suspense>
-              )}
-            />
-          ) : null}
-          {capabilities.features.multi_tenant ? (
-            <Route
-              path="/tenants"
-              element={(
+              )
+            }
+          />
+          <Route
+            path={LEGACY_STANDALONE_ADMIN_API_KEYS_PATH}
+            element={<Navigate to={STANDALONE_ADMIN_API_KEYS_PATH} replace />}
+          />
+          <Route
+            path="/tenants"
+            element={
+              tenantsRedirect || !capabilities.features.multi_tenant ? (
+                <Navigate to={tenantsRedirect ?? '/dashboard'} replace />
+              ) : (
                 <Suspense fallback={<RouteSkeleton />}>
                   <Tenants />
                 </Suspense>
-              )}
-            />
-          ) : null}
+              )
+            }
+          />
           <Route
             path="/config"
             element={(
@@ -344,27 +363,29 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
 
 function AppShell() {
   const { t, i18n } = useTranslation()
-  const isTenantPath =
-    typeof window !== 'undefined' && window.location.pathname.startsWith('/tenant')
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+  const isTenantPath = pathname.startsWith('/tenant')
   const capabilitiesQuery = useQuery({
     queryKey: ['systemCapabilities'],
     queryFn: systemApi.getCapabilities,
     staleTime: 60_000,
   })
+  const shellTarget = resolveAppShellTarget(pathname, capabilitiesQuery.data)
   const capabilities = capabilitiesQuery.data ?? DEFAULT_SYSTEM_CAPABILITIES
 
   useEffect(() => {
     if (isTenantPath && capabilities.features.tenant_portal && typeof window !== 'undefined') {
-      applyRouteSeo(window.location.pathname, t)
+      applyRouteSeo(pathname, t)
     }
   }, [
     capabilities.features.tenant_portal,
     isTenantPath,
+    pathname,
     t,
     i18n.resolvedLanguage,
   ])
 
-  if (isTenantPath && capabilitiesQuery.isLoading && !capabilitiesQuery.data) {
+  if (shellTarget === 'loading') {
     return (
       <LoadingScreen
         title={t('common.routeLoading')}
@@ -374,7 +395,7 @@ function AppShell() {
     )
   }
 
-  if (isTenantPath && capabilities.features.tenant_portal) {
+  if (shellTarget === 'tenant') {
     return (
       <Suspense fallback={<RouteSkeleton />}>
         <TenantApp capabilities={capabilities} />

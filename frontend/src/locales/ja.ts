@@ -2675,6 +2675,7 @@ export default {
     apiKeys: {
         title: "API キー",
         subtitle: "クライアントアプリケーションの安全なアクセス認証情報の発行と管理。",
+        createPanelDescription: "この単一ワークスペース向けの Data Plane アクセスキーを作成します。平文キーは 1 回のみ表示されます。",
         create: "シークレットキーを作成",
         search: "キー名またはプレフィックスを検索…",
         loading: "認証情報を読み込んでいます…",

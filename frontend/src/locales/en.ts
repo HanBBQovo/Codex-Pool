@@ -2675,6 +2675,7 @@ export default {
     apiKeys: {
         title: "API Keys",
         subtitle: "Issue and manage secure access credentials for client applications.",
+        createPanelDescription: "Create a Data Plane access key for this standalone workspace. The plaintext key is shown only once.",
         create: "Create Secret Key",
         search: "Search key name or prefix…",
         loading: "Loading credentials…",

@@ -33,7 +33,10 @@ import { Button } from '@/components/ui/button'
 import type { SystemCapabilitiesResponse } from '@/api/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import codexPoolLogo from '@/assets/codex-pool-logo.png'
-import { filterAdminMenuGroupsByCapabilities } from '@/features/api-keys/admin-capabilities'
+import {
+    filterAdminMenuGroupsByCapabilities,
+    STANDALONE_ADMIN_API_KEYS_PATH,
+} from '@/features/api-keys/admin-capabilities'
 
 const MOBILE_FOCUSABLE_SELECTOR = [
     'a[href]',
@@ -175,7 +178,7 @@ export function AppLayout({
             items: [
                 { path: '/accounts', icon: UserCog, label: t('nav.accounts') },
                 { path: '/models', icon: Box, label: t('nav.models') },
-                { path: '/api-keys', icon: KeyRound, label: t('nav.apiKeys') },
+                { path: STANDALONE_ADMIN_API_KEYS_PATH, icon: KeyRound, label: t('nav.apiKeys') },
                 { path: '/tenants', icon: Users, label: t('nav.tenants') },
                 { path: '/proxies', icon: Network, label: t('nav.proxies') },
             ]

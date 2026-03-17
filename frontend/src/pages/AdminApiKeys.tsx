@@ -6,11 +6,16 @@ import { useTranslation } from 'react-i18next'
 
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { apiKeysApi, type ApiKey, type CreateApiKeyResponse } from '@/api/settings'
+import {
+  PageIntro,
+  PagePanel,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { describeAdminApiKeysSettingsLayout } from '@/lib/page-archetypes'
 import { notify } from '@/lib/notification'
 import {
   copyText,
@@ -30,6 +35,8 @@ export default function AdminApiKeys() {
   const [createdKey, setCreatedKey] = useState<CreateApiKeyResponse | null>(null)
   const [pendingKeyId, setPendingKeyId] = useState<string | null>(null)
   const dateTimeFormatter = useMemo(() => createDateTimeFormatter(), [])
+  const adminApiKeysLayout = describeAdminApiKeysSettingsLayout()
+  const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
 
   const formatDateTime = useCallback(
     (value?: string | null) => formatDateTimeValue(dateTimeFormatter, value),
@@ -182,115 +189,130 @@ export default function AdminApiKeys() {
   }
 
   return (
-    <div className="flex-1 space-y-6 p-4 sm:p-6 lg:p-8">
-      <div>
-        <h2 className="text-3xl font-semibold tracking-tight">
-          {t('nav.apiKeys', { defaultValue: 'API Keys' })}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('apiKeys.subtitle', {
+    <div className="flex-1 p-4 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-5xl space-y-6 md:space-y-8">
+        <PageIntro
+          archetype={adminApiKeysLayout.introArchetype}
+          title={t('nav.apiKeys', { defaultValue: 'API Keys' })}
+          description={t('apiKeys.subtitle', {
             defaultValue: 'Issue and manage secure access credentials for client applications.',
           })}
-        </p>
-      </div>
+        />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {t('tenants.keys.create.title', { defaultValue: 'Create API Key' })}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form
-            className="flex flex-wrap items-end gap-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              handleCreate()
-            }}
-          >
-            <div className="min-w-[240px] flex-1 space-y-1.5">
-              <label htmlFor="admin-api-key-name" className="text-xs font-medium text-muted-foreground">
-                {t('tenants.keys.create.fields.name', { defaultValue: 'Key Name' })}
-              </label>
-              <Input
-                id="admin-api-key-name"
-                name="admin_api_key_name"
-                value={newKeyName}
-                onChange={(event) => setNewKeyName(event.target.value)}
-                placeholder={t('tenants.keys.create.fields.namePlaceholder', {
-                  defaultValue: 'e.g. admin-main-key',
-                })}
-                autoComplete="off"
-              />
-            </div>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="mr-2 h-4 w-4" />
-              )}
-              {t('tenants.keys.create.submit', { defaultValue: 'Create Key' })}
-            </Button>
-          </form>
-
-          {createdKey ? (
-            <div className="space-y-2 rounded-lg border border-warning/30 bg-warning-muted p-3 text-warning-foreground">
-              <div className="text-sm font-medium">
-                {t('apiKeys.dialog.created.desc', {
-                  defaultValue: 'The plaintext key is shown only once. Please copy and store it now.',
-                })}
-              </div>
-              <div className="break-all rounded-md border bg-background/60 p-2 font-mono text-xs">
-                {createdKey.plaintext_key}
-              </div>
-              <div className="text-xs text-warning-foreground/80">
-                {t('apiKeys.dialog.created.securityTip', {
+        {adminApiKeysLayout.sectionFlow === 'stacked-panels' ? (
+          <>
+            <PagePanel className="space-y-6">
+              <SectionHeader
+                title={t('tenants.keys.create.title', { defaultValue: 'Create API Key' })}
+                description={t('apiKeys.createPanelDescription', {
                   defaultValue:
-                    'Security notice: once this dialog is closed, the plaintext key cannot be viewed again.',
+                    'Create a Data Plane access key for this standalone workspace. The plaintext key is shown only once.',
                 })}
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => copyText(createdKey.plaintext_key)}
-              >
-                <Copy className="mr-2 h-4 w-4" />
-                {t('apiKeys.dialog.created.copyPlaintext', {
-                  defaultValue: 'Copy plaintext key',
-                })}
-              </Button>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+              />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('tenants.keys.list.title', { defaultValue: 'API Key List' })}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground">
-              {t('apiKeys.loading', { defaultValue: 'Loading credentials…' })}
-            </p>
-          ) : (
-            <StandardDataTable
-              columns={columns}
-              data={keys}
-              defaultPageSize={20}
-              pageSizeOptions={[20, 50, 100]}
-              density="compact"
-              searchPlaceholder={t('apiKeys.search', {
-                defaultValue: 'Search key name or prefix…',
-              })}
-              searchFn={(row, keyword) => buildAdminApiKeySearchText(row).includes(keyword)}
-              emptyText={t('apiKeys.empty', {
-                defaultValue: 'No valid API keys found matching your criteria.',
-              })}
-            />
-          )}
-        </CardContent>
-      </Card>
+              <form
+                className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  handleCreate()
+                }}
+              >
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="admin-api-key-name"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    {t('tenants.keys.create.fields.name', { defaultValue: 'Key Name' })}
+                  </label>
+                  <Input
+                    id="admin-api-key-name"
+                    name="admin_api_key_name"
+                    value={newKeyName}
+                    onChange={(event) => setNewKeyName(event.target.value)}
+                    placeholder={t('tenants.keys.create.fields.namePlaceholder', {
+                      defaultValue: 'e.g. admin-main-key',
+                    })}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="flex items-center lg:justify-end">
+                  <Button type="submit" disabled={createMutation.isPending}>
+                    {createMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="mr-2 h-4 w-4" />
+                    )}
+                    {t('tenants.keys.create.submit', { defaultValue: 'Create Key' })}
+                  </Button>
+                </div>
+              </form>
+
+              {createdKey && adminApiKeysLayout.createdKeyPlacement === 'within-create-panel' ? (
+                <div className="space-y-3 rounded-[1.2rem] border border-warning/30 bg-warning-muted p-4 text-warning-foreground">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                      {t('apiKeys.dialog.created.desc', {
+                        defaultValue: 'The plaintext key is shown only once. Please copy and store it now.',
+                      })}
+                    </p>
+                    <p className="text-xs text-warning-foreground/80">
+                      {t('apiKeys.dialog.created.securityTip', {
+                        defaultValue:
+                          'Security notice: once this dialog is closed, the plaintext key cannot be viewed again.',
+                      })}
+                    </p>
+                  </div>
+                  <div className="break-all rounded-xl border bg-background/70 p-3 font-mono text-xs">
+                    {createdKey.plaintext_key}
+                  </div>
+                  <div className="flex justify-start">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => copyText(createdKey.plaintext_key)}
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      {t('apiKeys.dialog.created.copyPlaintext', {
+                        defaultValue: 'Copy plaintext key',
+                      })}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </PagePanel>
+
+            <PagePanel className="relative overflow-hidden p-0">
+              <div className="p-5 pb-0 sm:p-6 sm:pb-0">
+                <SectionHeader
+                  title={t('tenants.keys.list.title', { defaultValue: 'API Key List' })}
+                />
+              </div>
+
+              {isLoading ? (
+                <div className="px-5 pb-5 pt-4 text-sm text-muted-foreground sm:px-6 sm:pb-6">
+                  {t('apiKeys.loading', { defaultValue: 'Loading credentials…' })}
+                </div>
+              ) : (
+                <StandardDataTable
+                  columns={columns}
+                  data={keys}
+                  className={tableSurfaceClassName}
+                  defaultPageSize={20}
+                  pageSizeOptions={[20, 50, 100]}
+                  density={adminApiKeysLayout.listDensity}
+                  searchPlaceholder={t('apiKeys.search', {
+                    defaultValue: 'Search key name or prefix…',
+                  })}
+                  searchFn={(row, keyword) => buildAdminApiKeySearchText(row).includes(keyword)}
+                  emptyText={t('apiKeys.empty', {
+                    defaultValue: 'No valid API keys found matching your criteria.',
+                  })}
+                />
+              )}
+            </PagePanel>
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }

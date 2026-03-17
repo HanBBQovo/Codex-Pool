@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  STANDALONE_ADMIN_API_KEYS_PATH,
   filterAdminMenuGroupsByCapabilities,
+  resolveAdminCapabilityRedirect,
   shouldShowStandaloneAdminApiKeys,
 } from './admin-capabilities.ts'
 
@@ -40,7 +42,7 @@ const baseGroups = [
     items: [
       { path: '/accounts' },
       { path: '/tenants' },
-      { path: '/api-keys' },
+      { path: STANDALONE_ADMIN_API_KEYS_PATH },
     ],
   },
   {
@@ -61,11 +63,21 @@ test('filterAdminMenuGroupsByCapabilities swaps tenants navigation for api keys 
 
   assert.deepEqual(
     personalGroups.flatMap((group) => group.items.map((item) => item.path)),
-    ['/accounts', '/api-keys', '/groups'],
+    ['/accounts', STANDALONE_ADMIN_API_KEYS_PATH, '/groups'],
   )
 
   assert.deepEqual(
     businessGroups.flatMap((group) => group.items.map((item) => item.path)),
     ['/accounts', '/tenants', '/groups'],
   )
+})
+
+test('resolveAdminCapabilityRedirect sends users away from gated routes that are unavailable in the current edition', () => {
+  assert.equal(
+    resolveAdminCapabilityRedirect(STANDALONE_ADMIN_API_KEYS_PATH, businessCapabilities),
+    '/dashboard',
+  )
+  assert.equal(resolveAdminCapabilityRedirect('/tenants', personalCapabilities), '/dashboard')
+  assert.equal(resolveAdminCapabilityRedirect('/accounts', personalCapabilities), null)
+  assert.equal(resolveAdminCapabilityRedirect(STANDALONE_ADMIN_API_KEYS_PATH, personalCapabilities), null)
 })

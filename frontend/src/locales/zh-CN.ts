@@ -2675,6 +2675,7 @@ export default {
     apiKeys: {
         title: "API 密钥",
         subtitle: "为客户端应用程序签发和管理安全访问凭据。",
+        createPanelDescription: "为当前单机工作区创建可调用 Data Plane 的访问密钥。创建后会返回一次明文 key，请立即保存。",
         create: "创建密钥",
         search: "搜索密钥名称或前缀…",
         loading: "加载凭据中…",

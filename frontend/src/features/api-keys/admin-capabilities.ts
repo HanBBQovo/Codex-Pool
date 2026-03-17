@@ -8,8 +8,28 @@ type MenuGroupLike<TItem extends { path: string }> = {
   items: TItem[]
 }
 
+export const STANDALONE_ADMIN_API_KEYS_PATH = '/access-keys'
+export const LEGACY_STANDALONE_ADMIN_API_KEYS_PATH = '/api-keys'
+
 export function shouldShowStandaloneAdminApiKeys(capabilities?: CapabilityLike): boolean {
   return !(capabilities?.features.multi_tenant ?? true)
+}
+
+export function resolveAdminCapabilityRedirect(
+  path: string,
+  capabilities?: CapabilityLike,
+): string | null {
+  const allowsMultiTenant = capabilities?.features.multi_tenant ?? true
+
+  if (path === STANDALONE_ADMIN_API_KEYS_PATH && !shouldShowStandaloneAdminApiKeys(capabilities)) {
+    return '/dashboard'
+  }
+
+  if (path === '/tenants' && !allowsMultiTenant) {
+    return '/dashboard'
+  }
+
+  return null
 }
 
 export function filterAdminMenuGroupsByCapabilities<
@@ -26,7 +46,7 @@ export function filterAdminMenuGroupsByCapabilities<
         if (item.path === '/tenants') {
           return allowsMultiTenant
         }
-        if (item.path === '/api-keys') {
+        if (item.path === STANDALONE_ADMIN_API_KEYS_PATH) {
           return showStandaloneAdminApiKeys
         }
         return true

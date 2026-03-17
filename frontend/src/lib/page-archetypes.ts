@@ -69,6 +69,13 @@ export interface ConfigSettingsLayout {
   sectionFlow: 'stacked-panels'
 }
 
+export interface AdminApiKeysSettingsLayout {
+  introArchetype: 'settings'
+  sectionFlow: 'stacked-panels'
+  createdKeyPlacement: 'within-create-panel'
+  listDensity: 'compact'
+}
+
 const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   auth: {
     name: 'auth',
@@ -251,5 +258,14 @@ export function describeConfigSettingsLayout(): ConfigSettingsLayout {
     actionPlacement: 'after-sections',
     warningPlacement: 'after-intro',
     sectionFlow: 'stacked-panels',
+  }
+}
+
+export function describeAdminApiKeysSettingsLayout(): AdminApiKeysSettingsLayout {
+  return {
+    introArchetype: 'settings',
+    sectionFlow: 'stacked-panels',
+    createdKeyPlacement: 'within-create-panel',
+    listDensity: 'compact',
   }
 }

@@ -2675,6 +2675,7 @@ export default {
     apiKeys: {
         title: "API 金鑰",
         subtitle: "為客戶端應用程式簽發和管理安全存取憑據。",
+        createPanelDescription: "為目前單機工作區建立可呼叫 Data Plane 的存取金鑰。建立後只會顯示一次明文 key，請立即保存。",
         create: "建立金鑰",
         search: "搜尋金鑰名稱或前綴…",
         loading: "載入憑據中…",
