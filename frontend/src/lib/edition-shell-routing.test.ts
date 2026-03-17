@@ -41,6 +41,7 @@ test('resolveAppShellTarget only blocks when the initial path needs capability g
 test('resolveAppShellTarget enters tenant app only when the tenant portal capability is enabled', () => {
   assert.equal(resolveAppShellTarget('/tenant/dashboard', businessCapabilities), 'tenant')
   assert.equal(resolveAppShellTarget('/tenant/dashboard', personalCapabilities), 'admin')
+  assert.equal(resolveAppShellTarget('/tenants', businessCapabilities), 'admin')
 })
 
 test('resolveAppShellTarget routes non-tenant paths to the admin shell once capabilities are known', () => {

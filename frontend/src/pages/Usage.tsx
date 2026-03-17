@@ -223,7 +223,7 @@ export default function Usage() {
           />
         }
         rail={
-          <PagePanel tone="secondary" className="space-y-5">
+          <PagePanel tone="secondary" className="space-y-5 bg-transparent shadow-none">
             <SectionHeader
               title={t('usage.topKeys.title')}
               description={t('usage.topKeys.subtitle')}
@@ -254,7 +254,7 @@ export default function Usage() {
           </PagePanel>
         }
         lead={
-          <PagePanel className="space-y-5">
+          <PagePanel className="space-y-5 bg-transparent shadow-none">
             <SectionHeader
               title={t('usage.chart.title')}
               description={t('usage.chart.subtitle')}

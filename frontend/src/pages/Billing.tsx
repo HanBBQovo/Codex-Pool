@@ -1059,7 +1059,7 @@ function BusinessBillingPage() {
   )
 
   const trendPanel = (
-    <PagePanel className="space-y-5">
+    <PagePanel className="space-y-5 bg-transparent shadow-none">
       <SectionHeader
         title={t('billing.trend.title')}
         description={t('billing.trend.subtitle', {
@@ -1092,14 +1092,14 @@ function BusinessBillingPage() {
   )
 
   const rechargePanel = (
-    <PagePanel tone="secondary" className="space-y-5">
+    <PagePanel tone="secondary" className="space-y-5 bg-transparent shadow-none">
       <SectionHeader
         eyebrow={selectedTenant?.name ?? undefined}
         title={t('billing.recharge.title')}
         description={t('billing.recharge.subtitle')}
       />
       {selectedTenant ? (
-        <div className="rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+        <div className="rounded-[0.95rem] border border-border/65 bg-background/52 px-4 py-3 text-xs text-muted-foreground dark:bg-card/62">
           <span className="font-medium text-slate-700 dark:text-slate-100">{selectedTenant.name}</span>
           <div className="mt-1 font-mono">{selectedTenant.id}</div>
         </div>
@@ -1132,7 +1132,7 @@ function BusinessBillingPage() {
   )
 
   const snapshotPanel = (
-    <PagePanel tone="secondary" className="space-y-5">
+    <PagePanel tone="secondary" className="space-y-5 bg-transparent shadow-none">
       <SectionHeader
         title={t('billing.snapshot.title')}
         description={t('billing.snapshot.subtitle', {
@@ -1155,7 +1155,7 @@ function BusinessBillingPage() {
   )
 
   const ledgerPanel = (
-    <PagePanel className="space-y-5">
+    <PagePanel className="space-y-5 bg-transparent shadow-none">
       <SectionHeader
         title={t('billing.ledger.title')}
         description={t('billing.ledger.subtitle')}
@@ -1193,8 +1193,7 @@ function BusinessBillingPage() {
           />
         )}
         toolbar={(
-          <PagePanel tone="secondary">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.52fr)_auto]">
+          <div className="grid gap-4 border-b border-border/70 pb-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.52fr)_auto]">
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
                   {t('billing.filters.tenantAriaLabel')}
@@ -1237,7 +1236,6 @@ function BusinessBillingPage() {
                 </Button>
               </div>
             </div>
-          </PagePanel>
         )}
         lead={(
           <>

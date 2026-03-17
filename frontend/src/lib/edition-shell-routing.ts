@@ -25,7 +25,8 @@ export function resolveAppShellTarget(
   capabilities?: SystemCapabilitiesResponse,
 ): AppShellTarget {
   const normalizedPathname = normalizePathname(pathname)
-  const isTenantPath = normalizedPathname.startsWith('/tenant')
+  const isTenantPath =
+    normalizedPathname === '/tenant' || normalizedPathname.startsWith('/tenant/')
 
   if (!capabilities) {
     if (isTenantPath || CAPABILITY_GATED_ADMIN_PATHS.has(normalizedPathname)) {

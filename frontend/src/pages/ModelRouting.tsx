@@ -41,6 +41,11 @@ import {
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { ModelSelector } from '@/components/model-routing/model-selector'
 import { getPublishedVersionWindow } from '@/components/model-routing/model-selector-utils'
+import {
+  PageIntro,
+  PagePanel,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -865,55 +870,54 @@ export default function ModelRouting() {
     resetBuiltinTemplateMutation.isPending
 
   return (
-    <div className="flex-1 overflow-y-auto p-8">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
       <LoadingOverlay show={isLoading} title={t('common.loading')} />
 
-      <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="space-y-2">
-          <h2 className="text-3xl font-semibold tracking-tight">{t('modelRoutingPage.title')}</h2>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            {t('modelRoutingPage.subtitle')}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            variant="outline"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
-              queryClient.invalidateQueries({ queryKey: ['models'] })
-            }}
-            disabled={isFetching}
-          >
-            <RotateCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-            {t('modelRoutingPage.actions.refresh')}
-          </Button>
-          <Button variant="outline" onClick={openCreateProfileDialog}>
-            {t('modelRoutingPage.actions.createProfile')}
-          </Button>
-          <Button onClick={openCreatePolicyDialog}>
-            {t('modelRoutingPage.actions.createPolicy')}
-          </Button>
-        </div>
-      </div>
+      <div className="space-y-4 md:space-y-5">
+        <PageIntro
+          archetype="workspace"
+          title={t('modelRoutingPage.title')}
+          description={t('modelRoutingPage.subtitle')}
+          actions={(
+            <>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+                  queryClient.invalidateQueries({ queryKey: ['models'] })
+                }}
+                disabled={isFetching}
+              >
+                <RotateCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+                {t('modelRoutingPage.actions.refresh')}
+              </Button>
+              <Button variant="outline" onClick={openCreateProfileDialog}>
+                {t('modelRoutingPage.actions.createProfile')}
+              </Button>
+              <Button onClick={openCreatePolicyDialog}>
+                {t('modelRoutingPage.actions.createPolicy')}
+              </Button>
+            </>
+          )}
+        />
 
-      {error ? (
-        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="mb-4 rounded-lg border border-success/30 bg-success-muted px-4 py-3 text-sm text-success-foreground">
-          {notice}
-        </div>
-      ) : null}
+        {error ? (
+          <PagePanel tone="secondary" className="border-destructive/25 bg-destructive/8 text-sm text-destructive">
+            {error}
+          </PagePanel>
+        ) : null}
+        {notice ? (
+          <PagePanel tone="secondary" className="border-success/25 bg-success-muted text-sm text-success-foreground">
+            {notice}
+          </PagePanel>
+        ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
-        <Card className="relative overflow-hidden border-border/60">
-          <CardHeader>
-            <CardTitle>{t('modelRoutingPage.settings.title')}</CardTitle>
-            <CardDescription>{t('modelRoutingPage.settings.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.28fr)_minmax(18rem,0.72fr)]">
+          <PagePanel className="relative overflow-hidden space-y-5">
+            <SectionHeader
+              title={t('modelRoutingPage.settings.title')}
+              description={t('modelRoutingPage.settings.description')}
+            />
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={settingsStatusVariant(settings)}>
                 {settings?.kill_switch
@@ -1047,15 +1051,13 @@ export default function ModelRouting() {
                 {t('modelRoutingPage.actions.saveSettings')}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </PagePanel>
 
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>{t('modelRoutingPage.versions.title')}</CardTitle>
-            <CardDescription>{t('modelRoutingPage.versions.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+          <PagePanel tone="secondary" className="space-y-4">
+            <SectionHeader
+              title={t('modelRoutingPage.versions.title')}
+              description={t('modelRoutingPage.versions.description')}
+            />
             {versions.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 {t('modelRoutingPage.versions.empty')}
@@ -1113,11 +1115,10 @@ export default function ModelRouting() {
                 ) : null}
               </>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </PagePanel>
+        </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.25fr)]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.25fr)]">
         <Card className="border-border/60">
           <CardHeader>
             <CardTitle>{t('modelRoutingPage.errorLearning.settings.title')}</CardTitle>
@@ -1904,7 +1905,7 @@ export default function ModelRouting() {
         </Card>
       </div>
 
-      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+        <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>
@@ -2056,9 +2057,9 @@ export default function ModelRouting() {
             </Button>
           </div>
         </DialogContent>
-      </Dialog>
+        </Dialog>
 
-      <Dialog open={policyDialogOpen} onOpenChange={setPolicyDialogOpen}>
+        <Dialog open={policyDialogOpen} onOpenChange={setPolicyDialogOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>
@@ -2187,7 +2188,8 @@ export default function ModelRouting() {
             </Button>
           </div>
         </DialogContent>
-      </Dialog>
+        </Dialog>
+      </div>
     </div>
   )
 }
