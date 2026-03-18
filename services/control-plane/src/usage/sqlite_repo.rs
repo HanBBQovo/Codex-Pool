@@ -12,18 +12,16 @@ use sqlx_sqlite::{SqlitePool, SqliteRow};
 use uuid::Uuid;
 
 use crate::cost::{calculate_estimated_cost_microusd, TokenPriceMicrousd};
+use crate::tenant::{
+    fetch_openai_model_catalog_items, fetch_openai_model_catalog_items_with_client,
+    ModelPricingItem, ModelPricingUpsertRequest, OpenAiModelCatalogItem, OpenAiModelsSyncResponse,
+    OPENAI_MODELS_INDEX_URL,
+};
 use crate::usage::clickhouse_repo::UsageQueryRepository;
 use crate::usage::{
     request_log_row_from_event, RequestLogQuery, RequestLogRow, UsageIngestRepository,
 };
 use crate::Row;
-use crate::{
-    tenant::{
-        fetch_openai_model_catalog_items, fetch_openai_model_catalog_items_with_client,
-        ModelPricingItem, ModelPricingUpsertRequest, OpenAiModelCatalogItem,
-        OpenAiModelsSyncResponse, OPENAI_MODELS_INDEX_URL,
-    },
-};
 
 #[derive(Clone)]
 pub struct SqliteUsageRepo {
@@ -221,25 +219,13 @@ impl SqliteUsageRepo {
             .await?;
         Self::ensure_column_exists(pool, "openai_models_catalog", "source_url", "TEXT NULL")
             .await?;
-        Self::ensure_column_exists(pool, "openai_models_catalog", "raw_text", "TEXT NULL")
-            .await?;
-        Self::ensure_column_exists(pool, "openai_models_catalog", "synced_at", "TEXT NULL")
-            .await?;
+        Self::ensure_column_exists(pool, "openai_models_catalog", "raw_text", "TEXT NULL").await?;
+        Self::ensure_column_exists(pool, "openai_models_catalog", "synced_at", "TEXT NULL").await?;
         Self::ensure_column_exists(pool, "model_pricing_overrides", "id", "TEXT NULL").await?;
-        Self::ensure_column_exists(
-            pool,
-            "model_pricing_overrides",
-            "created_at",
-            "TEXT NULL",
-        )
-        .await?;
-        Self::ensure_column_exists(
-            pool,
-            "model_pricing_overrides",
-            "updated_at",
-            "TEXT NULL",
-        )
-        .await?;
+        Self::ensure_column_exists(pool, "model_pricing_overrides", "created_at", "TEXT NULL")
+            .await?;
+        Self::ensure_column_exists(pool, "model_pricing_overrides", "updated_at", "TEXT NULL")
+            .await?;
         Self::backfill_openai_catalog_metadata(pool).await?;
         Self::backfill_model_pricing_metadata(pool).await?;
 
@@ -817,7 +803,8 @@ impl SqliteUsageRepo {
                     knowledge_cutoff: row.try_get("knowledge_cutoff")?,
                     reasoning_token_support: row.try_get("reasoning_token_support")?,
                     input_price_microcredits: row.try_get("input_price_microcredits")?,
-                    cached_input_price_microcredits: row.try_get("cached_input_price_microcredits")?,
+                    cached_input_price_microcredits: row
+                        .try_get("cached_input_price_microcredits")?,
                     output_price_microcredits: row.try_get("output_price_microcredits")?,
                     pricing_notes: row.try_get("pricing_notes")?,
                     input_modalities: serde_json::from_str(
@@ -947,9 +934,8 @@ impl SqliteUsageRepo {
                 .take(items.len())
                 .collect::<Vec<_>>()
                 .join(", ");
-            let delete_sql = format!(
-                "DELETE FROM openai_models_catalog WHERE model_id NOT IN ({placeholders})"
-            );
+            let delete_sql =
+                format!("DELETE FROM openai_models_catalog WHERE model_id NOT IN ({placeholders})");
             let mut query = sqlx::query(&delete_sql);
             for item in items {
                 query = query.bind(&item.model_id);
@@ -988,7 +974,8 @@ impl SqliteUsageRepo {
             Some(client) => fetch_openai_model_catalog_items_with_client(client).await?,
             None => fetch_openai_model_catalog_items().await?,
         };
-        self.apply_openai_model_catalog_items(synced_at, &items).await
+        self.apply_openai_model_catalog_items(synced_at, &items)
+            .await
     }
 
     pub async fn list_model_pricing(&self) -> Result<Vec<ModelPricingItem>> {
@@ -1020,7 +1007,8 @@ impl SqliteUsageRepo {
                     model: row.try_get("model")?,
                     service_tier: row.try_get("service_tier")?,
                     input_price_microcredits: row.try_get("input_price_microcredits")?,
-                    cached_input_price_microcredits: row.try_get("cached_input_price_microcredits")?,
+                    cached_input_price_microcredits: row
+                        .try_get("cached_input_price_microcredits")?,
                     output_price_microcredits: row.try_get("output_price_microcredits")?,
                     enabled: row.try_get("enabled")?,
                     created_at: Self::parse_created_at(&row.try_get::<String, _>("created_at")?)?,
@@ -1081,7 +1069,11 @@ impl SqliteUsageRepo {
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let created_at = existing
             .as_ref()
-            .and_then(|row| row.try_get::<Option<String>, _>("created_at").ok().flatten())
+            .and_then(|row| {
+                row.try_get::<Option<String>, _>("created_at")
+                    .ok()
+                    .flatten()
+            })
             .unwrap_or_else(|| now.to_rfc3339());
         let updated_at = now.to_rfc3339();
 

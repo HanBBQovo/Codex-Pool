@@ -85,8 +85,15 @@ impl OutboundProxyRuntime {
         }
     }
 
-    pub fn replace_config(&self, settings: OutboundProxyPoolSettings, nodes: Vec<OutboundProxyNode>) {
-        let allowed_ids = nodes.iter().map(|node| node.id).collect::<std::collections::HashSet<_>>();
+    pub fn replace_config(
+        &self,
+        settings: OutboundProxyPoolSettings,
+        nodes: Vec<OutboundProxyNode>,
+    ) {
+        let allowed_ids = nodes
+            .iter()
+            .map(|node| node.id)
+            .collect::<std::collections::HashSet<_>>();
         *self.settings.write().expect("outbound proxy settings lock") = settings;
         *self.nodes.write().expect("outbound proxy nodes lock") = nodes;
         self.unavailable_until
@@ -129,12 +136,15 @@ impl OutboundProxyRuntime {
     pub(crate) async fn connect_websocket(
         &self,
         request: TungsteniteRequest,
-    ) -> Result<(SelectedUpstreamRoute, UpstreamWebSocket, TungsteniteResponse), TungsteniteError>
-    {
-        let route = self
-            .select_route()
-            .await
-            .map_err(anyhow_to_ws_error)?;
+    ) -> Result<
+        (
+            SelectedUpstreamRoute,
+            UpstreamWebSocket,
+            TungsteniteResponse,
+        ),
+        TungsteniteError,
+    > {
+        let route = self.select_route().await.map_err(anyhow_to_ws_error)?;
         let result = match route.proxy_url.as_deref() {
             Some(proxy_url) => connect_websocket_via_proxy(proxy_url, request).await,
             None => connect_websocket_direct(request).await,
@@ -144,7 +154,8 @@ impl OutboundProxyRuntime {
             Ok(_) => self.mark_proxy_success(&route).await,
             Err(TungsteniteError::Io(_)) => self.mark_proxy_transport_failure(&route).await,
             Err(TungsteniteError::Http(response))
-                if response.status().as_u16() == reqwest::StatusCode::PROXY_AUTHENTICATION_REQUIRED.as_u16() =>
+                if response.status().as_u16()
+                    == reqwest::StatusCode::PROXY_AUTHENTICATION_REQUIRED.as_u16() =>
             {
                 self.mark_proxy_transport_failure(&route).await;
             }
@@ -164,7 +175,10 @@ impl OutboundProxyRuntime {
         self.unavailable_until
             .write()
             .expect("outbound proxy health lock")
-            .insert(proxy_id, Instant::now() + DEFAULT_PROXY_TRANSPORT_FAILURE_TTL);
+            .insert(
+                proxy_id,
+                Instant::now() + DEFAULT_PROXY_TRANSPORT_FAILURE_TTL,
+            );
     }
 
     pub async fn mark_proxy_http_status<T: ProxySelectionLike + ?Sized>(
@@ -237,13 +251,12 @@ impl OutboundProxyRuntime {
             .unavailable_until
             .read()
             .expect("outbound proxy health lock");
-        nodes.into_iter()
+        nodes
+            .into_iter()
             .filter(|node| {
                 node.enabled
                     && node.weight > 0
-                    && unavailable
-                        .get(&node.id)
-                        .is_none_or(|until| *until <= now)
+                    && unavailable.get(&node.id).is_none_or(|until| *until <= now)
             })
             .collect()
     }
@@ -289,8 +302,9 @@ impl OutboundProxyRuntime {
             builder = builder.timeout(timeout);
         }
         if let Some(proxy_url) = proxy_url {
-            let proxy = reqwest::Proxy::all(proxy_url)
-                .with_context(|| format!("failed to configure outbound proxy client for {proxy_url}"))?;
+            let proxy = reqwest::Proxy::all(proxy_url).with_context(|| {
+                format!("failed to configure outbound proxy client for {proxy_url}")
+            })?;
             builder = builder.proxy(proxy);
         }
         let client = builder
@@ -308,7 +322,9 @@ fn anyhow_to_ws_error(err: anyhow::Error) -> TungsteniteError {
     TungsteniteError::Io(io::Error::new(io::ErrorKind::NotConnected, err.to_string()))
 }
 
-fn websocket_target_host_port(request: &TungsteniteRequest) -> Result<(String, u16), TungsteniteError> {
+fn websocket_target_host_port(
+    request: &TungsteniteRequest,
+) -> Result<(String, u16), TungsteniteError> {
     let uri = request.uri();
     let host = uri
         .host()
@@ -346,9 +362,14 @@ async fn connect_websocket_via_proxy(
             let mut socket = TcpStream::connect((proxy.host.as_str(), proxy.port))
                 .await
                 .map_err(TungsteniteError::Io)?;
-            send_http_connect(&mut socket, &target_host, target_port, proxy.basic_auth.as_deref())
-                .await
-                .map_err(TungsteniteError::Io)?;
+            send_http_connect(
+                &mut socket,
+                &target_host,
+                target_port,
+                proxy.basic_auth.as_deref(),
+            )
+            .await
+            .map_err(TungsteniteError::Io)?;
             Box::new(socket) as BoxedAsyncIo
         }
         "https" => {
@@ -618,7 +639,10 @@ async fn send_socks5_connect<S: AsyncRead + AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn connect_tls_proxy(socket: TcpStream, proxy_host: &str) -> io::Result<TlsStream<TcpStream>> {
+async fn connect_tls_proxy(
+    socket: TcpStream,
+    proxy_host: &str,
+) -> io::Result<TlsStream<TcpStream>> {
     let mut roots = RootCertStore::empty();
     let rustls_native_certs::CertificateResult { certs, errors, .. } =
         rustls_native_certs::load_native_certs();

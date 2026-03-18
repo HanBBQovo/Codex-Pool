@@ -299,11 +299,7 @@ impl OpenAiOAuthClient {
         ];
         let (http_client, selection) = self.select_http_client().await?;
 
-        let response = http_client
-            .post(&self.token_url)
-            .form(&form)
-            .send()
-            .await;
+        let response = http_client.post(&self.token_url).form(&form).send().await;
         let response = match response {
             Ok(response) => {
                 if let (Some(runtime), Some(selection)) =
@@ -502,11 +498,7 @@ impl OAuthTokenClient for OpenAiOAuthClient {
             form.push(("client_id", client_id.to_string()));
         }
         let (http_client, selection) = self.select_http_client().await?;
-        let response = http_client
-            .post(&self.token_url)
-            .form(&form)
-            .send()
-            .await;
+        let response = http_client.post(&self.token_url).form(&form).send().await;
         let response = match response {
             Ok(response) => {
                 if let (Some(runtime), Some(selection)) =

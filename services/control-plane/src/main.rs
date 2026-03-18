@@ -451,12 +451,13 @@ async fn main() -> anyhow::Result<()> {
             )
         }
         (_, None) => {
-            let in_memory_store: Arc<dyn ControlPlaneStore> = Arc::new(InMemoryStore::new_with_oauth(
-                Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
-                    outbound_proxy_runtime.clone(),
-                )),
-                CredentialCipher::from_env().unwrap_or(None),
-            ));
+            let in_memory_store: Arc<dyn ControlPlaneStore> =
+                Arc::new(InMemoryStore::new_with_oauth(
+                    Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
+                        outbound_proxy_runtime.clone(),
+                    )),
+                    CredentialCipher::from_env().unwrap_or(None),
+                ));
             (
                 in_memory_store,
                 Arc::new(InMemoryOAuthImportJobStore::default()),

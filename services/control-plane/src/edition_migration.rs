@@ -7,9 +7,9 @@ use chrono::{DateTime, Duration, Utc};
 use codex_pool_core::api::{OAuthRefreshStatus, ProductEdition, SessionCredentialKind};
 use codex_pool_core::model::{
     AiErrorLearningSettings, ApiKey, BuiltinErrorTemplateOverrideRecord, ModelRoutingPolicy,
-    ModelRoutingSettings, ModelRoutingTriggerMode, OutboundProxyNode,
-    OutboundProxyPoolSettings, RoutingPlanVersion, RoutingPolicy, RoutingProfile, Tenant,
-    UpstreamAccount, UpstreamAuthProvider, UpstreamErrorTemplateRecord,
+    ModelRoutingSettings, ModelRoutingTriggerMode, OutboundProxyNode, OutboundProxyPoolSettings,
+    RoutingPlanVersion, RoutingPolicy, RoutingProfile, Tenant, UpstreamAccount,
+    UpstreamAuthProvider, UpstreamErrorTemplateRecord,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

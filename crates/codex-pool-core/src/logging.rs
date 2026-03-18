@@ -10,7 +10,11 @@ struct LocalChronoTimer;
 
 impl FormatTime for LocalChronoTimer {
     fn format_time(&self, writer: &mut Writer<'_>) -> fmt::Result {
-        write!(writer, "{}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f %:z"))
+        write!(
+            writer,
+            "{}",
+            Local::now().format("%Y-%m-%d %H:%M:%S%.3f %:z")
+        )
     }
 }
 

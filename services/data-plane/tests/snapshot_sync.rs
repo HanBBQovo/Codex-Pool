@@ -9,10 +9,9 @@ use codex_pool_core::api::{
 };
 use codex_pool_core::model::{
     AccountRoutingTraits, AiErrorLearningSettings, CompiledModelRoutingPolicy, CompiledRoutingPlan,
-    CompiledRoutingProfile, LocalizedErrorTemplates, OutboundProxyNode,
-    OutboundProxyPoolSettings, ProxyFailMode, RoutingStrategy, UpstreamAccount,
-    UpstreamErrorAction, UpstreamErrorRetryScope, UpstreamErrorTemplateRecord,
-    UpstreamErrorTemplateStatus, UpstreamMode,
+    CompiledRoutingProfile, LocalizedErrorTemplates, OutboundProxyNode, OutboundProxyPoolSettings,
+    ProxyFailMode, RoutingStrategy, UpstreamAccount, UpstreamErrorAction, UpstreamErrorRetryScope,
+    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
 };
 use data_plane::app::AppState;
 use data_plane::event::NoopEventSink;
@@ -318,7 +317,11 @@ async fn applies_outbound_proxy_settings_from_snapshot() {
         .outbound_proxy_runtime
         .mark_proxy_transport_failure(&selected)
         .await;
-    assert!(state.outbound_proxy_runtime.select_http_client(None).await.is_err());
+    assert!(state
+        .outbound_proxy_runtime
+        .select_http_client(None)
+        .await
+        .is_err());
 }
 
 #[tokio::test]

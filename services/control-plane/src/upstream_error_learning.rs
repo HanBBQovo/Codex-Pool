@@ -109,12 +109,10 @@ impl UpstreamErrorLearningRuntime {
 
     async fn select_http_client(
         &self,
-    ) -> Result<
-        (
-            reqwest::Client,
-            Option<crate::outbound_proxy_runtime::SelectedHttpClient>,
-        ),
-    > {
+    ) -> Result<(
+        reqwest::Client,
+        Option<crate::outbound_proxy_runtime::SelectedHttpClient>,
+    )> {
         let Some(runtime) = self.outbound_proxy_runtime.as_ref() else {
             return Ok((self.http_client.clone(), None));
         };

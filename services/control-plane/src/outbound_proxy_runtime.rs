@@ -35,7 +35,10 @@ impl OutboundProxyRuntime {
     }
 
     pub fn attach_store(&self, store: Arc<dyn ControlPlaneStore>) {
-        *self.store.write().expect("outbound proxy runtime store lock") = Some(store);
+        *self
+            .store
+            .write()
+            .expect("outbound proxy runtime store lock") = Some(store);
     }
 
     pub async fn select_http_client(&self, timeout: Duration) -> Result<SelectedHttpClient> {
@@ -73,7 +76,10 @@ impl OutboundProxyRuntime {
         self.unavailable_until
             .write()
             .expect("outbound proxy runtime health lock")
-            .insert(proxy_id, Instant::now() + DEFAULT_PROXY_TRANSPORT_FAILURE_TTL);
+            .insert(
+                proxy_id,
+                Instant::now() + DEFAULT_PROXY_TRANSPORT_FAILURE_TTL,
+            );
     }
 
     pub async fn mark_proxy_http_status(
@@ -100,13 +106,12 @@ impl OutboundProxyRuntime {
             .unavailable_until
             .read()
             .expect("outbound proxy runtime health lock");
-        nodes.into_iter()
+        nodes
+            .into_iter()
             .filter(|node| {
                 node.enabled
                     && node.weight > 0
-                    && unavailable
-                        .get(&node.id)
-                        .is_none_or(|until| *until <= now)
+                    && unavailable.get(&node.id).is_none_or(|until| *until <= now)
             })
             .collect()
     }
@@ -152,7 +157,9 @@ impl OutboundProxyRuntime {
         used_direct_fallback: bool,
     ) -> Result<SelectedHttpClient> {
         Ok(SelectedHttpClient {
-            client: self.cached_client(Some(node.proxy_url.as_str()), timeout).await?,
+            client: self
+                .cached_client(Some(node.proxy_url.as_str()), timeout)
+                .await?,
             proxy_id: Some(node.id),
             proxy_label: Some(node.label.clone()),
             proxy_url: Some(node.proxy_url.clone()),
@@ -178,8 +185,9 @@ impl OutboundProxyRuntime {
         // Only the outbound proxy pool should decide whether a proxy is used.
         let mut builder = reqwest::Client::builder().no_proxy().timeout(timeout);
         if let Some(proxy_url) = proxy_url {
-            let proxy = reqwest::Proxy::all(proxy_url)
-                .with_context(|| format!("failed to configure outbound proxy client for {proxy_url}"))?;
+            let proxy = reqwest::Proxy::all(proxy_url).with_context(|| {
+                format!("failed to configure outbound proxy client for {proxy_url}")
+            })?;
             builder = builder.proxy(proxy);
         }
         let client = builder
