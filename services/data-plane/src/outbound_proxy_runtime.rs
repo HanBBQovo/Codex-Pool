@@ -282,7 +282,9 @@ impl OutboundProxyRuntime {
             return Ok(client);
         }
 
-        let mut builder = reqwest::Client::builder();
+        // Direct fallback must bypass ambient HTTP(S)_PROXY variables so the
+        // runtime only uses the explicit proxy pool configuration.
+        let mut builder = reqwest::Client::builder().no_proxy();
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }

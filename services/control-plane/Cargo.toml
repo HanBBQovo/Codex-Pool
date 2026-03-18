@@ -61,3 +61,4 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 
 [dev-dependencies]
 assert-json-diff.workspace = true
+wiremock.workspace = true

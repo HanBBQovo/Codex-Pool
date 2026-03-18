@@ -174,7 +174,9 @@ impl OutboundProxyRuntime {
             return Ok(client);
         }
 
-        let mut builder = reqwest::Client::builder().timeout(timeout);
+        // Direct requests should not inherit shell-level proxy variables.
+        // Only the outbound proxy pool should decide whether a proxy is used.
+        let mut builder = reqwest::Client::builder().no_proxy().timeout(timeout);
         if let Some(proxy_url) = proxy_url {
             let proxy = reqwest::Proxy::all(proxy_url)
                 .with_context(|| format!("failed to configure outbound proxy client for {proxy_url}"))?;
