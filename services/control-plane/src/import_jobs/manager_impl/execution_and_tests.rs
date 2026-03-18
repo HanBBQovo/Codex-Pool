@@ -142,6 +142,7 @@ mod tests {
         OAuthImportJobStatus, OAuthImportJobSummary,
     };
     use codex_pool_core::model::UpstreamMode;
+    use crate::import_jobs::ImportCredentialMode;
     use uuid::Uuid;
 
     fn build_in_memory_job_state(job_id: Uuid) -> (OAuthImportJobSummary, Vec<PersistedImportItem>) {
@@ -301,6 +302,92 @@ mod tests {
         assert_eq!(req.source_type.as_deref(), Some("codex"));
         assert_eq!(req.chatgpt_account_id.as_deref(), Some("acct_codex_1"));
         assert!(req.token_expires_at.is_some());
+    }
+
+    #[test]
+    fn parse_record_prefers_refresh_token_when_mode_is_refresh_token() {
+        let file = ImportUploadFile {
+            file_name: "mixed-creds.jsonl".to_string(),
+            content: Bytes::from(
+                r#"{"email":"mixed@example.com","refresh_token":"rt_selected","access_token":"ak_ignored"}"#
+                    .to_string(),
+            ),
+        };
+        let options = CreateOAuthImportJobOptions {
+            credential_mode: ImportCredentialMode::RefreshToken,
+            ..CreateOAuthImportJobOptions::default()
+        };
+
+        let items = parse_file_records(&file, &options).expect("parse file records");
+        assert_eq!(items.len(), 1);
+
+        let req = match items[0].request.as_ref().expect("request") {
+            ImportTaskRequest::OAuthRefresh(req) => req,
+            ImportTaskRequest::OneTimeAccessToken(_) => panic!("expected refresh-token import"),
+            ImportTaskRequest::ManualRefreshAccount(_) => panic!("expected refresh-token import"),
+        };
+        assert_eq!(req.refresh_token, "rt_selected");
+    }
+
+    #[test]
+    fn parse_record_prefers_access_token_when_mode_is_access_token() {
+        let file = ImportUploadFile {
+            file_name: "mixed-creds.jsonl".to_string(),
+            content: Bytes::from(
+                r#"{"email":"mixed@example.com","refresh_token":"rt_ignored","access_token":"ak_selected"}"#
+                    .to_string(),
+            ),
+        };
+        let options = CreateOAuthImportJobOptions {
+            credential_mode: ImportCredentialMode::AccessToken,
+            ..CreateOAuthImportJobOptions::default()
+        };
+
+        let items = parse_file_records(&file, &options).expect("parse file records");
+        assert_eq!(items.len(), 1);
+
+        let req = match items[0].request.as_ref().expect("request") {
+            ImportTaskRequest::OneTimeAccessToken(req) => req,
+            ImportTaskRequest::OAuthRefresh(_) => panic!("expected access-token import"),
+            ImportTaskRequest::ManualRefreshAccount(_) => panic!("expected access-token import"),
+        };
+        assert_eq!(req.access_token, "ak_selected");
+    }
+
+    #[test]
+    fn parse_record_reports_missing_access_token_when_selected_mode_requires_it() {
+        let file = ImportUploadFile {
+            file_name: "refresh-only.jsonl".to_string(),
+            content: Bytes::from(r#"{"email":"rt@example.com","refresh_token":"rt_only"}"#.to_string()),
+        };
+        let options = CreateOAuthImportJobOptions {
+            credential_mode: ImportCredentialMode::AccessToken,
+            ..CreateOAuthImportJobOptions::default()
+        };
+
+        let items = parse_file_records(&file, &options).expect("parse file records");
+        assert_eq!(items.len(), 1);
+        assert!(items[0].request.is_none());
+        assert_eq!(items[0].item.status, OAuthImportItemStatus::Failed);
+        assert_eq!(items[0].item.error_code.as_deref(), Some("missing_access_token"));
+    }
+
+    #[test]
+    fn parse_record_reports_missing_refresh_token_when_selected_mode_requires_it() {
+        let file = ImportUploadFile {
+            file_name: "access-only.jsonl".to_string(),
+            content: Bytes::from(r#"{"email":"ak@example.com","access_token":"ak_only"}"#.to_string()),
+        };
+        let options = CreateOAuthImportJobOptions {
+            credential_mode: ImportCredentialMode::RefreshToken,
+            ..CreateOAuthImportJobOptions::default()
+        };
+
+        let items = parse_file_records(&file, &options).expect("parse file records");
+        assert_eq!(items.len(), 1);
+        assert!(items[0].request.is_none());
+        assert_eq!(items[0].item.status, OAuthImportItemStatus::Failed);
+        assert_eq!(items[0].item.error_code.as_deref(), Some("missing_refresh_token"));
     }
 
     #[test]

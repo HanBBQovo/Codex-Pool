@@ -684,13 +684,23 @@ export default {
             importFailed: "Импорт не выполнен",
             invalidRecord: "Некорректная запись",
             invalidRefreshToken: "Недействительный refresh_token",
+            missingAccessToken: "Отсутствует access_token",
             missingCredentials: "Отсутствуют учетные данные",
+            missingRefreshToken: "Отсутствует refresh_token",
             oauthProviderNotConfigured: "OAuth-провайдер не настроен",
             rateLimited: "Сработало ограничение частоты",
             refreshTokenReused: "refresh_token уже использован",
             unknown: "Неизвестная ошибка импорта",
             upstreamNetworkError: "Сетевая ошибка апстрима",
             upstreamUnavailable: "Сервис апстрима недоступен"
+        },
+        credentialMode: {
+            title: "Режим учетных данных",
+            description: "Выберите, импортировать ли этот пакет как rotatable refresh_token-аккаунты или как одноразовые access_token-аккаунты. Импорт через OAuth-вход не меняется.",
+            refreshToken: "Импорт RT",
+            refreshTokenHint: "Подходит, когда нужен управляемый платформой refresh и ротация токенов.",
+            accessToken: "Импорт AK",
+            accessTokenHint: "Подходит для одноразового импорта без фоновой ротации refresh."
         },
         metrics: {
             created: "Создано",
@@ -767,7 +777,7 @@ export default {
             desc: "Загрузите наш рекомендуемый шаблон, чтобы столбцы строго соответствовали системным требованиям.",
             download: "Скачать шаблон CSV",
             titleNew: "Шаблон импорта",
-            descNew: "Скачайте шаблон JSONL и заполните refresh_token для массового импорта."
+            descNew: "Скачайте шаблон JSONL и заполните refresh_token или access_token в зависимости от выбранного режима учетных данных."
         },
         title: "Пакетный импорт",
         validation: {

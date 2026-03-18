@@ -40,6 +40,14 @@ const DB_ITEM_FAILED: &str = "failed";
 const DB_ITEM_SKIPPED: &str = "skipped";
 const DB_ITEM_CANCELLED: &str = "cancelled";
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportCredentialMode {
+    Auto,
+    RefreshToken,
+    AccessToken,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImportUploadFile {
     pub file_name: String,
@@ -52,6 +60,7 @@ pub struct CreateOAuthImportJobOptions {
     pub default_priority: i32,
     pub default_enabled: bool,
     pub default_mode: UpstreamMode,
+    pub credential_mode: ImportCredentialMode,
 }
 
 impl Default for CreateOAuthImportJobOptions {
@@ -61,6 +70,7 @@ impl Default for CreateOAuthImportJobOptions {
             default_priority: 100,
             default_enabled: true,
             default_mode: UpstreamMode::ChatGptSession,
+            credential_mode: ImportCredentialMode::Auto,
         }
     }
 }

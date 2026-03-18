@@ -194,6 +194,11 @@ async fn create_oauth_import_job(
                     options.default_mode = mode;
                 }
             }
+            "credential_mode" | "credential_kind" | "import_credential_mode" => {
+                if let Some(mode) = parse_import_credential_mode_flag(&value) {
+                    options.credential_mode = mode;
+                }
+            }
             _ => {}
         }
     }

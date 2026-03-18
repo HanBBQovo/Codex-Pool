@@ -684,13 +684,23 @@ export default {
             importFailed: "匯入失敗",
             invalidRecord: "資料記錄無效",
             invalidRefreshToken: "refresh_token 無效",
+            missingAccessToken: "缺少 access_token",
             missingCredentials: "缺少憑證欄位",
+            missingRefreshToken: "缺少 refresh_token",
             oauthProviderNotConfigured: "OAuth 提供者未設定",
             rateLimited: "請求頻率受限",
             refreshTokenReused: "refresh_token 已被使用",
             unknown: "未知匯入錯誤",
             upstreamNetworkError: "上游網路錯誤",
             upstreamUnavailable: "上游服務不可用"
+        },
+        credentialMode: {
+            title: "匯入憑證模式",
+            description: "選擇這一批帳號要以可輪轉的 refresh_token 匯入，還是以一次性的 access_token 匯入。OAuth 登入匯入維持不變。",
+            refreshToken: "匯入 RT",
+            refreshTokenHint: "適合需要平台代管續簽與輪轉的帳號。",
+            accessToken: "匯入 AK",
+            accessTokenHint: "適合只做一次性匯入，避免 refresh 輪轉壓力。"
         },
         metrics: {
             created: "新建",
@@ -767,7 +777,7 @@ export default {
             desc: "下載我們推薦的範本，以確保欄位嚴格符合系統要求。",
             download: "下載 CSV 範本",
             titleNew: "匯入範本",
-            descNew: "下載 JSONL 範本並填入 refresh_token 後即可批量匯入。"
+            descNew: "下載 JSONL 範本，並依照目前選擇的憑證模式填入 refresh_token 或 access_token。"
         },
         title: "批次匯入任務",
         validation: {

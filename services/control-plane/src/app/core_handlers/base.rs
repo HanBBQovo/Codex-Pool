@@ -683,6 +683,21 @@ fn parse_mode_flag(raw: &str) -> Option<codex_pool_core::model::UpstreamMode> {
     }
 }
 
+fn parse_import_credential_mode_flag(
+    raw: &str,
+) -> Option<crate::import_jobs::ImportCredentialMode> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "auto" => Some(crate::import_jobs::ImportCredentialMode::Auto),
+        "refresh_token" | "refresh" | "rt" => {
+            Some(crate::import_jobs::ImportCredentialMode::RefreshToken)
+        }
+        "access_token" | "access" | "ak" => {
+            Some(crate::import_jobs::ImportCredentialMode::AccessToken)
+        }
+        _ => None,
+    }
+}
+
 fn parse_oauth_import_item_status(
     raw: &str,
 ) -> Result<OAuthImportItemStatus, (StatusCode, Json<ErrorEnvelope>)> {

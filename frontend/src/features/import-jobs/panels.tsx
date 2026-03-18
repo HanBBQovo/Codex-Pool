@@ -44,6 +44,10 @@ function localizeImportErrorCode(errorCode: string | undefined | null, t: TFunct
   switch (normalizeImportErrorCode(errorCode)) {
     case 'invalid_record':
       return t('importJobs.errors.invalidRecord', { defaultValue: 'Invalid record' })
+    case 'missing_access_token':
+      return t('importJobs.errors.missingAccessToken', { defaultValue: 'Missing access token' })
+    case 'missing_refresh_token':
+      return t('importJobs.errors.missingRefreshToken', { defaultValue: 'Missing refresh token' })
     case 'missing_credentials':
       return t('importJobs.errors.missingCredentials', { defaultValue: 'Missing credentials' })
     case 'refresh_token_reused':

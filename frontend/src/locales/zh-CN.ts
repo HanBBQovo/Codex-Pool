@@ -684,13 +684,23 @@ export default {
             importFailed: "导入失败",
             invalidRecord: "数据记录无效",
             invalidRefreshToken: "refresh_token 无效",
+            missingAccessToken: "缺少 access_token",
             missingCredentials: "缺少凭据字段",
+            missingRefreshToken: "缺少 refresh_token",
             oauthProviderNotConfigured: "OAuth 提供方未配置",
             rateLimited: "请求频率受限",
             refreshTokenReused: "refresh_token 已被使用",
             unknown: "未知导入错误",
             upstreamNetworkError: "上游网络错误",
             upstreamUnavailable: "上游服务不可用"
+        },
+        credentialMode: {
+            title: "导入凭证模式",
+            description: "选择这一批账号按可轮转的 refresh_token 导入，还是按一次性的 access_token 导入。OAuth 登录导入保持不变。",
+            refreshToken: "导入 RT",
+            refreshTokenHint: "适合需要平台托管续签和轮转的账号。",
+            accessToken: "导入 AK",
+            accessTokenHint: "适合只做一次性导入，避免 refresh 轮转压力。"
         },
         metrics: {
             created: "新建",
@@ -767,7 +777,7 @@ export default {
             desc: "下载我们推荐的模板，以确保列名严格符合系统要求。",
             download: "下载 CSV 模板",
             titleNew: "导入模板",
-            descNew: "下载 JSONL 模板并填入 refresh_token 后即可批量导入。"
+            descNew: "下载 JSONL 模板，并根据当前选择的凭证模式填写 refresh_token 或 access_token。"
         },
         title: "批量导入任务",
         validation: {

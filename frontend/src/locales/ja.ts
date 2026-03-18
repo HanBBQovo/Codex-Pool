@@ -684,13 +684,23 @@ export default {
             importFailed: "インポートに失敗しました",
             invalidRecord: "レコード形式が不正です",
             invalidRefreshToken: "refresh_token が無効です",
+            missingAccessToken: "access_token が不足しています",
             missingCredentials: "認証情報が不足しています",
+            missingRefreshToken: "refresh_token が不足しています",
             oauthProviderNotConfigured: "OAuth プロバイダーが未設定です",
             rateLimited: "リクエストがレート制限されました",
             refreshTokenReused: "refresh_token はすでに使用済みです",
             unknown: "不明なインポートエラー",
             upstreamNetworkError: "上流ネットワークエラー",
             upstreamUnavailable: "上流サービスが利用できません"
+        },
+        credentialMode: {
+            title: "インポート認証モード",
+            description: "このバッチを可変更新可能な refresh_token として取り込むか、単発の access_token として取り込むかを選択します。OAuth ログイン取り込みは変更されません。",
+            refreshToken: "RT を取り込む",
+            refreshTokenHint: "プラットフォーム側で更新とローテーションを管理したい場合に使います。",
+            accessToken: "AK を取り込む",
+            accessTokenHint: "更新ローテーションを行わない単発取り込みに向いています。"
         },
         metrics: {
             created: "新規",
@@ -767,7 +777,7 @@ export default {
             desc: "システム要件に準拠するために推奨されるテンプレートをダウンロードしてください。",
             download: "CSV テンプレートをダウンロード",
             titleNew: "インポートテンプレート",
-            descNew: "JSONL テンプレートをダウンロードし、refresh_token を入力して一括インポートします。"
+            descNew: "JSONL テンプレートをダウンロードし、選択した認証モードに応じて refresh_token または access_token を入力して一括インポートします。"
         },
         title: "バッチインポートジョブ",
         validation: {

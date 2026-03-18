@@ -684,13 +684,23 @@ export default {
             importFailed: "Import failed",
             invalidRecord: "Invalid record",
             invalidRefreshToken: "Invalid refresh token",
+            missingAccessToken: "Missing access_token",
             missingCredentials: "Missing credentials",
+            missingRefreshToken: "Missing refresh_token",
             oauthProviderNotConfigured: "OAuth provider not configured",
             rateLimited: "Rate limited",
             refreshTokenReused: "Refresh token already used",
             unknown: "Unknown import error",
             upstreamNetworkError: "Upstream network error",
             upstreamUnavailable: "Upstream service unavailable"
+        },
+        credentialMode: {
+            title: "Credential Mode",
+            description: "Choose whether this batch imports rotatable refresh_token accounts or one-time access_token accounts. OAuth login import stays unchanged.",
+            refreshToken: "Import RT",
+            refreshTokenHint: "Use refresh_token when you want managed refresh and token rotation.",
+            accessToken: "Import AK",
+            accessTokenHint: "Use access_token when you want one-time imports without refresh rotation."
         },
         metrics: {
             created: "Created",
@@ -767,7 +777,7 @@ export default {
             desc: "Download our recommended template to ensure columns strictly map to system requirements.",
             download: "Download CSV Template",
             titleNew: "Import Template",
-            descNew: "Download the JSONL template and fill in refresh_token values for bulk import."
+            descNew: "Download the JSONL template and fill in refresh_token or access_token based on the selected credential mode."
         },
         title: "Batch Import Jobs",
         validation: {

@@ -44,6 +44,8 @@ export interface OAuthImportJobActionResponse {
     accepted: boolean;
 }
 
+export type OAuthImportCredentialMode = 'refresh_token' | 'access_token'
+
 export type OAuthImportItemStatus =
     | 'pending'
     | 'processing'
@@ -63,6 +65,7 @@ export const importJobsApi = {
             base_url?: string
             default_priority?: number
             default_enabled?: boolean
+            credential_mode?: OAuthImportCredentialMode
         } = {}
     ) => {
         const formData = new FormData()
@@ -72,6 +75,7 @@ export const importJobsApi = {
         formData.append('base_url', options.base_url ?? 'https://chatgpt.com/backend-api/codex')
         formData.append('default_priority', String(options.default_priority ?? 100))
         formData.append('default_enabled', String(options.default_enabled ?? true))
+        formData.append('credential_mode', options.credential_mode ?? 'refresh_token')
 
         return apiClient.post<OAuthImportJobSummary>('/upstream-accounts/oauth/import-jobs', formData, {
             headers: {

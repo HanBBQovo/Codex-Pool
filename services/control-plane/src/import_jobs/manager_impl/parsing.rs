@@ -396,45 +396,105 @@ fn normalize_record(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| options.base_url.clone());
 
-    if let Some(refresh_token) = refresh_token {
-        return Some(ImportTaskRequest::OAuthRefresh(
-            ImportOAuthRefreshTokenRequest {
-                label: derived_label,
-                base_url,
-                refresh_token,
-                chatgpt_account_id,
-                mode: Some(mode),
-                enabled: Some(record.enabled.unwrap_or(options.default_enabled)),
-                priority: Some(record.priority.unwrap_or(options.default_priority)),
-                chatgpt_plan_type,
-                source_type: record_type,
-            },
-        ));
-    }
+    match options.credential_mode {
+        ImportCredentialMode::Auto => {
+            if let Some(refresh_token) = refresh_token {
+                return Some(ImportTaskRequest::OAuthRefresh(
+                    ImportOAuthRefreshTokenRequest {
+                        label: derived_label,
+                        base_url: base_url.clone(),
+                        refresh_token,
+                        chatgpt_account_id: chatgpt_account_id.clone(),
+                        mode: Some(mode.clone()),
+                        enabled: Some(record.enabled.unwrap_or(options.default_enabled)),
+                        priority: Some(record.priority.unwrap_or(options.default_priority)),
+                        chatgpt_plan_type: chatgpt_plan_type.clone(),
+                        source_type: record_type.clone(),
+                    },
+                ));
+            }
 
-    if let Some(access_token) = access_token {
-        let token_expires_at =
-            derive_one_time_expires_at(record.exp, record.expired.as_deref(), Some(access_token.as_str()));
-        return Some(ImportTaskRequest::OneTimeAccessToken(
-            UpsertOneTimeSessionAccountRequest {
-                label: derived_label,
-                mode,
-                base_url,
-                access_token,
-                chatgpt_account_id,
-                enabled: Some(record.enabled.unwrap_or(options.default_enabled)),
-                priority: Some(record.priority.unwrap_or(options.default_priority)),
-                token_expires_at,
-                chatgpt_plan_type,
-                source_type: record_type,
-            },
-        ));
-    }
+            if let Some(access_token) = access_token {
+                let token_expires_at = derive_one_time_expires_at(
+                    record.exp,
+                    record.expired.as_deref(),
+                    Some(access_token.as_str()),
+                );
+                return Some(ImportTaskRequest::OneTimeAccessToken(
+                    UpsertOneTimeSessionAccountRequest {
+                        label: derived_label,
+                        mode,
+                        base_url,
+                        access_token,
+                        chatgpt_account_id,
+                        enabled: Some(record.enabled.unwrap_or(options.default_enabled)),
+                        priority: Some(record.priority.unwrap_or(options.default_priority)),
+                        token_expires_at,
+                        chatgpt_plan_type,
+                        source_type: record_type,
+                    },
+                ));
+            }
 
-    item.status = OAuthImportItemStatus::Failed;
-    item.error_code = Some("missing_credentials".to_string());
-    item.error_message = Some("record does not contain refresh_token or access_token".to_string());
-    None
+            item.status = OAuthImportItemStatus::Failed;
+            item.error_code = Some("missing_credentials".to_string());
+            item.error_message =
+                Some("record does not contain refresh_token or access_token".to_string());
+            None
+        }
+        ImportCredentialMode::RefreshToken => {
+            if let Some(refresh_token) = refresh_token {
+                return Some(ImportTaskRequest::OAuthRefresh(
+                    ImportOAuthRefreshTokenRequest {
+                        label: derived_label,
+                        base_url,
+                        refresh_token,
+                        chatgpt_account_id,
+                        mode: Some(mode),
+                        enabled: Some(record.enabled.unwrap_or(options.default_enabled)),
+                        priority: Some(record.priority.unwrap_or(options.default_priority)),
+                        chatgpt_plan_type,
+                        source_type: record_type,
+                    },
+                ));
+            }
+
+            item.status = OAuthImportItemStatus::Failed;
+            item.error_code = Some("missing_refresh_token".to_string());
+            item.error_message =
+                Some("record does not contain refresh_token for selected import mode".to_string());
+            None
+        }
+        ImportCredentialMode::AccessToken => {
+            if let Some(access_token) = access_token {
+                let token_expires_at = derive_one_time_expires_at(
+                    record.exp,
+                    record.expired.as_deref(),
+                    Some(access_token.as_str()),
+                );
+                return Some(ImportTaskRequest::OneTimeAccessToken(
+                    UpsertOneTimeSessionAccountRequest {
+                        label: derived_label,
+                        mode,
+                        base_url,
+                        access_token,
+                        chatgpt_account_id,
+                        enabled: Some(record.enabled.unwrap_or(options.default_enabled)),
+                        priority: Some(record.priority.unwrap_or(options.default_priority)),
+                        token_expires_at,
+                        chatgpt_plan_type,
+                        source_type: record_type,
+                    },
+                ));
+            }
+
+            item.status = OAuthImportItemStatus::Failed;
+            item.error_code = Some("missing_access_token".to_string());
+            item.error_message =
+                Some("record does not contain access_token for selected import mode".to_string());
+            None
+        }
+    }
 }
 
 fn parse_import_mode(raw_mode: Option<&str>, raw_type: Option<&str>, fallback: &UpstreamMode) -> UpstreamMode {

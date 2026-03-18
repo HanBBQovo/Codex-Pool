@@ -19,6 +19,7 @@ import { accountsApi } from '@/api/accounts'
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import {
   importJobsApi,
+  type OAuthImportCredentialMode,
   type OAuthImportJobItem,
   type OAuthImportJobSummary,
 } from '@/api/importJobs'
@@ -32,6 +33,13 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import { cn } from '@/lib/utils'
 import {
@@ -102,6 +110,7 @@ export default function ImportJobs() {
   const [recentJobIds, setRecentJobIds] = useState<string[]>(() => loadRecentJobIds())
   const [stagedFiles, setStagedFiles] = useState<StagedImportFile[]>([])
   const [pausedTrackingJobIds, setPausedTrackingJobIds] = useState<string[]>([])
+  const [credentialMode, setCredentialMode] = useState<OAuthImportCredentialMode>('refresh_token')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const pausedTrackingJobIdSet = useMemo(
@@ -110,7 +119,7 @@ export default function ImportJobs() {
   )
 
   const uploadMutation = useMutation({
-    mutationFn: (files: File[]) => importJobsApi.createJob(files),
+    mutationFn: (files: File[]) => importJobsApi.createJob(files, { credential_mode: credentialMode }),
     onSuccess: (summary) => {
       setUploadError(null)
       setUploadNotice(
@@ -400,14 +409,25 @@ export default function ImportJobs() {
   }, [importableFiles, t, uploadMutation])
 
   const handleDownloadTemplate = useCallback(() => {
-    const example = {
-      email: 'demo@example.com',
-      account_id: '00000000-0000-0000-0000-000000000000',
-      refresh_token: 'rt_xxx',
-      base_url: 'https://chatgpt.com/backend-api/codex',
-      enabled: true,
-      priority: 100,
-    }
+    const example =
+      credentialMode === 'access_token'
+        ? {
+            email: 'demo@example.com',
+            account_id: '00000000-0000-0000-0000-000000000000',
+            access_token: 'ak_xxx',
+            exp: 1893456000,
+            base_url: 'https://chatgpt.com/backend-api/codex',
+            enabled: true,
+            priority: 100,
+          }
+        : {
+            email: 'demo@example.com',
+            account_id: '00000000-0000-0000-0000-000000000000',
+            refresh_token: 'rt_xxx',
+            base_url: 'https://chatgpt.com/backend-api/codex',
+            enabled: true,
+            priority: 100,
+          }
     const blob = new Blob([`${JSON.stringify(example)}\n`], { type: 'application/jsonl' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
@@ -415,7 +435,7 @@ export default function ImportJobs() {
     anchor.download = 'oauth-import-template.jsonl'
     anchor.click()
     URL.revokeObjectURL(url)
-  }, [])
+  }, [credentialMode])
 
   const recentJobQueries = useQueries({
     queries: recentJobIds.map((jobId) => ({
@@ -611,6 +631,40 @@ export default function ImportJobs() {
                   title={t('importJobs.workspace.title')}
                   description={t('importJobs.workspace.desc')}
                 />
+
+                <div className="rounded-[0.95rem] border border-border/70 bg-muted/14 px-4 py-4">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-start">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium">
+                        {t('importJobs.credentialMode.title')}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {t('importJobs.credentialMode.description')}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {credentialMode === 'access_token'
+                          ? t('importJobs.credentialMode.accessTokenHint')
+                          : t('importJobs.credentialMode.refreshTokenHint')}
+                      </p>
+                    </div>
+                    <Select
+                      value={credentialMode}
+                      onValueChange={(value) => setCredentialMode(value as OAuthImportCredentialMode)}
+                    >
+                      <SelectTrigger aria-label={t('importJobs.credentialMode.title')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="refresh_token">
+                          {t('importJobs.credentialMode.refreshToken')}
+                        </SelectItem>
+                        <SelectItem value="access_token">
+                          {t('importJobs.credentialMode.accessToken')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
                 <div
                   className={cn(
