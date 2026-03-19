@@ -583,7 +583,7 @@ mod tests {
 
     #[test]
     fn reads_control_plane_toml_and_respects_env_priority() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let path = unique_temp_path("control-plane-config");
         std::fs::write(
             &path,
@@ -674,7 +674,7 @@ admin_jwt_ttl_sec = 600
 
     #[test]
     fn control_plane_toml_applies_admin_runtime_defaults_without_overriding_env() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let path = unique_temp_path("control-plane-admin-config");
         std::fs::write(
             &path,
@@ -737,7 +737,7 @@ admin_jwt_ttl_sec = 900
 
     #[test]
     fn usage_worker_toml_sets_runtime_defaults_without_overriding_env() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let path = unique_temp_path("usage-worker-config");
         std::fs::write(
             &path,

@@ -398,14 +398,8 @@ impl SeenOkReporter {
             .post(&endpoint)
             .bearer_auth(self.internal_auth_token.as_ref())
             .json(&report);
-        self.log_if_report_failed(
-            request,
-            &endpoint,
-            account_id,
-            None,
-            "observed rate limits",
-        )
-        .await;
+        self.log_if_report_failed(request, &endpoint, account_id, None, "observed rate limits")
+            .await;
     }
 
     async fn log_if_report_failed(
@@ -538,6 +532,14 @@ pub fn seen_ok_report_config_from_env() -> SeenOkReportConfig {
         enabled,
         min_interval: Duration::from_secs(min_interval_sec),
         timeout: Duration::from_millis(timeout_ms),
+    }
+}
+
+fn parse_bool_flag(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
     }
 }
 
@@ -810,13 +812,5 @@ mod tests {
         assert_eq!(body["rate_limits"][0]["limit_id"], "codex");
         assert_eq!(body["rate_limits"][0]["primary"]["used_percent"], 91.5);
         assert_eq!(body["rate_limits"][0]["primary"]["window_minutes"], 300);
-    }
-}
-
-fn parse_bool_flag(raw: &str) -> Option<bool> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
     }
 }

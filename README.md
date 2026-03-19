@@ -263,7 +263,8 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 1. 轮换所有历史暴露过的 token/refresh token/JWT secret。
 2. 在首次公开仓库前，执行一次完整 secret 扫描（含 git history）。
 3. 生产环境关闭 `ENABLE_INTERNAL_DEBUG_ROUTES`。
-4. 将配置统一放到 `docker/.env.personal` / `docker/.env.team` / `docker/.env.business` 或密钥管理系统，不在仓库存明文。
+4. 生产环境显式开启 `ADMIN_SESSION_COOKIE_SECURE=true`；启用租户门户时再同时开启 `TENANT_SESSION_COOKIE_SECURE=true`。
+5. 将配置统一放到 `docker/.env.personal` / `docker/.env.team` / `docker/.env.business` 或密钥管理系统，不在仓库存明文。
 
 ---
 
@@ -274,10 +275,12 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 - `CI`（`.github/workflows/ci.yml`）
   - `gitleaks` secrets 扫描
   - Rust `check`：`cargo check --workspace --all-targets --locked`
+  - Rust `business feature check`：`cargo check -p control-plane --features clickhouse-backend --bin codex-pool-business --bin usage-worker --locked`
   - Rust `fast tests`：`cargo test --workspace --lib --bins --locked`
   - Rust `integration tests`：`cargo test -p <control-plane|data-plane> --test integration --locked`
   - Rust `full clippy`：`cargo clippy --workspace --all-targets --locked`
-  - Frontend：`lint` + `build`
+  - Rust `audit`：`cargo audit`
+  - Frontend：`i18n:check` + `i18n:hardcode -- --no-baseline` + `i18n:runtime-check` + `lint` + `build`
   - Docker：构建 Rust runtime 与 Frontend runtime 镜像
 
 - `Docker Publish`（`.github/workflows/docker-publish.yml`）

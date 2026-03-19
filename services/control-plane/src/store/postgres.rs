@@ -264,7 +264,7 @@ mod postgres_env_tests {
 
     #[test]
     fn postgres_max_connections_uses_safe_default() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_DB_MAX_CONNECTIONS", None);
 
         assert_eq!(postgres_max_connections_from_env(), 100);
@@ -274,7 +274,7 @@ mod postgres_env_tests {
 
     #[test]
     fn postgres_max_connections_clamps_low_values() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_DB_MAX_CONNECTIONS", Some("1"));
 
         assert_eq!(postgres_max_connections_from_env(), 5);
@@ -284,7 +284,7 @@ mod postgres_env_tests {
 
     #[test]
     fn oauth_refresh_batch_size_uses_safe_default() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_OAUTH_REFRESH_BATCH_SIZE", None);
 
         assert_eq!(oauth_refresh_batch_size_from_env(), 200);
@@ -294,7 +294,7 @@ mod postgres_env_tests {
 
     #[test]
     fn oauth_refresh_batch_size_clamps_high_values() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_OAUTH_REFRESH_BATCH_SIZE", Some("99999"));
 
         assert_eq!(oauth_refresh_batch_size_from_env(), 2000);
@@ -304,7 +304,7 @@ mod postgres_env_tests {
 
     #[test]
     fn oauth_refresh_concurrency_uses_safe_default() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_OAUTH_REFRESH_CONCURRENCY", None);
 
         assert_eq!(oauth_refresh_concurrency_from_env(), 8);
@@ -314,7 +314,7 @@ mod postgres_env_tests {
 
     #[test]
     fn oauth_refresh_concurrency_clamps_low_values() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_OAUTH_REFRESH_CONCURRENCY", Some("0"));
 
         assert_eq!(oauth_refresh_concurrency_from_env(), 1);
@@ -324,7 +324,7 @@ mod postgres_env_tests {
 
     #[test]
     fn oauth_refresh_max_rps_uses_safe_default_and_clamps() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_OAUTH_REFRESH_MAX_RPS", None);
         assert_eq!(oauth_refresh_max_rps_from_env(), 5);
 
@@ -339,7 +339,7 @@ mod postgres_env_tests {
 
     #[test]
     fn rate_limit_refresh_max_rps_uses_safe_default_and_clamps() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_RATE_LIMIT_REFRESH_MAX_RPS", None);
         assert_eq!(rate_limit_refresh_max_rps_from_env(), 2);
 

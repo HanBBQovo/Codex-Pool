@@ -1344,8 +1344,8 @@ mod models_probe_tests {
         }
     }
 
-    fn test_app_state_with_usage_rows(rows: Vec<crate::usage::RequestLogRow>) -> AppState {
-        let _guard = crate::test_support::ENV_LOCK.lock().expect("lock env");
+    async fn test_app_state_with_usage_rows(rows: Vec<crate::usage::RequestLogRow>) -> AppState {
+        let _guard = crate::test_support::ENV_LOCK.lock().await;
         let old_username = crate::test_support::set_env("ADMIN_USERNAME", Some("admin"));
         let old_password = crate::test_support::set_env("ADMIN_PASSWORD", Some("admin123456"));
         let old_secret =
@@ -1435,7 +1435,8 @@ mod models_probe_tests {
             estimated_cost_microusd: None,
             created_at: Utc::now(),
             event_version: 2,
-        }]);
+        }])
+        .await;
 
         let response = build_admin_models_response(&state, Vec::new(), Vec::new())
             .into_response_future()

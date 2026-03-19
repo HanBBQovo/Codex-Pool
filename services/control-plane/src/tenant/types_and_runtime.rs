@@ -202,6 +202,15 @@ enum BillingResolutionPhase {
     Capture,
 }
 
+struct BillingPricingRequestContext<'a> {
+    service_tier: Option<&'a str>,
+    api_key_id: Option<Uuid>,
+    request_kind: BillingRequestKind,
+    persisted_band: Option<BillingPricingBand>,
+    actual_input_tokens: Option<i64>,
+    phase: BillingResolutionPhase,
+}
+
 #[derive(Debug, Clone)]
 struct BillingPricingRuleRecord {
     id: Uuid,

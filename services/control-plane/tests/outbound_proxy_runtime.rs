@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use std::{env, ffi::OsString};
 
@@ -11,7 +11,7 @@ use control_plane::store::{ControlPlaneStore, InMemoryStore};
 use wiremock::matchers::any;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+static ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 #[tokio::test]
 async fn runtime_prefers_enabled_proxy_and_respects_fail_mode() {
@@ -64,7 +64,7 @@ async fn runtime_prefers_enabled_proxy_and_respects_fail_mode() {
 
 #[tokio::test]
 async fn direct_client_bypasses_ambient_http_proxy() {
-    let _env_guard = ENV_LOCK.lock().expect("env lock");
+    let _env_guard = ENV_LOCK.lock().await;
     let target = MockServer::start().await;
     Mock::given(any())
         .respond_with(ResponseTemplate::new(200).set_body_string("target"))

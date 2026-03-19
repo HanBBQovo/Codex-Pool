@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use self::snapshot::SnapshotPoller;
 use crate::auth::validator::{AuthCacheLookupResult, AuthCacheStatsSnapshot, AuthValidatorClient};
-use crate::auth::{require_api_key, ApiPrincipal};
+use crate::auth::{require_api_key, require_internal_service_token, ApiPrincipal};
 use crate::config::DataPlaneConfig;
 use crate::event::http_sink::ControlPlaneHttpEventSink;
 use crate::event::redis_sink::RedisStreamEventSink;
@@ -219,7 +219,7 @@ fn select_event_sink_kind(
 }
 
 fn build_default_event_sink(config: &DataPlaneConfig) -> anyhow::Result<Arc<dyn EventSink>> {
-    let control_plane_base_url = resolve_control_plane_base_url(&config);
+    let control_plane_base_url = resolve_control_plane_base_url(config);
     let edition = ProductEdition::from_env_var(CODEX_POOL_EDITION_ENV);
     let event_sink: Arc<dyn EventSink> = match select_event_sink_kind(
         edition,
@@ -260,6 +260,7 @@ pub async fn build_app(config: DataPlaneConfig) -> anyhow::Result<Router> {
         event_sink,
         allowed_api_keys_from_env(),
         true,
+        true,
         SnapshotPollerMode::Enabled,
     )
     .await
@@ -273,6 +274,24 @@ pub async fn build_app_without_status_routes(config: DataPlaneConfig) -> anyhow:
         config,
         event_sink,
         allowed_api_keys_from_env(),
+        false,
+        true,
+        SnapshotPollerMode::Enabled,
+    )
+    .await
+    .map(|(app, _)| app)
+}
+
+pub async fn build_app_without_status_or_internal_metrics_routes(
+    config: DataPlaneConfig,
+) -> anyhow::Result<Router> {
+    let event_sink = build_default_event_sink(&config)?;
+
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys_from_env(),
+        false,
         false,
         SnapshotPollerMode::Enabled,
     )
@@ -297,6 +316,22 @@ pub async fn build_embedded_app_with_event_sink_without_status_routes(
         event_sink,
         allowed_api_keys_from_env(),
         false,
+        true,
+        SnapshotPollerMode::Disabled,
+    )
+    .await
+}
+
+pub async fn build_embedded_app_with_event_sink_without_status_or_internal_metrics_routes(
+    config: DataPlaneConfig,
+    event_sink: Arc<dyn EventSink>,
+) -> anyhow::Result<(Router, Arc<AppState>)> {
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys_from_env(),
+        false,
+        false,
         SnapshotPollerMode::Disabled,
     )
     .await
@@ -310,6 +345,7 @@ pub async fn build_app_with_event_sink(
         config,
         event_sink,
         allowed_api_keys_from_env(),
+        true,
         true,
         SnapshotPollerMode::Enabled,
     )
@@ -326,6 +362,7 @@ pub async fn build_app_with_event_sink_without_status_routes(
         event_sink,
         allowed_api_keys_from_env(),
         false,
+        true,
         SnapshotPollerMode::Enabled,
     )
     .await
@@ -342,6 +379,7 @@ pub async fn build_app_with_event_sink_and_allowed_keys(
         event_sink,
         allowed_api_keys,
         true,
+        true,
         SnapshotPollerMode::Enabled,
     )
     .await
@@ -353,6 +391,7 @@ async fn build_app_with_options(
     event_sink: Arc<dyn EventSink>,
     allowed_api_keys: Vec<String>,
     include_status_routes: bool,
+    include_internal_metrics_route: bool,
     snapshot_poller_mode: SnapshotPollerMode,
 ) -> anyhow::Result<(Router, Arc<AppState>)> {
     let control_plane_base_url = resolve_control_plane_base_url(&config);
@@ -547,6 +586,17 @@ async fn build_app_with_options(
         .route("/api/codex/usage", get(usage_handler))
         .merge(protected_routes);
 
+    if include_internal_metrics_route {
+        let internal_metrics_routes = Router::new()
+            .route("/internal/v1/metrics", get(internal_metrics))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                require_internal_service_token,
+            ));
+
+        app = app.merge(internal_metrics_routes);
+    }
+
     if include_status_routes {
         app = app
             .route("/health", get(healthz))
@@ -558,7 +608,6 @@ async fn build_app_with_options(
         let internal_debug_routes = Router::new()
             .route("/internal/v1/auth/whoami", get(internal_auth_whoami))
             .route("/internal/v1/debug/state", get(internal_debug_state))
-            .route("/internal/v1/metrics", get(internal_metrics))
             .route(
                 "/internal/v1/debug/auth-cache",
                 get(internal_debug_auth_cache),
@@ -883,7 +932,7 @@ mod bootstrap_tests {
 
     #[tokio::test]
     async fn build_app_without_status_routes_omits_health_endpoints() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_internal_auth =
             set_env("CONTROL_PLANE_INTERNAL_AUTH_TOKEN", Some("test-internal-token"));
 
@@ -900,6 +949,19 @@ mod bootstrap_tests {
             .await
             .expect("health response");
         assert_eq!(health.status(), StatusCode::NOT_FOUND);
+
+        let metrics = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/internal/v1/metrics")
+                    .header("authorization", "Bearer test-internal-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("metrics response");
+        assert_eq!(metrics.status(), StatusCode::OK);
 
         let usage = app
             .oneshot(

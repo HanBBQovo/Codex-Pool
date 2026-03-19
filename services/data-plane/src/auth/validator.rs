@@ -60,7 +60,7 @@ impl AuthCacheEvictResult {
 
 #[derive(Debug, Clone)]
 pub enum AuthCacheLookupResult {
-    PositiveHit(ApiPrincipal),
+    PositiveHit(Box<ApiPrincipal>),
     NegativeHit,
     Miss,
 }
@@ -205,7 +205,7 @@ impl AuthValidatorClient {
     pub async fn lookup_cached_token(&self, token: &str) -> AuthCacheLookupResult {
         let cache_key = hash_api_key_token(token);
         if let Some(principal) = self.get_cached_principal(&cache_key).await {
-            return AuthCacheLookupResult::PositiveHit(principal);
+            return AuthCacheLookupResult::PositiveHit(Box::new(principal));
         }
 
         if self.is_cached_unauthorized(&cache_key).await {

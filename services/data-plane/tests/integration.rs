@@ -43,7 +43,7 @@ mod internal_metrics;
 mod liveness_api;
 #[path = "outbound_proxy_runtime.rs"]
 mod outbound_proxy_runtime;
-#[path = "rate_limit_compat.rs"]
+#[path = "cases/rate_limit_compat.rs"]
 mod rate_limit_compat;
 #[path = "readiness_api.rs"]
 mod readiness_api;

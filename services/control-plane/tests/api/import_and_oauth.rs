@@ -1468,9 +1468,10 @@ async fn admin_console_management_endpoints_work() {
         .await
         .unwrap();
     let proxies_json: Value = serde_json::from_slice(&proxies_body).unwrap();
-    assert!(proxies_json
+    assert!(proxies_json["settings"].is_object());
+    let proxy_nodes = proxies_json["nodes"]
         .as_array()
-        .is_some_and(|items| !items.is_empty()));
+        .expect("admin proxies response should include nodes array");
 
     let proxy_test_response = app
         .clone()
@@ -1489,7 +1490,14 @@ async fn admin_console_management_endpoints_work() {
         .await
         .unwrap();
     let proxy_test_json: Value = serde_json::from_slice(&proxy_test_body).unwrap();
-    assert!(proxy_test_json["tested"].as_u64().unwrap_or_default() >= 1);
+    let tested = proxy_test_json["tested"]
+        .as_u64()
+        .expect("proxy test response should include tested count");
+    let results = proxy_test_json["results"]
+        .as_array()
+        .expect("proxy test response should include results array");
+    assert_eq!(tested, proxy_nodes.len() as u64);
+    assert_eq!(results.len(), proxy_nodes.len());
 
     let create_key_response = app
         .clone()

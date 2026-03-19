@@ -1,5 +1,8 @@
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -287,6 +290,207 @@ pub struct WorkerRunStats {
     pub run_duration_ms: u64,
 }
 
+#[derive(Debug)]
+pub struct UsageWorkerRuntimeMetrics {
+    started_at_unix: AtomicU64,
+    last_update_unix: AtomicU64,
+    processed_count: AtomicU64,
+    reclaimed_count: AtomicU64,
+    fresh_read_count: AtomicU64,
+    reclaimed_message_count: AtomicU64,
+    fresh_message_count: AtomicU64,
+    malformed_acked_count: AtomicU64,
+    malformed_missing_event_count: AtomicU64,
+    malformed_invalid_json_count: AtomicU64,
+    malformed_other_count: AtomicU64,
+    malformed_raw_event_bytes_total: AtomicU64,
+    dead_letter_relay_attempt_count: AtomicU64,
+    dead_letter_relay_skipped_count: AtomicU64,
+    dead_letter_relay_success_count: AtomicU64,
+    dead_letter_relay_failed_count: AtomicU64,
+    pending_count: AtomicU64,
+    lag_count: AtomicU64,
+    lag_count_known: AtomicBool,
+    flush_count: AtomicU64,
+    ack_count: AtomicU64,
+    error_count: AtomicU64,
+    consecutive_errors: AtomicU64,
+    last_backoff_ms: AtomicU64,
+    run_duration_ms: AtomicU64,
+    buffered_count: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UsageWorkerRuntimeMetricsSnapshot {
+    pub started_at_unix: u64,
+    pub last_update_unix: u64,
+    pub processed_count: u64,
+    pub reclaimed_count: u64,
+    pub fresh_read_count: u64,
+    pub reclaimed_message_count: u64,
+    pub fresh_message_count: u64,
+    pub malformed_acked_count: u64,
+    pub malformed_missing_event_count: u64,
+    pub malformed_invalid_json_count: u64,
+    pub malformed_other_count: u64,
+    pub malformed_raw_event_bytes_total: u64,
+    pub dead_letter_relay_attempt_count: u64,
+    pub dead_letter_relay_skipped_count: u64,
+    pub dead_letter_relay_success_count: u64,
+    pub dead_letter_relay_failed_count: u64,
+    pub pending_count: u64,
+    pub lag_count: Option<u64>,
+    pub flush_count: u64,
+    pub ack_count: u64,
+    pub error_count: u64,
+    pub consecutive_errors: u32,
+    pub last_backoff_ms: u64,
+    pub run_duration_ms: u64,
+    pub buffered_count: u64,
+}
+
+impl Default for UsageWorkerRuntimeMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UsageWorkerRuntimeMetrics {
+    pub fn new() -> Self {
+        let now = unix_now_sec();
+        Self {
+            started_at_unix: AtomicU64::new(now),
+            last_update_unix: AtomicU64::new(now),
+            processed_count: AtomicU64::new(0),
+            reclaimed_count: AtomicU64::new(0),
+            fresh_read_count: AtomicU64::new(0),
+            reclaimed_message_count: AtomicU64::new(0),
+            fresh_message_count: AtomicU64::new(0),
+            malformed_acked_count: AtomicU64::new(0),
+            malformed_missing_event_count: AtomicU64::new(0),
+            malformed_invalid_json_count: AtomicU64::new(0),
+            malformed_other_count: AtomicU64::new(0),
+            malformed_raw_event_bytes_total: AtomicU64::new(0),
+            dead_letter_relay_attempt_count: AtomicU64::new(0),
+            dead_letter_relay_skipped_count: AtomicU64::new(0),
+            dead_letter_relay_success_count: AtomicU64::new(0),
+            dead_letter_relay_failed_count: AtomicU64::new(0),
+            pending_count: AtomicU64::new(0),
+            lag_count: AtomicU64::new(0),
+            lag_count_known: AtomicBool::new(false),
+            flush_count: AtomicU64::new(0),
+            ack_count: AtomicU64::new(0),
+            error_count: AtomicU64::new(0),
+            consecutive_errors: AtomicU64::new(0),
+            last_backoff_ms: AtomicU64::new(0),
+            run_duration_ms: AtomicU64::new(0),
+            buffered_count: AtomicU64::new(0),
+        }
+    }
+
+    pub fn record(&self, stats: &WorkerRunStats, buffered_count: usize) {
+        self.last_update_unix
+            .store(unix_now_sec(), Ordering::Relaxed);
+        self.processed_count
+            .store(stats.processed_count, Ordering::Relaxed);
+        self.reclaimed_count
+            .store(stats.reclaimed_count, Ordering::Relaxed);
+        self.fresh_read_count
+            .store(stats.fresh_read_count, Ordering::Relaxed);
+        self.reclaimed_message_count
+            .store(stats.reclaimed_message_count, Ordering::Relaxed);
+        self.fresh_message_count
+            .store(stats.fresh_message_count, Ordering::Relaxed);
+        self.malformed_acked_count
+            .store(stats.malformed_acked_count, Ordering::Relaxed);
+        self.malformed_missing_event_count
+            .store(stats.malformed_missing_event_count, Ordering::Relaxed);
+        self.malformed_invalid_json_count
+            .store(stats.malformed_invalid_json_count, Ordering::Relaxed);
+        self.malformed_other_count
+            .store(stats.malformed_other_count, Ordering::Relaxed);
+        self.malformed_raw_event_bytes_total
+            .store(stats.malformed_raw_event_bytes_total, Ordering::Relaxed);
+        self.dead_letter_relay_attempt_count
+            .store(stats.dead_letter_relay_attempt_count, Ordering::Relaxed);
+        self.dead_letter_relay_skipped_count
+            .store(stats.dead_letter_relay_skipped_count, Ordering::Relaxed);
+        self.dead_letter_relay_success_count
+            .store(stats.dead_letter_relay_success_count, Ordering::Relaxed);
+        self.dead_letter_relay_failed_count
+            .store(stats.dead_letter_relay_failed_count, Ordering::Relaxed);
+        self.pending_count
+            .store(stats.pending_count, Ordering::Relaxed);
+        self.flush_count.store(stats.flush_count, Ordering::Relaxed);
+        self.ack_count.store(stats.ack_count, Ordering::Relaxed);
+        self.error_count.store(stats.error_count, Ordering::Relaxed);
+        self.consecutive_errors
+            .store(u64::from(stats.consecutive_errors), Ordering::Relaxed);
+        self.last_backoff_ms
+            .store(stats.last_backoff_ms, Ordering::Relaxed);
+        self.run_duration_ms
+            .store(stats.run_duration_ms, Ordering::Relaxed);
+        self.buffered_count
+            .store(buffered_count as u64, Ordering::Relaxed);
+
+        match stats.lag_count {
+            Some(value) => {
+                self.lag_count.store(value, Ordering::Relaxed);
+                self.lag_count_known.store(true, Ordering::Relaxed);
+            }
+            None => {
+                self.lag_count.store(0, Ordering::Relaxed);
+                self.lag_count_known.store(false, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub fn snapshot(&self) -> UsageWorkerRuntimeMetricsSnapshot {
+        UsageWorkerRuntimeMetricsSnapshot {
+            started_at_unix: self.started_at_unix.load(Ordering::Relaxed),
+            last_update_unix: self.last_update_unix.load(Ordering::Relaxed),
+            processed_count: self.processed_count.load(Ordering::Relaxed),
+            reclaimed_count: self.reclaimed_count.load(Ordering::Relaxed),
+            fresh_read_count: self.fresh_read_count.load(Ordering::Relaxed),
+            reclaimed_message_count: self.reclaimed_message_count.load(Ordering::Relaxed),
+            fresh_message_count: self.fresh_message_count.load(Ordering::Relaxed),
+            malformed_acked_count: self.malformed_acked_count.load(Ordering::Relaxed),
+            malformed_missing_event_count: self
+                .malformed_missing_event_count
+                .load(Ordering::Relaxed),
+            malformed_invalid_json_count: self.malformed_invalid_json_count.load(Ordering::Relaxed),
+            malformed_other_count: self.malformed_other_count.load(Ordering::Relaxed),
+            malformed_raw_event_bytes_total: self
+                .malformed_raw_event_bytes_total
+                .load(Ordering::Relaxed),
+            dead_letter_relay_attempt_count: self
+                .dead_letter_relay_attempt_count
+                .load(Ordering::Relaxed),
+            dead_letter_relay_skipped_count: self
+                .dead_letter_relay_skipped_count
+                .load(Ordering::Relaxed),
+            dead_letter_relay_success_count: self
+                .dead_letter_relay_success_count
+                .load(Ordering::Relaxed),
+            dead_letter_relay_failed_count: self
+                .dead_letter_relay_failed_count
+                .load(Ordering::Relaxed),
+            pending_count: self.pending_count.load(Ordering::Relaxed),
+            lag_count: self
+                .lag_count_known
+                .load(Ordering::Relaxed)
+                .then(|| self.lag_count.load(Ordering::Relaxed)),
+            flush_count: self.flush_count.load(Ordering::Relaxed),
+            ack_count: self.ack_count.load(Ordering::Relaxed),
+            error_count: self.error_count.load(Ordering::Relaxed),
+            consecutive_errors: self.consecutive_errors.load(Ordering::Relaxed) as u32,
+            last_backoff_ms: self.last_backoff_ms.load(Ordering::Relaxed),
+            run_duration_ms: self.run_duration_ms.load(Ordering::Relaxed),
+            buffered_count: self.buffered_count.load(Ordering::Relaxed),
+        }
+    }
+}
+
 struct ReadMessagesResult {
     messages: Vec<StreamMessage>,
     reclaimed_count: u64,
@@ -339,6 +543,7 @@ where
     stream_reader: R,
     repo: Repo,
     config: UsageWorkerConfig,
+    runtime_metrics: Option<Arc<UsageWorkerRuntimeMetrics>>,
 }
 
 impl<R, Repo> UsageAggregationWorker<R, Repo>
@@ -355,7 +560,13 @@ where
             stream_reader,
             repo,
             config,
+            runtime_metrics: None,
         }
+    }
+
+    pub fn with_runtime_metrics(mut self, runtime_metrics: Arc<UsageWorkerRuntimeMetrics>) -> Self {
+        self.runtime_metrics = Some(runtime_metrics);
+        self
     }
 
     pub async fn run_once(&self) -> Result<()> {
@@ -389,6 +600,7 @@ where
 
         if read_result.messages.is_empty() {
             stats.run_duration_ms = duration_to_millis_u64(run_started_at.elapsed());
+            self.sync_runtime_metrics(&stats, 0);
             return Ok(stats);
         }
 
@@ -398,6 +610,7 @@ where
         self.refresh_consumer_group_backlog_snapshot(&mut stats)
             .await;
         stats.run_duration_ms = duration_to_millis_u64(run_started_at.elapsed());
+        self.sync_runtime_metrics(&stats, 0);
 
         Ok(stats)
     }
@@ -425,11 +638,13 @@ where
                     if let Err(error) = self.flush_buffered_messages(&mut buffered, &mut stats).await {
                         stats.error_count += 1;
                         self.refresh_consumer_group_backlog_snapshot(&mut stats).await;
+                        self.sync_runtime_metrics(&stats, buffered.len());
                         self.log_runtime_stats(&stats, buffered.len(), "shutdown-error");
                         return Err(error);
                     }
 
                     self.refresh_consumer_group_backlog_snapshot(&mut stats).await;
+                    self.sync_runtime_metrics(&stats, buffered.len());
                     self.log_runtime_stats(&stats, buffered.len(), "shutdown");
                     return Ok(());
                 }
@@ -444,6 +659,7 @@ where
                                 stats.consecutive_errors = 0;
                                 stats.last_backoff_ms = 0;
                                 self.refresh_consumer_group_backlog_snapshot(&mut stats).await;
+                                self.sync_runtime_metrics(&stats, buffered.len());
                                 self.maybe_log_runtime_stats(&stats, buffered.len(), &mut last_metrics_log);
                                 continue;
                             }
@@ -522,6 +738,7 @@ where
                     stats.consecutive_errors = 0;
                     stats.last_backoff_ms = 0;
                     self.refresh_consumer_group_backlog_snapshot(&mut stats).await;
+                    self.sync_runtime_metrics(&stats, buffered.len());
 
                     self.maybe_log_runtime_stats(&stats, buffered.len(), &mut last_metrics_log);
                 }
@@ -653,6 +870,7 @@ where
         let backoff = self.config.compute_backoff(*consecutive_errors);
         stats.consecutive_errors = *consecutive_errors;
         stats.last_backoff_ms = duration_to_millis_u64(backoff);
+        self.sync_runtime_metrics(stats, buffered_count);
 
         tracing::warn!(
             reason,
@@ -747,6 +965,19 @@ where
             "usage worker runtime stats"
         );
     }
+
+    fn sync_runtime_metrics(&self, stats: &WorkerRunStats, buffered_count: usize) {
+        if let Some(runtime_metrics) = self.runtime_metrics.as_ref() {
+            runtime_metrics.record(stats, buffered_count);
+        }
+    }
+}
+
+fn unix_now_sec() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 #[cfg(test)]

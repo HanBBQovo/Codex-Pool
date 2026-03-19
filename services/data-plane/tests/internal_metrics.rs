@@ -11,8 +11,6 @@ use http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 use uuid::Uuid;
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::support;
 
@@ -82,37 +80,27 @@ async fn build_test_app(
 }
 
 #[tokio::test]
-async fn internal_metrics_route_returns_404_when_debug_routes_disabled() {
-    let control_plane = MockServer::start().await;
-    let app = build_test_app(
-        false,
-        Some(format!("{}/internal/v1/auth/validate", control_plane.uri())),
-    )
-    .await;
+async fn internal_metrics_route_remains_available_when_debug_routes_disabled() {
+    let app = build_test_app(false, None).await;
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/internal/v1/metrics")
-                .header("authorization", "Bearer cp_disabled_token")
+                .header("authorization", "Bearer cp-internal-test-token")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
 async fn internal_metrics_route_requires_bearer_token() {
-    let control_plane = MockServer::start().await;
-    let app = build_test_app(
-        true,
-        Some(format!("{}/internal/v1/auth/validate", control_plane.uri())),
-    )
-    .await;
+    let app = build_test_app(false, None).await;
 
     let response = app
         .oneshot(
@@ -129,31 +117,15 @@ async fn internal_metrics_route_requires_bearer_token() {
 }
 
 #[tokio::test]
-async fn internal_metrics_route_returns_prometheus_payload_when_enabled_and_token_valid() {
-    let control_plane = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/internal/v1/auth/validate"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "tenant_id": Uuid::new_v4(),
-            "api_key_id": Uuid::new_v4(),
-            "enabled": true,
-            "cache_ttl_sec": 30
-        })))
-        .mount(&control_plane)
-        .await;
-
-    let app = build_test_app(
-        true,
-        Some(format!("{}/internal/v1/auth/validate", control_plane.uri())),
-    )
-    .await;
+async fn internal_metrics_route_returns_prometheus_payload_with_internal_token() {
+    let app = build_test_app(false, None).await;
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/internal/v1/metrics")
-                .header("authorization", "Bearer cp_metrics_valid")
+                .header("authorization", "Bearer cp-internal-test-token")
                 .body(Body::empty())
                 .unwrap(),
         )

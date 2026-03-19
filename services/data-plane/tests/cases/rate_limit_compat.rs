@@ -13,7 +13,7 @@ use uuid::Uuid;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-mod support;
+use crate::support;
 
 const OPENAI_BETA: &str = "responses_websockets=2026-02-04";
 const X_CODEX_TURN_STATE: &str = "turn-state-rate-limit";
@@ -116,7 +116,10 @@ async fn plain_api_stream_response_does_not_expose_upstream_codex_rate_limit_hea
                 .append_header("x-codex-primary-window-minutes", "300")
                 .append_header("x-codex-primary-reset-at", "1777777777")
                 .append_header("x-codex-limit-name", "Codex")
-                .append_header("x-codex-promo-message", "raw upstream promo should not leak")
+                .append_header(
+                    "x-codex-promo-message",
+                    "raw upstream promo should not leak",
+                )
                 .set_body_raw(sse_payload, "text/event-stream"),
         )
         .mount(&upstream)

@@ -95,6 +95,12 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${CONTROL_PLANE_PORT:-8090}:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8090/livez >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   data-plane:
     image: ${DATA_PLANE_IMAGE:-codex-pool-rust:local}
@@ -102,7 +108,7 @@ services:
     restart: unless-stopped
     depends_on:
       control-plane:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
@@ -119,6 +125,12 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${DATA_PLANE_PORT:-8091}:8091"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8091/livez >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   usage-worker:
     image: ${USAGE_WORKER_IMAGE:-codex-pool-rust:local}
@@ -141,16 +153,30 @@ services:
       REQUEST_LOG_CONSUMER_GROUP: ${REQUEST_LOG_CONSUMER_GROUP:-usage-worker}
       REQUEST_LOG_CONSUMER_NAME: ${REQUEST_LOG_CONSUMER_NAME:-usage-worker-1}
       USAGE_WORKER_MODE: ${USAGE_WORKER_MODE:-daemon}
+      USAGE_WORKER_METRICS_LISTEN: ${USAGE_WORKER_METRICS_LISTEN:-0.0.0.0:8092}
+      CONTROL_PLANE_INTERNAL_AUTH_TOKEN: ${CONTROL_PLANE_INTERNAL_AUTH_TOKEN:?CONTROL_PLANE_INTERNAL_AUTH_TOKEN is required}
       RUST_LOG: ${RUST_LOG:-info}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8092/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   frontend:
     image: ${FRONTEND_IMAGE:-codex-pool-frontend:local}
     restart: unless-stopped
     depends_on:
       control-plane:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-5173}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
 volumes:
   postgres18-data:

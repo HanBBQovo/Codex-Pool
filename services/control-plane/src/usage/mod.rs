@@ -3,10 +3,20 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use chrono::{DateTime, Timelike, Utc};
+use codex_pool_core::api::{
+    AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
+    HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
+    TenantUsageLeaderboardItem, UsageSummaryQueryResponse,
+};
 use codex_pool_core::events::RequestLogEvent;
 use uuid::Uuid;
 
+#[cfg(feature = "clickhouse-backend")]
 pub mod clickhouse_repo;
+#[cfg(not(feature = "clickhouse-backend"))]
+pub mod clickhouse_repo {
+    pub use super::UsageQueryRepository;
+}
 pub mod migration;
 pub mod postgres_repo;
 pub mod redis_reader;
@@ -16,6 +26,103 @@ pub mod worker;
 #[async_trait]
 pub trait UsageIngestRepository: Send + Sync {
     async fn ingest_request_log(&self, event: RequestLogEvent) -> Result<()>;
+}
+
+#[async_trait]
+pub trait UsageQueryRepository: Send + Sync {
+    async fn query_hourly_accounts(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<HourlyAccountUsagePoint>>;
+
+    async fn query_hourly_tenant_api_keys(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        tenant_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+    ) -> Result<Vec<HourlyTenantApiKeyUsagePoint>>;
+
+    async fn query_hourly_account_totals(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<HourlyUsageTotalPoint>>;
+
+    async fn query_hourly_tenant_api_key_totals(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        tenant_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+    ) -> Result<Vec<HourlyUsageTotalPoint>>;
+
+    async fn query_hourly_tenant_totals(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        tenant_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+    ) -> Result<Vec<HourlyTenantUsageTotalPoint>>;
+
+    async fn query_summary(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        tenant_id: Option<Uuid>,
+        account_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+    ) -> Result<UsageSummaryQueryResponse>;
+
+    async fn query_tenant_leaderboard(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        tenant_id: Option<Uuid>,
+    ) -> Result<Vec<TenantUsageLeaderboardItem>>;
+
+    async fn query_account_leaderboard(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<AccountUsageLeaderboardItem>>;
+
+    async fn query_tenant_scoped_account_leaderboard(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        tenant_id: Uuid,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<AccountUsageLeaderboardItem>> {
+        let _ = tenant_id;
+        self.query_account_leaderboard(start_ts, end_ts, limit, account_id)
+            .await
+    }
+
+    async fn query_api_key_leaderboard(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+        tenant_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+    ) -> Result<Vec<ApiKeyUsageLeaderboardItem>>;
+
+    async fn query_request_logs(&self, _query: RequestLogQuery) -> Result<Vec<RequestLogRow>> {
+        Err(anyhow::anyhow!("request log query is not implemented"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

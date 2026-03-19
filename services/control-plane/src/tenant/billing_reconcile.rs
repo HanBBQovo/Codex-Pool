@@ -101,14 +101,16 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
-                Some(service_tier.as_str()),
-                req.api_key_id,
-                request_kind,
-                existing_session
-                    .as_ref()
-                    .map(|record| BillingPricingBand::from_optional(Some(record.pricing_band.as_str()))),
-                None,
-                BillingResolutionPhase::Authorize,
+                BillingPricingRequestContext {
+                    service_tier: Some(service_tier.as_str()),
+                    api_key_id: req.api_key_id,
+                    request_kind,
+                    persisted_band: existing_session.as_ref().map(|record| {
+                        BillingPricingBand::from_optional(Some(record.pricing_band.as_str()))
+                    }),
+                    actual_input_tokens: None,
+                    phase: BillingResolutionPhase::Authorize,
+                },
             )
             .await?;
 
@@ -285,15 +287,19 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
-                Some(effective_service_tier.as_str()),
-                req.api_key_id,
-                request_kind,
-                existing_session
-                    .as_ref()
-                    .map(|record| BillingPricingBand::from_optional(Some(record.pricing_band.as_str())))
-                    .or_else(|| authorization_pricing_band(authorization.meta_json.as_ref())),
-                Some(input_tokens),
-                BillingResolutionPhase::Capture,
+                BillingPricingRequestContext {
+                    service_tier: Some(effective_service_tier.as_str()),
+                    api_key_id: req.api_key_id,
+                    request_kind,
+                    persisted_band: existing_session
+                        .as_ref()
+                        .map(|record| {
+                            BillingPricingBand::from_optional(Some(record.pricing_band.as_str()))
+                        })
+                        .or_else(|| authorization_pricing_band(authorization.meta_json.as_ref())),
+                    actual_input_tokens: Some(input_tokens),
+                    phase: BillingResolutionPhase::Capture,
+                },
             )
             .await?;
         let pricing = pricing_decision.pricing.clone();
@@ -816,12 +822,14 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
-                Some(effective_service_tier.as_str()),
-                authorization.api_key_id,
-                request_kind,
-                authorization_pricing_band(authorization.meta_json.as_ref()),
-                Some(normalized_input_tokens),
-                BillingResolutionPhase::Capture,
+                BillingPricingRequestContext {
+                    service_tier: Some(effective_service_tier.as_str()),
+                    api_key_id: authorization.api_key_id,
+                    request_kind,
+                    persisted_band: authorization_pricing_band(authorization.meta_json.as_ref()),
+                    actual_input_tokens: Some(normalized_input_tokens),
+                    phase: BillingResolutionPhase::Capture,
+                },
             )
             .await?;
         let pricing = pricing_decision.pricing.clone();

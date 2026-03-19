@@ -560,7 +560,7 @@ async fn internal_resolve_upstream_error_template(
                 .upstream_error_learning_runtime
                 .generate_for_locales(
                     &crate::upstream_error_learning::context_from_resolve_request(&req),
-                    &[req.target_locale.clone()],
+                    std::slice::from_ref(&req.target_locale),
                     true,
                 )
                 .await;
@@ -606,7 +606,7 @@ async fn internal_resolve_upstream_error_template(
             .upstream_error_learning_runtime
             .generate_for_locales(
                 &crate::upstream_error_learning::context_from_resolve_request(&req),
-                &[req.target_locale.clone()],
+                std::slice::from_ref(&req.target_locale),
                 false,
             )
             .await;

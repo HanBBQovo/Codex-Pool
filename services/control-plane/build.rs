@@ -33,7 +33,7 @@ fn main() {
 
 fn run_frontend_build(frontend_root: &Path) -> io::Result<()> {
     if !frontend_root.join("node_modules").is_dir() {
-        run_npm(frontend_root, &["ci"])?;
+        run_npm(frontend_root, &["ci", "--legacy-peer-deps"])?;
     }
 
     run_npm(frontend_root, &["run", "build"])

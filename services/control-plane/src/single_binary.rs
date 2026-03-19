@@ -11,7 +11,8 @@ use axum::response::IntoResponse;
 use axum::Router;
 use codex_pool_core::events::RequestLogEvent;
 use data_plane::app::{
-    build_app_without_status_routes, build_embedded_app_with_event_sink_without_status_routes,
+    build_app_without_status_or_internal_metrics_routes,
+    build_embedded_app_with_event_sink_without_status_or_internal_metrics_routes,
 };
 use data_plane::config::DataPlaneConfig;
 use data_plane::event::EventSink;
@@ -67,7 +68,8 @@ pub fn apply_single_binary_runtime_env_defaults(
 
 pub async fn merge_single_binary_app(control_plane_app: Router) -> Result<Router> {
     let data_plane_config = DataPlaneConfig::from_env()?;
-    let data_plane_app = build_app_without_status_routes(data_plane_config).await?;
+    let data_plane_app =
+        build_app_without_status_or_internal_metrics_routes(data_plane_config).await?;
     Ok(control_plane_app
         .merge(data_plane_app)
         .fallback(single_binary_frontend_fallback))
@@ -83,8 +85,11 @@ pub async fn merge_personal_single_binary_app(
         repo: usage_ingest_repo,
     });
     let (data_plane_app, data_plane_state) =
-        build_embedded_app_with_event_sink_without_status_routes(data_plane_config, event_sink)
-            .await?;
+        build_embedded_app_with_event_sink_without_status_or_internal_metrics_routes(
+            data_plane_config,
+            event_sink,
+        )
+        .await?;
     let initial_snapshot = sqlite_store.snapshot().await?;
     data_plane_state.apply_snapshot(initial_snapshot);
 
@@ -303,7 +308,7 @@ mod tests {
 
     #[tokio::test]
     async fn merged_personal_app_tracks_store_updates_without_http_snapshot_poller() {
-        let _guard = crate::test_support::ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::ENV_LOCK.lock().await;
         let old_admin_username = crate::test_support::set_env("ADMIN_USERNAME", Some("admin"));
         let old_admin_password = crate::test_support::set_env("ADMIN_PASSWORD", Some("password"));
         let old_admin_secret =
@@ -408,7 +413,7 @@ mod tests {
     }
 
     async fn assert_merged_single_binary_app(edition: &str) {
-        let _guard = crate::test_support::ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::ENV_LOCK.lock().await;
         let missing_config = std::env::temp_dir().join(format!(
             "codex-pool-personal-missing-{}.toml",
             uuid::Uuid::new_v4()

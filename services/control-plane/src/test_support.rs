@@ -1,6 +1,7 @@
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 
-pub(crate) static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+pub(crate) static ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 pub(crate) fn set_env(key: &str, value: Option<&str>) -> Option<String> {
     let previous = std::env::var(key).ok();

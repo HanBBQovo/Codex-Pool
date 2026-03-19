@@ -11,6 +11,8 @@ mod audit_logs_api;
 mod dashboard_logs_billing_e2e;
 #[path = "i18n_error_locale.rs"]
 mod i18n_error_locale;
+#[path = "internal_metrics_api.rs"]
+mod internal_metrics_api;
 #[path = "liveness_api.rs"]
 mod liveness_api;
 #[path = "outbound_proxy_runtime.rs"]

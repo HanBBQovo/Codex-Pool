@@ -396,7 +396,6 @@ fn bundle_to_sqlite_state(bundle: &ControlPlaneMigrationBundle) -> SqlitePersist
         account_health_states: bundle
             .account_health_states
             .iter()
-            .cloned()
             .map(|item| {
                 (
                     item.account_id,
@@ -1265,7 +1264,7 @@ impl postgres::PostgresStore {
             .bind(&node.last_test_status)
             .bind(
                 node.last_latency_ms
-                    .map(|value| i64::try_from(value))
+                    .map(i64::try_from)
                     .transpose()
                     .context("outbound proxy last_latency_ms overflow")?,
             )

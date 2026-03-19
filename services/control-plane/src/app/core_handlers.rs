@@ -1,4 +1,5 @@
 include!("core_handlers/base.rs");
+include!("core_handlers/internal_metrics.rs");
 include!("core_handlers/account_access.rs");
 include!("core_handlers/account_tenant_admin.rs");
 include!("core_handlers/model_routing_admin.rs");

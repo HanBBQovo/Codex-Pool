@@ -2704,7 +2704,7 @@ fn pick_alive_ring_candidate_from_ids(
     model: Option<&str>,
 ) -> Option<UpstreamAccount> {
     for account_id in candidate_ids {
-        if excluded_account_ids.contains(&account_id) {
+        if excluded_account_ids.contains(account_id) {
             continue;
         }
         if !state.router.account_matches_model_route(*account_id, model) {

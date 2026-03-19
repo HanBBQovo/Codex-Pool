@@ -457,27 +457,24 @@ impl TenantAuthService {
     async fn resolve_model_pricing_for_request(
         &self,
         model: &str,
-        service_tier: Option<&str>,
-        api_key_id: Option<Uuid>,
-        request_kind: BillingRequestKind,
-        persisted_band: Option<BillingPricingBand>,
-        actual_input_tokens: Option<i64>,
-        phase: BillingResolutionPhase,
+        context: BillingPricingRequestContext<'_>,
     ) -> Result<BillingPricingDecision> {
-        let base = self.resolve_base_model_pricing(model, service_tier).await?;
+        let base = self
+            .resolve_base_model_pricing(model, context.service_tier)
+            .await?;
         let rules = self
-            .list_matching_billing_pricing_rules(model, request_kind)
+            .list_matching_billing_pricing_rules(model, context.request_kind)
             .await?;
         let mut resolved = resolve_effective_pricing_for_band(
             &base,
             &rules,
             model,
-            request_kind,
-            persisted_band,
-            actual_input_tokens,
-            phase,
+            context.request_kind,
+            context.persisted_band,
+            context.actual_input_tokens,
+            context.phase,
         );
-        if let Some(api_key_id) = api_key_id {
+        if let Some(api_key_id) = context.api_key_id {
             resolved.pricing = self
                 .resolve_api_key_group_pricing(api_key_id, model, &resolved.pricing)
                 .await?

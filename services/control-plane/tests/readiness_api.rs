@@ -8,7 +8,7 @@ use control_plane::app::{
     DEFAULT_AUTH_VALIDATE_CACHE_TTL_SEC,
 };
 use control_plane::store::{ControlPlaneStore, InMemoryStore};
-use control_plane::usage::clickhouse_repo::{ClickHouseUsageRepo, UsageQueryRepository};
+use control_plane::usage::UsageQueryRepository;
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -57,14 +57,7 @@ async fn readyz_returns_200_and_reports_usage_repo_unavailable_when_usage_repo_i
 #[tokio::test]
 async fn readyz_returns_200_and_reports_usage_repo_available_when_usage_repo_is_configured() {
     let store: Arc<dyn ControlPlaneStore> = Arc::new(InMemoryStore::default());
-    let usage_repo: Arc<dyn UsageQueryRepository> = Arc::new(ClickHouseUsageRepo::new(
-        "http://127.0.0.1:8123",
-        "default",
-        "usage_account_hourly",
-        "usage_tenant_api_key_hourly",
-        "usage_tenant_account_hourly",
-        "request_log_events",
-    ));
+    let usage_repo = support::available_usage_repo();
     let app = build_app_with_store_ttl_and_usage_repo(store, 99, Some(usage_repo));
 
     let response = app

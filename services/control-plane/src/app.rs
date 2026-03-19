@@ -25,17 +25,16 @@ use codex_pool_core::api::{
     OAuthImportItemStatus, OAuthImportJobActionResponse, OAuthImportJobItemsResponse,
     OAuthImportJobSummary, OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary,
     OAuthRateLimitSnapshot, OAuthRateLimitWindow, PolicyResponse, ProductEdition,
-    ResolveUpstreamErrorTemplateRequest,
-    ResolveUpstreamErrorTemplateResponse, RoutingPlanVersionsResponse, RoutingProfilesResponse,
-    SystemCapabilitiesResponse, TenantUsageLeaderboardResponse,
-    UpdateAiErrorLearningSettingsRequest, UpdateBuiltinErrorTemplateRequest,
-    UpdateModelRoutingSettingsRequest, UpdateUpstreamErrorTemplateRequest,
-    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
-    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest, UpstreamErrorTemplateResponse,
-    UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse, UsageHourlyTrendsResponse,
-    UsageLeaderboardOverviewResponse, UsageQueryResponse, UsageSummaryQueryResponse,
-    ValidateApiKeyRequest, ValidateApiKeyResponse, ValidateOAuthRefreshTokenRequest,
-    ValidateOAuthRefreshTokenResponse,
+    ResolveUpstreamErrorTemplateRequest, ResolveUpstreamErrorTemplateResponse,
+    RoutingPlanVersionsResponse, RoutingProfilesResponse, SystemCapabilitiesResponse,
+    TenantUsageLeaderboardResponse, UpdateAiErrorLearningSettingsRequest,
+    UpdateBuiltinErrorTemplateRequest, UpdateModelRoutingSettingsRequest,
+    UpdateUpstreamErrorTemplateRequest, UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest,
+    UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
+    UpstreamErrorTemplateResponse, UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse,
+    UsageHourlyTrendsResponse, UsageLeaderboardOverviewResponse, UsageQueryResponse,
+    UsageSummaryQueryResponse, ValidateApiKeyRequest, ValidateApiKeyResponse,
+    ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
 };
 use codex_pool_core::model::{
     ApiKey, BuiltinErrorTemplateKind, BuiltinErrorTemplateOverrideRecord,
@@ -747,7 +746,7 @@ mod app_env_tests {
 
     #[test]
     fn resolve_internal_auth_token_fails_when_missing() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old_internal = set_env("CONTROL_PLANE_INTERNAL_AUTH_TOKEN", None);
 
         let result = resolve_internal_auth_token();
@@ -758,7 +757,7 @@ mod app_env_tests {
 
     #[test]
     fn oauth_import_multipart_max_bytes_has_safe_default() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_OAUTH_IMPORT_MULTIPART_MAX_MB", None);
 
         assert_eq!(oauth_import_multipart_max_bytes(), 256 * 1024 * 1024);
@@ -771,7 +770,7 @@ mod app_env_tests {
 
     #[test]
     fn oauth_import_multipart_max_bytes_clamps_invalid_low_values() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_OAUTH_IMPORT_MULTIPART_MAX_MB", Some("0"));
 
         assert_eq!(oauth_import_multipart_max_bytes(), 8 * 1024 * 1024);
@@ -784,7 +783,7 @@ mod app_env_tests {
 
     #[test]
     fn import_job_concurrency_uses_safe_default() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_IMPORT_JOB_CONCURRENCY", None);
 
         assert_eq!(import_job_concurrency_from_env(), 8);
@@ -794,7 +793,7 @@ mod app_env_tests {
 
     #[test]
     fn import_job_concurrency_clamps_invalid_high_values() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_IMPORT_JOB_CONCURRENCY", Some("999"));
 
         assert_eq!(import_job_concurrency_from_env(), 64);
@@ -804,7 +803,7 @@ mod app_env_tests {
 
     #[test]
     fn import_job_claim_batch_size_uses_safe_default() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_IMPORT_JOB_CLAIM_BATCH_SIZE", None);
 
         assert_eq!(import_job_claim_batch_size_from_env(), 200);
@@ -814,7 +813,7 @@ mod app_env_tests {
 
     #[test]
     fn import_job_claim_batch_size_clamps_invalid_high_values() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("CONTROL_PLANE_IMPORT_JOB_CLAIM_BATCH_SIZE", Some("99999"));
 
         assert_eq!(import_job_claim_batch_size_from_env(), 2000);
@@ -977,7 +976,7 @@ mod capabilities_tests {
 
     #[tokio::test]
     async fn system_capabilities_endpoint_defaults_to_business() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env(None);
 
         let response = build_test_app()
@@ -1007,7 +1006,7 @@ mod capabilities_tests {
 
     #[tokio::test]
     async fn system_capabilities_endpoint_reflects_personal_edition() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env(Some("personal"));
 
         let response = build_test_app()
@@ -1038,7 +1037,7 @@ mod capabilities_tests {
 
     #[tokio::test]
     async fn system_capabilities_endpoint_reflects_team_edition() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env(Some("team"));
 
         let response = build_test_app()
@@ -1069,7 +1068,7 @@ mod capabilities_tests {
 
     #[tokio::test]
     async fn personal_edition_hides_tenant_and_credit_routes() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env(Some("personal"));
         let tenant_id = Uuid::new_v4();
 
@@ -1099,7 +1098,7 @@ mod capabilities_tests {
 
     #[tokio::test]
     async fn team_edition_keeps_login_but_hides_self_service_and_credit_routes() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env(Some("team"));
         let tenant_id = Uuid::new_v4();
 
@@ -1154,7 +1153,7 @@ mod capabilities_tests {
 
     #[tokio::test]
     async fn business_edition_keeps_internal_billing_routes_registered() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env(Some("business"));
 
         let authorize_response = build_test_app()
@@ -1169,7 +1168,7 @@ mod capabilities_tests {
 
     #[tokio::test]
     async fn personal_edition_models_and_pricing_routes_use_sqlite_repo_instead_of_503() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env(Some("personal"));
         let app = build_personal_models_test_app().await;
         let access_token = login_and_get_admin_token(&app).await;
@@ -1317,7 +1316,7 @@ mod usage_ingest_tests {
 
     #[tokio::test]
     async fn internal_usage_ingest_returns_service_unavailable_without_repo() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env();
         let payload = serde_json::to_string(&request_log_event()).expect("serialize event");
 
@@ -1347,7 +1346,7 @@ mod usage_ingest_tests {
 
     #[tokio::test]
     async fn internal_usage_ingest_persists_event_when_authorized() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env();
         let repo = RecordingUsageIngestRepo::default();
         let payload_event = request_log_event();
@@ -1651,7 +1650,7 @@ mod usage_cost_surface_tests {
 
     #[tokio::test]
     async fn admin_usage_summary_exposes_estimated_cost_fields() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env();
         let app = build_test_app(Arc::new(CostSurfaceUsageRepo {
             rows: vec![sample_request_log_row()],
@@ -1689,7 +1688,7 @@ mod usage_cost_surface_tests {
 
     #[tokio::test]
     async fn admin_request_logs_expose_estimated_cost_per_item() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.lock().await;
         let old_values = configure_test_env();
         let app = build_test_app(Arc::new(CostSurfaceUsageRepo {
             rows: vec![sample_request_log_row()],
@@ -2002,8 +2001,35 @@ pub fn build_app_with_store_ttl_usage_repos_import_store_admin_auth_and_sqlite_r
     let outbound_proxy_runtime =
         Arc::new(crate::outbound_proxy_runtime::OutboundProxyRuntime::new());
     outbound_proxy_runtime.attach_store(store.clone());
-    build_app_with_store_ttl_usage_repos_import_store_admin_auth_and_sqlite_repo_and_proxy_runtime(
+    build_app_with_store_and_services(
         store,
+        AppBuildServices {
+            auth_validate_cache_ttl_sec,
+            usage_repo,
+            usage_ingest_repo,
+            import_job_store,
+            admin_auth,
+            sqlite_usage_repo,
+            outbound_proxy_runtime,
+        },
+    )
+}
+
+pub struct AppBuildServices {
+    pub auth_validate_cache_ttl_sec: u64,
+    pub usage_repo: Option<Arc<dyn UsageQueryRepository>>,
+    pub usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
+    pub import_job_store: Arc<dyn OAuthImportJobStore>,
+    pub admin_auth: AdminAuthService,
+    pub sqlite_usage_repo: Option<Arc<SqliteUsageRepo>>,
+    pub outbound_proxy_runtime: Arc<crate::outbound_proxy_runtime::OutboundProxyRuntime>,
+}
+
+pub fn build_app_with_store_and_services(
+    store: Arc<dyn ControlPlaneStore>,
+    services: AppBuildServices,
+) -> Router {
+    let AppBuildServices {
         auth_validate_cache_ttl_sec,
         usage_repo,
         usage_ingest_repo,
@@ -2011,19 +2037,7 @@ pub fn build_app_with_store_ttl_usage_repos_import_store_admin_auth_and_sqlite_r
         admin_auth,
         sqlite_usage_repo,
         outbound_proxy_runtime,
-    )
-}
-
-pub fn build_app_with_store_ttl_usage_repos_import_store_admin_auth_and_sqlite_repo_and_proxy_runtime(
-    store: Arc<dyn ControlPlaneStore>,
-    auth_validate_cache_ttl_sec: u64,
-    usage_repo: Option<Arc<dyn UsageQueryRepository>>,
-    usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
-    import_job_store: Arc<dyn OAuthImportJobStore>,
-    admin_auth: AdminAuthService,
-    sqlite_usage_repo: Option<Arc<SqliteUsageRepo>>,
-    outbound_proxy_runtime: Arc<crate::outbound_proxy_runtime::OutboundProxyRuntime>,
-) -> Router {
+    } = services;
     let import_job_manager = OAuthImportJobManager::new(
         store.clone(),
         import_job_store,
@@ -2084,6 +2098,7 @@ pub fn build_app_with_store_ttl_usage_repos_import_store_admin_auth_and_sqlite_r
         .route("/health", get(health))
         .route("/livez", get(livez))
         .route("/readyz", get(readyz))
+        .route("/internal/v1/metrics", get(internal_metrics))
         .route("/api/v1/system/capabilities", get(system_capabilities))
         .route("/api/v1/api-keys", post(create_api_key).get(list_api_keys))
         .route(

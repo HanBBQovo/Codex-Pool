@@ -6,28 +6,38 @@ license.workspace = true
 authors.workspace = true
 autotests = false
 
+[features]
+default = []
+clickhouse-backend = ["dep:clickhouse"]
+
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
 
 [[bin]]
 name = "codex-pool-personal"
-path = "src/main.rs"
+path = "src/bin/codex-pool-personal.rs"
 
 [[bin]]
 name = "codex-pool-team"
-path = "src/main.rs"
+path = "src/bin/codex-pool-team.rs"
 
 [[bin]]
 name = "codex-pool-business"
 path = "src/main.rs"
+required-features = ["clickhouse-backend"]
+
+[[bin]]
+name = "usage-worker"
+path = "src/bin/usage-worker.rs"
+required-features = ["clickhouse-backend"]
 
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 chrono.workspace = true
-clickhouse = "0.14"
+clickhouse = { version = "0.14", default-features = false, optional = true }
 codex-pool-core = { path = "../../crates/codex-pool-core" }
 data-plane = { path = "../data-plane" }
 reqwest.workspace = true

@@ -492,11 +492,8 @@ pub fn shrink_package_to_tenant(
         .iter()
         .cloned()
         .map(|mut item| {
-            item.rows = item
-                .rows
-                .into_iter()
-                .filter(|row| archive_row_matches_tenant(row, tenant_id))
-                .collect();
+            item.rows
+                .retain(|row| archive_row_matches_tenant(row, tenant_id));
             item.count = item.rows.len() as u64;
             item
         })

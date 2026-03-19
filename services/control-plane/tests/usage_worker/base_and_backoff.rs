@@ -8,6 +8,7 @@ use codex_pool_core::events::RequestLogEvent;
 use control_plane::usage::worker::{
     ConsumerGroupBacklog, RequestLogStreamReader, StreamMessage, StreamReadResult,
     UsageAggregationRepository, UsageAggregationWorker, UsageWorkerConfig,
+    UsageWorkerRuntimeMetrics,
 };
 use control_plane::usage::{
     HourlyAccountUsageRow, HourlyTenantAccountUsageRow, HourlyTenantApiKeyUsageRow, RequestLogRow,

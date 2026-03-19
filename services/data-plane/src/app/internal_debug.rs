@@ -121,16 +121,19 @@ async fn internal_debug_lookup_auth_cache(
     let cached_principal_total = auth_validator.cached_principal_total().await;
 
     Ok(axum::Json(match cache_lookup_result {
-        AuthCacheLookupResult::PositiveHit(principal) => InternalDebugAuthCacheLookupResponse {
-            auth_validator_enabled: true,
-            hit: true,
-            cached_negative: false,
-            lookup_status: "positive_hit".to_string(),
-            tenant_id: principal.tenant_id,
-            api_key_id: principal.api_key_id,
-            enabled: Some(principal.enabled),
-            cached_principal_total,
-        },
+        AuthCacheLookupResult::PositiveHit(principal) => {
+            let principal = *principal;
+            InternalDebugAuthCacheLookupResponse {
+                auth_validator_enabled: true,
+                hit: true,
+                cached_negative: false,
+                lookup_status: "positive_hit".to_string(),
+                tenant_id: principal.tenant_id,
+                api_key_id: principal.api_key_id,
+                enabled: Some(principal.enabled),
+                cached_principal_total,
+            }
+        }
         AuthCacheLookupResult::NegativeHit => InternalDebugAuthCacheLookupResponse {
             auth_validator_enabled: true,
             hit: false,
@@ -375,7 +378,7 @@ mod tests {
 
     #[test]
     fn build_app_fails_when_internal_auth_token_missing() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old_internal = set_env("CONTROL_PLANE_INTERNAL_AUTH_TOKEN", None);
 
         let runtime = tokio::runtime::Runtime::new().expect("create runtime");
@@ -387,7 +390,7 @@ mod tests {
 
     #[test]
     fn max_request_body_bytes_defaults_and_clamps() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old = set_env("DATA_PLANE_MAX_REQUEST_BODY_BYTES", None);
         assert_eq!(max_request_body_bytes_from_env(), 10 * 1024 * 1024);
 

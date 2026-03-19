@@ -930,8 +930,7 @@ impl SqliteUsageRepo {
                 .context("failed to clear sqlite openai catalog")?
                 .rows_affected() as usize
         } else {
-            let placeholders = std::iter::repeat("?")
-                .take(items.len())
+            let placeholders = std::iter::repeat_n("?", items.len())
                 .collect::<Vec<_>>()
                 .join(", ");
             let delete_sql =

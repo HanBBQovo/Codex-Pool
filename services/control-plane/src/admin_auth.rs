@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn from_env_fails_when_admin_username_missing() {
-        let _guard = ENV_LOCK.lock().expect("lock env");
+        let _guard = ENV_LOCK.blocking_lock();
         let old_username = set_env("ADMIN_USERNAME", None);
         let old_password = set_env("ADMIN_PASSWORD", Some("test-password"));
         let old_secret = set_env("ADMIN_JWT_SECRET", Some("test-jwt-secret"));

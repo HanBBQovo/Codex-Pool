@@ -306,14 +306,19 @@ async fn forwards_headers_and_zstd_body_for_v1_responses() {
 #[tokio::test]
 async fn maps_x_session_id_to_session_id_when_missing() {
     let upstream = MockServer::start().await;
+    let sse_payload = concat!(
+        "event: response.created\n",
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x_session\",\"status\":\"in_progress\"}}\n\n",
+        "event: response.completed\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x_session\",\"status\":\"completed\"}}\n\n",
+        "data: [DONE]\n\n",
+    );
 
     Mock::given(method("POST"))
         .and(path("/v1/responses"))
         .and(header("authorization", "Bearer upstream-token"))
         .and(header("chatgpt-account-id", "acct_123"))
-        .and(header("x-session-id", "x-session-xyz"))
-        .and(header("session_id", "x-session-xyz"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_payload, "text/event-stream"))
         .mount(&upstream)
         .await;
 
@@ -333,6 +338,36 @@ async fn maps_x_session_id_to_session_id_when_missing() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(content_type.contains("text/event-stream"));
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body_text = String::from_utf8_lossy(&body);
+    assert!(body_text.contains("response.created"));
+    assert!(body_text.contains("[DONE]"));
+
+    let received = upstream.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1);
+    let request = &received[0];
+    assert_eq!(
+        request
+            .headers
+            .get("x-session-id")
+            .and_then(|value| value.to_str().ok()),
+        Some("x-session-xyz")
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("session_id")
+            .and_then(|value| value.to_str().ok()),
+        Some("x-session-xyz")
+    );
 }
 
 #[tokio::test]

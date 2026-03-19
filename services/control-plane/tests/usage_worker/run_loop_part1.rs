@@ -132,6 +132,42 @@ async fn run_once_with_stats_reports_extended_counts() {
 }
 
 #[tokio::test]
+async fn runtime_metrics_snapshot_tracks_latest_worker_stats() {
+    let account_id = Uuid::new_v4();
+    let read_message = StreamMessage {
+        message_id: "1708260000000-13".to_string(),
+        event: sample_event(
+            account_id,
+            Utc.with_ymd_and_hms(2026, 2, 18, 14, 29, 17).unwrap(),
+        ),
+        tenant_id: None,
+        api_key_id: None,
+    };
+
+    let reader = RecordingStreamReader::with_responses(vec![], vec![read_message]).with_backlog(
+        ConsumerGroupBacklog {
+            pending_count: 4,
+            lag_count: Some(9),
+        },
+    );
+    let repo = RecordingRepo::default();
+    let runtime_metrics = Arc::new(UsageWorkerRuntimeMetrics::new());
+    let worker = UsageAggregationWorker::new(reader, repo).with_runtime_metrics(runtime_metrics.clone());
+
+    let stats = worker.run_once_with_stats().await.unwrap();
+    let snapshot = runtime_metrics.snapshot();
+
+    assert_eq!(snapshot.processed_count, stats.processed_count);
+    assert_eq!(snapshot.pending_count, 4);
+    assert_eq!(snapshot.lag_count, Some(9));
+    assert_eq!(snapshot.ack_count, stats.ack_count);
+    assert_eq!(snapshot.flush_count, stats.flush_count);
+    assert_eq!(snapshot.error_count, 0);
+    assert_eq!(snapshot.buffered_count, 0);
+    assert!(snapshot.last_update_unix >= snapshot.started_at_unix);
+}
+
+#[tokio::test]
 async fn run_once_with_stats_counts_malformed_acked_when_all_messages_are_malformed() {
     let reader = RecordingStreamReader::with_read_results(
         stream_read_result_with_reason_breakdown(Vec::new(), 2, 1, 1, 0),
@@ -361,4 +397,3 @@ async fn run_once_with_stats_reports_consumer_group_backlog_snapshot() {
     assert_eq!(stats.last_backoff_ms, 0);
     assert_eq!(stats.consecutive_errors, 0);
 }
-

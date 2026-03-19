@@ -86,6 +86,30 @@ pub async fn require_api_key(
     authorize_with_local_mode(req, next, &state, None).await
 }
 
+pub async fn require_internal_service_token(
+    State(state): State<Arc<AppState>>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, Response> {
+    let token = extract_bearer(req.headers()).ok_or_else(|| {
+        auth_error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "missing or invalid bearer token",
+        )
+    })?;
+
+    if token != state.control_plane_internal_auth_token.as_ref() {
+        return Err(auth_error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "internal bearer token is unauthorized",
+        ));
+    }
+
+    Ok(next.run(req).await)
+}
+
 async fn authorize_with_local_mode(
     mut req: Request<Body>,
     next: Next,
@@ -147,7 +171,9 @@ fn is_fail_open_eligible(error: &anyhow::Error) -> bool {
 
 fn extract_bearer(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(AUTHORIZATION)?.to_str().ok()?;
-    let token = raw.strip_prefix("Bearer ")?;
+    let token = raw
+        .strip_prefix("Bearer ")
+        .or_else(|| raw.strip_prefix("bearer "))?;
     if token.is_empty() {
         return None;
     }

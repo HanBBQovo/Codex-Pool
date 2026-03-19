@@ -1133,9 +1133,7 @@ fn maybe_rewrite_upstream_ws_rate_limit_message(
         return None;
     }
 
-    let Some(rewritten) = build_rewritten_ws_rate_limit_event(&value) else {
-        return None;
-    };
+    let rewritten = build_rewritten_ws_rate_limit_event(&value)?;
     Some(TungsteniteMessage::Text(rewritten.to_string().into()))
 }
 
