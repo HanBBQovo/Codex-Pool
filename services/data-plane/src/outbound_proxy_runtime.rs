@@ -662,3 +662,13 @@ async fn connect_tls_proxy(
         .await
         .map_err(io::Error::other)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn rustls_client_config_builder_works_without_manual_provider_installation() {
+        let _config = tokio_rustls::rustls::ClientConfig::builder()
+            .with_root_certificates(tokio_rustls::rustls::RootCertStore::empty())
+            .with_no_client_auth();
+    }
+}
