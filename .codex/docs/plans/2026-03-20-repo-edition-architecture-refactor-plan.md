@@ -134,6 +134,38 @@
   - 未解决风险
 - 每个 worker 的实现必须原子提交，提交信息遵循仓库提交规范。
 
+### Validation Budget
+
+这轮重构先遵守“验证预算”而不是“谁改完谁全跑”：
+
+- `L0`：只读调研
+  - 仅限 `explore_worker`
+  - 禁止任何 `cargo check` / `cargo test` / `npm build`
+- `L1`：worker 最小验证
+  - 仅限实现 worker
+  - 每个 worker 在单次交付前最多只允许运行 1 个 Rust 验证命令，且必须是最窄的那个
+  - 允许的形式只有两类：
+    - 一个精确测试目标
+    - 一个精确 `cargo check`
+  - 明确禁止：
+    - `cargo test --workspace`
+    - `cargo check --workspace`
+    - 单个 worker 连跑多 edition build matrix
+    - 与自身写入范围无关的集成测试
+- `L2`：integration worktree 包级验证
+  - 只由主集成人执行
+  - 在每个合并阶段末尾串行跑相关包级验证
+- `L3`：最终验收矩阵
+  - 只由主集成人执行
+  - 只在阶段完成或最终验收时运行
+  - 必须串行，禁止与其他 worker 的编译/测试并发
+
+实施约束：
+
+- 任何 worker 如果发现自己需要第二个 Rust 验证命令，必须先停止并把原因汇报给主集成人，由主集成人决定是否提升到 `L2`。
+- `frontend` 相关验证只允许 `contracts-docs` worker 运行，而且默认只跑最小相关测试，不跑全量前端构建；全量 `frontend build` 留到 `L3`。
+- 重编译成本最高的命令统一收归 integration worktree；worker 负责“把改动做对”，主集成人负责“把矩阵跑全”。
+
 ### Merge Order
 
 必须按以下顺序集成，不能并行乱合：
