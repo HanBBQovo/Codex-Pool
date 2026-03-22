@@ -146,12 +146,28 @@ async fn test_app_with_failover_wait_and_control_plane(
     request_failover_wait_ms: u64,
     control_plane_base_url: Option<String>,
 ) -> Router {
+    test_app_with_failover_wait_and_control_plane_with_debug(
+        accounts,
+        request_failover_wait_ms,
+        control_plane_base_url,
+        false,
+    )
+    .await
+}
+
+async fn test_app_with_failover_wait_and_control_plane_with_debug(
+    accounts: Vec<UpstreamAccount>,
+    request_failover_wait_ms: u64,
+    control_plane_base_url: Option<String>,
+    enable_internal_debug_routes: bool,
+) -> Router {
     test_app_with_failover_wait_and_control_plane_with_preauth(
         accounts,
         request_failover_wait_ms,
         control_plane_base_url,
         true,
         10_000,
+        enable_internal_debug_routes,
     )
     .await
 }
@@ -162,6 +178,7 @@ async fn test_app_with_failover_wait_and_control_plane_with_preauth(
     control_plane_base_url: Option<String>,
     billing_dynamic_preauth_enabled: bool,
     billing_preauth_unit_price_microcredits: i64,
+    enable_internal_debug_routes: bool,
 ) -> Router {
     test_app_with_failover_wait_and_control_plane_with_preauth_limits(
         accounts,
@@ -173,6 +190,7 @@ async fn test_app_with_failover_wait_and_control_plane_with_preauth(
         1_000,
         1_000_000_000_000,
         billing_preauth_unit_price_microcredits,
+        enable_internal_debug_routes,
     )
     .await
 }
@@ -188,6 +206,7 @@ async fn test_app_with_failover_wait_and_control_plane_with_preauth_limits(
     billing_preauth_min_microcredits: i64,
     billing_preauth_max_microcredits: i64,
     billing_preauth_unit_price_microcredits: i64,
+    enable_internal_debug_routes: bool,
 ) -> Router {
     let auth_validate_url = control_plane_base_url
         .as_deref()
@@ -220,7 +239,7 @@ async fn test_app_with_failover_wait_and_control_plane_with_preauth_limits(
         auth_validate_cache_ttl_sec: 30,
         auth_validate_negative_cache_ttl_sec: 5,
         auth_fail_open: false,
-        enable_internal_debug_routes: false,
+        enable_internal_debug_routes,
     };
     build_app_with_event_sink(cfg, Arc::new(NoopEventSink))
         .await
@@ -1587,6 +1606,7 @@ async fn dynamic_preauth_reserve_is_used_for_authorize_payload() {
         Some(control_plane.uri()),
         true,
         10_000,
+        false,
     )
     .await;
 
@@ -1685,6 +1705,7 @@ async fn preauth_falls_back_to_fixed_reserve_when_dynamic_disabled() {
         Some(control_plane.uri()),
         false,
         10_000,
+        false,
     )
     .await;
 
@@ -1781,6 +1802,7 @@ async fn free_priced_request_hits_minimum_preauth_reserve() {
         1_000,
         1_000_000_000_000,
         0,
+        false,
     )
     .await;
 
@@ -1877,6 +1899,7 @@ async fn high_price_request_reserve_is_clamped_by_maximum_limit() {
         1_000,
         3_000_000,
         10_000_000_000,
+        false,
     )
     .await;
 
@@ -1980,6 +2003,7 @@ async fn model_pricing_endpoint_drives_dynamic_preauth_and_cache_reuse() {
         Some(control_plane.uri()),
         true,
         10_000,
+        false,
     )
     .await;
 
@@ -2692,6 +2716,129 @@ async fn auth_expired_single_account_recovers_immediately_after_fallback_refresh
     let payload: Value =
         serde_json::from_slice(&second.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(payload["account"], "recovered");
+}
+
+#[tokio::test]
+async fn auth_expired_cross_account_recovery_clears_unhealthy_after_async_refresh_success() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": {
+                "message": "Your access token could not be refreshed because you have since logged out."
+            }
+        })))
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let account_a = test_account(upstream_a.uri(), "token-a");
+    let account_b = test_account(upstream_b.uri(), "token-b");
+    let account_a_id = account_a.id;
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/internal/v1/upstream-accounts/{}/oauth/refresh",
+            account_a_id
+        )))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(30))
+                .set_body_json(json!({
+                    "last_refresh_status": "failed",
+                    "effective_enabled": true,
+                    "has_access_token_fallback": true,
+                    "refresh_credential_state": "terminal_invalid"
+                })),
+        )
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane_with_debug(
+        vec![account_a, account_b],
+        150,
+        Some(control_plane.uri()),
+        true,
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let payload: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(payload["account"], "b");
+
+    let mut unhealthy_payload = None;
+    for _ in 0..30 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/internal/v1/debug/accounts/unhealthy")
+                    .header("authorization", "Bearer cp_identity")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        let contains_account_a = payload["accounts"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .any(|item| item["id"] == account_a_id.to_string())
+            })
+            .unwrap_or(false);
+        if !contains_account_a {
+            unhealthy_payload = Some(payload);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let unhealthy_payload =
+        unhealthy_payload.expect("account A should be cleared from unhealthy list");
+    assert!(unhealthy_payload["accounts"]
+        .as_array()
+        .map(|items| items
+            .iter()
+            .all(|item| item["id"] != account_a_id.to_string()))
+        .unwrap_or(true));
 }
 
 #[tokio::test]

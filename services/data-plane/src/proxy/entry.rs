@@ -1167,19 +1167,12 @@ pub async fn proxy_handler(
                     account.id,
                     retryable,
                 );
+                let deferred_recovery_context = if should_failover_across_accounts {
+                    upstream_error_context.clone()
+                } else {
+                    None
+                };
                 let recovery_outcome = if should_failover_across_accounts {
-                    if upstream_error_context.is_some() {
-                        let state_for_recovery = state.clone();
-                        let recovery_context = upstream_error_context.clone();
-                        tokio::spawn(async move {
-                            let _ = apply_recovery_action(
-                                state_for_recovery.as_ref(),
-                                account.id,
-                                recovery_context.as_ref(),
-                            )
-                            .await;
-                        });
-                    }
                     ProxyRecoveryOutcome::NotApplied
                 } else {
                     apply_recovery_action(&state, account.id, upstream_error_context.as_ref()).await
@@ -1203,6 +1196,13 @@ pub async fn proxy_handler(
                             .delete_sticky_account_id(sticky_key)
                             .await;
                     }
+                }
+                if should_failover_across_accounts {
+                    spawn_post_failover_recovery(
+                        state.clone(),
+                        account.id,
+                        deferred_recovery_context,
+                    );
                 }
                 record_invalid_request_guard_failure(
                     &state,
@@ -1799,19 +1799,12 @@ pub async fn proxy_handler(
                 account.id,
                 retryable,
             );
+            let deferred_recovery_context = if should_failover_across_accounts {
+                upstream_error_context.clone()
+            } else {
+                None
+            };
             let recovery_outcome = if should_failover_across_accounts {
-                if upstream_error_context.is_some() {
-                    let state_for_recovery = state.clone();
-                    let recovery_context = upstream_error_context.clone();
-                    tokio::spawn(async move {
-                        let _ = apply_recovery_action(
-                            state_for_recovery.as_ref(),
-                            account.id,
-                            recovery_context.as_ref(),
-                        )
-                        .await;
-                    });
-                }
                 ProxyRecoveryOutcome::NotApplied
             } else {
                 apply_recovery_action(&state, account.id, upstream_error_context.as_ref()).await
@@ -1835,6 +1828,13 @@ pub async fn proxy_handler(
                         .delete_sticky_account_id(sticky_key)
                         .await;
                 }
+            }
+            if should_failover_across_accounts {
+                spawn_post_failover_recovery(
+                    state.clone(),
+                    account.id,
+                    deferred_recovery_context,
+                );
             }
             record_invalid_request_guard_failure(
                 &state,
@@ -2413,19 +2413,12 @@ pub async fn proxy_websocket_handler(
                         account.id,
                         can_cross_account_failover,
                     );
+                    let deferred_recovery_context = if should_failover_across_accounts {
+                        error_context.clone()
+                    } else {
+                        None
+                    };
                     let recovery_outcome = if should_failover_across_accounts {
-                        if error_context.is_some() {
-                            let state_for_recovery = state.clone();
-                            let recovery_context = error_context.clone();
-                            tokio::spawn(async move {
-                                let _ = apply_recovery_action(
-                                    state_for_recovery.as_ref(),
-                                    account.id,
-                                    recovery_context.as_ref(),
-                                )
-                                .await;
-                            });
-                        }
                         ProxyRecoveryOutcome::NotApplied
                     } else {
                         apply_recovery_action(&state, account.id, error_context.as_ref()).await
@@ -2450,6 +2443,13 @@ pub async fn proxy_websocket_handler(
                             ejection_ttl,
                         )
                         .await;
+                    }
+                    if should_failover_across_accounts {
+                        spawn_post_failover_recovery(
+                            state.clone(),
+                            account.id,
+                            deferred_recovery_context,
+                        );
                     }
 
                     if should_failover_across_accounts {

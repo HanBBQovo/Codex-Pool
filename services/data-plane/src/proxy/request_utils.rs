@@ -1611,6 +1611,24 @@ async fn apply_recovery_action(
     }
 }
 
+fn spawn_post_failover_recovery(
+    state: Arc<AppState>,
+    account_id: Uuid,
+    error_context: Option<UpstreamErrorContext>,
+) {
+    let Some(error_context) = error_context else {
+        return;
+    };
+    tokio::spawn(async move {
+        let recovery_outcome =
+            apply_recovery_action(state.as_ref(), account_id, Some(&error_context)).await;
+        if matches!(recovery_outcome, ProxyRecoveryOutcome::RotateSucceeded) {
+            state.router.clear_unhealthy(account_id);
+            let _ = state.routing_cache.clear_unhealthy(account_id).await;
+        }
+    });
+}
+
 async fn trigger_internal_oauth_refresh(state: &AppState, account_id: Uuid) -> bool {
     let Some(base_url) = state.control_plane_base_url.as_deref() else {
         return false;
