@@ -26,12 +26,12 @@ use crate::contracts::{
     CreateTenantRequest, CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
     OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary,
     OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
-    OAuthRefreshStatus, SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
-    UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
-    UpdateOutboundProxyPoolSettingsRequest, UpsertModelRoutingPolicyRequest,
-    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
-    UpsertStreamRetryPolicyRequest, ValidateOAuthRefreshTokenRequest,
-    ValidateOAuthRefreshTokenResponse,
+    OAuthRefreshStatus, RefreshCredentialState, SessionCredentialKind,
+    UpdateAiErrorLearningSettingsRequest, UpdateModelRoutingSettingsRequest,
+    UpdateOutboundProxyNodeRequest, UpdateOutboundProxyPoolSettingsRequest,
+    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
+    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
+    ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
 };
 use crate::crypto::CredentialCipher;
 use crate::oauth::{OAuthTokenClient, OAuthTokenInfo, OpenAiOAuthClient};
@@ -256,6 +256,31 @@ fn is_fatal_refresh_error_code(error_code: Option<&str>) -> bool {
             | "missing_client_id"
             | "unauthorized_client"
     )
+}
+
+fn has_refresh_credential(auth_provider: &UpstreamAuthProvider) -> bool {
+    matches!(auth_provider, UpstreamAuthProvider::OAuthRefreshToken)
+}
+
+fn refresh_credential_state(
+    auth_provider: &UpstreamAuthProvider,
+    last_refresh_status: &OAuthRefreshStatus,
+    refresh_reused_detected: bool,
+    last_refresh_error_code: Option<&str>,
+) -> Option<RefreshCredentialState> {
+    if !has_refresh_credential(auth_provider) {
+        return None;
+    }
+
+    if refresh_reused_detected || is_fatal_refresh_error_code(last_refresh_error_code) {
+        return Some(RefreshCredentialState::TerminalInvalid);
+    }
+
+    if matches!(last_refresh_status, OAuthRefreshStatus::Failed) {
+        return Some(RefreshCredentialState::TransientFailed);
+    }
+
+    Some(RefreshCredentialState::Healthy)
 }
 
 fn is_blocking_rate_limit_error(

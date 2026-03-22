@@ -546,6 +546,16 @@ impl InMemoryStore {
             rate_limit_cache.last_error.as_deref(),
             now_guard,
         );
+        let has_refresh_credential = has_refresh_credential(&provider);
+        let refresh_credential_state = refresh_credential_state(
+            &provider,
+            &last_refresh_status,
+            credential
+                .map(|item| item.refresh_reused_detected)
+                .unwrap_or(false),
+            credential
+                .and_then(|item| item.last_refresh_error_code.as_deref()),
+        );
         let next_refresh_at = match provider {
             UpstreamAuthProvider::OAuthRefreshToken => token_expires_at
                 .map(|expires_at| expires_at - Duration::seconds(OAUTH_REFRESH_WINDOW_SEC)),
@@ -563,6 +573,9 @@ impl InMemoryStore {
             account_id: account.id,
             auth_provider: provider,
             credential_kind,
+            has_refresh_credential,
+            has_access_token_fallback: false,
+            refresh_credential_state,
             email: session_profile.and_then(|item| item.email.clone()),
             oauth_subject: session_profile.and_then(|item| item.oauth_subject.clone()),
             oauth_identity_provider: session_profile

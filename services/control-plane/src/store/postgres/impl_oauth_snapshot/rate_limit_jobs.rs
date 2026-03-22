@@ -231,6 +231,13 @@ impl PostgresStore {
             rate_limits_last_error.as_deref(),
             now,
         );
+        let has_refresh_credential = has_refresh_credential(&auth_provider);
+        let refresh_credential_state = refresh_credential_state(
+            &auth_provider,
+            &last_refresh_status,
+            refresh_reused_detected,
+            last_refresh_error_code.as_deref(),
+        );
         let next_refresh_at = match &auth_provider {
             UpstreamAuthProvider::OAuthRefreshToken => {
                 token_expires_at.map(|expires_at| expires_at - Duration::seconds(OAUTH_REFRESH_WINDOW_SEC))
@@ -253,6 +260,9 @@ impl PostgresStore {
             account_id,
             auth_provider,
             credential_kind,
+            has_refresh_credential,
+            has_access_token_fallback: false,
+            refresh_credential_state,
             email: row.try_get::<Option<String>, _>("email")?,
             oauth_subject: row.try_get::<Option<String>, _>("oauth_subject")?,
             oauth_identity_provider: row
@@ -537,6 +547,14 @@ impl PostgresStore {
                     account_id: item.account_id,
                     auth_provider: item.auth_provider,
                     credential_kind: item.credential_kind,
+                    has_refresh_credential: has_refresh_credential(&item.auth_provider),
+                    has_access_token_fallback: false,
+                    refresh_credential_state: refresh_credential_state(
+                        &item.auth_provider,
+                        &item.last_refresh_status,
+                        item.refresh_reused_detected,
+                        item.last_refresh_error_code.as_deref(),
+                    ),
                     email: item.email,
                     oauth_subject: item.oauth_subject,
                     oauth_identity_provider: item.oauth_identity_provider,

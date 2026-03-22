@@ -13,7 +13,7 @@ use control_plane::contracts::{
     CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
     OAuthAccountStatusResponse, OAuthRateLimitRefreshJobStatus,
     OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
-    OAuthRefreshStatus, SessionCredentialKind,
+    OAuthRefreshStatus, RefreshCredentialState, SessionCredentialKind,
 };
 use control_plane::crypto::CredentialCipher;
 use control_plane::oauth::{
@@ -268,6 +268,9 @@ fn sample_cached_oauth_status(account_id: Uuid) -> OAuthAccountStatusResponse {
         account_id,
         auth_provider: UpstreamAuthProvider::OAuthRefreshToken,
         credential_kind: Some(SessionCredentialKind::RefreshRotatable),
+        has_refresh_credential: true,
+        has_access_token_fallback: false,
+        refresh_credential_state: Some(RefreshCredentialState::Healthy),
         email: Some("cached@example.com".to_string()),
         oauth_subject: None,
         oauth_identity_provider: None,

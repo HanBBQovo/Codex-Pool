@@ -161,12 +161,26 @@ pub enum SessionCredentialKind {
     OneTimeAccessToken,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshCredentialState {
+    Healthy,
+    TransientFailed,
+    TerminalInvalid,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthAccountStatusResponse {
     pub account_id: Uuid,
     pub auth_provider: UpstreamAuthProvider,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credential_kind: Option<SessionCredentialKind>,
+    #[serde(default)]
+    pub has_refresh_credential: bool,
+    #[serde(default)]
+    pub has_access_token_fallback: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_credential_state: Option<RefreshCredentialState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

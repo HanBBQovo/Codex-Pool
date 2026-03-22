@@ -771,7 +771,10 @@ fn refresh_token_sha256(token: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ControlPlaneStore, InMemoryStore, UpsertOneTimeSessionAccountRequest};
+    use super::{
+        ControlPlaneStore, InMemoryStore, OAuthCredentialRecord,
+        UpsertOneTimeSessionAccountRequest,
+    };
     use crate::crypto::CredentialCipher;
     use crate::oauth::{OAuthTokenClient, OAuthTokenInfo};
     use async_trait::async_trait;
@@ -780,10 +783,12 @@ mod tests {
     use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
         ImportOAuthRefreshTokenRequest, OAuthRateLimitRefreshJobStatus,
-        OAuthRateLimitSnapshot, OAuthRateLimitWindow, UpsertModelRoutingPolicyRequest,
-        UpsertRoutingProfileRequest,
+        OAuthRateLimitSnapshot, OAuthRateLimitWindow, RefreshCredentialState,
+        SessionCredentialKind, UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
     };
-    use codex_pool_core::model::{RoutingProfileSelector, UpstreamMode};
+    use codex_pool_core::model::{
+        RoutingProfileSelector, UpstreamAuthProvider, UpstreamMode,
+    };
     use serde_json::json;
     use std::sync::Arc;
 
@@ -916,6 +921,23 @@ mod tests {
                     "id": "grp_demo",
                     "name": "Demo Group",
                 })]),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct TerminalRefreshFailureOAuthTokenClient;
+
+    #[async_trait]
+    impl OAuthTokenClient for TerminalRefreshFailureOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            _refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            Err(crate::oauth::OAuthTokenClientError::InvalidRefreshToken {
+                code: crate::oauth::OAuthRefreshErrorCode::InvalidRefreshToken,
+                message: "refresh token is invalid".to_string(),
             })
         }
     }
@@ -1161,6 +1183,160 @@ mod tests {
         );
         assert_eq!(status.organizations.as_ref().map(Vec::len), Some(1));
         assert_eq!(status.groups.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn in_memory_oauth_status_reports_refresh_credential_capabilities() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([13_u8; 32]),
+        )
+        .unwrap();
+        let store = InMemoryStore::new_with_oauth(Arc::new(StaticOAuthTokenClient), Some(cipher));
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-refresh-state".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-refresh-state".to_string(),
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let status = store.oauth_account_status(account.id).await.unwrap();
+
+        assert_eq!(
+            status.credential_kind,
+            Some(SessionCredentialKind::RefreshRotatable)
+        );
+        assert!(status.has_refresh_credential);
+        assert!(!status.has_access_token_fallback);
+        assert_eq!(
+            status.refresh_credential_state,
+            Some(RefreshCredentialState::Healthy)
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_one_time_status_reports_access_only_capabilities() {
+        let store = InMemoryStore::default();
+
+        let account = store
+            .upsert_one_time_session_account(UpsertOneTimeSessionAccountRequest {
+                label: "one-time-refresh-state".to_string(),
+                mode: UpstreamMode::CodexOauth,
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                access_token: "one-time-token".to_string(),
+                chatgpt_account_id: Some("acct-one-time".to_string()),
+                enabled: Some(true),
+                priority: Some(100),
+                token_expires_at: Some(Utc::now() + Duration::hours(1)),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap()
+            .account;
+
+        let status = store.oauth_account_status(account.id).await.unwrap();
+
+        assert_eq!(
+            status.credential_kind,
+            Some(SessionCredentialKind::OneTimeAccessToken)
+        );
+        assert!(!status.has_refresh_credential);
+        assert!(!status.has_access_token_fallback);
+        assert_eq!(status.refresh_credential_state, None);
+    }
+
+    #[tokio::test]
+    async fn in_memory_oauth_status_marks_terminal_refresh_failure() {
+        let healthy_cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([14_u8; 32]),
+        )
+        .unwrap();
+        let healthy_store =
+            InMemoryStore::new_with_oauth(Arc::new(StaticOAuthTokenClient), Some(healthy_cipher));
+
+        let account = healthy_store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-terminal-refresh-state".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-terminal-refresh-state".to_string(),
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let failing_cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([15_u8; 32]),
+        )
+        .unwrap();
+        let failing_store = InMemoryStore::new_with_oauth(
+            Arc::new(TerminalRefreshFailureOAuthTokenClient),
+            Some(failing_cipher),
+        );
+        failing_store
+            .accounts
+            .write()
+            .unwrap()
+            .insert(account.id, account.clone());
+        failing_store
+            .account_auth_providers
+            .write()
+            .unwrap()
+            .insert(account.id, UpstreamAuthProvider::OAuthRefreshToken);
+        let cipher = failing_store.require_credential_cipher().unwrap();
+        failing_store
+            .oauth_credentials
+            .write()
+            .unwrap()
+            .insert(
+                account.id,
+                OAuthCredentialRecord::from_token_info(
+                    cipher,
+                    &OAuthTokenInfo {
+                        access_token: "access-1".to_string(),
+                        refresh_token: "refresh-1".to_string(),
+                        expires_at: Utc::now() + Duration::seconds(10),
+                        token_type: Some("Bearer".to_string()),
+                        scope: Some("model.read".to_string()),
+                        email: Some("demo@example.com".to_string()),
+                        oauth_subject: Some("auth0|demo".to_string()),
+                        oauth_identity_provider: Some("google-oauth2".to_string()),
+                        email_verified: Some(true),
+                        chatgpt_account_id: Some("acct_demo".to_string()),
+                        chatgpt_user_id: Some("user_demo".to_string()),
+                        chatgpt_plan_type: Some("pro".to_string()),
+                        chatgpt_subscription_active_start: None,
+                        chatgpt_subscription_active_until: None,
+                        chatgpt_subscription_last_checked: None,
+                        chatgpt_account_user_id: Some("acct_user_demo".to_string()),
+                        chatgpt_compute_residency: Some("us".to_string()),
+                        workspace_name: None,
+                        organizations: None,
+                        groups: None,
+                    },
+                )
+                .unwrap(),
+            );
+
+        let status = failing_store.refresh_oauth_account(account.id).await.unwrap();
+
+        assert_eq!(
+            status.refresh_credential_state,
+            Some(RefreshCredentialState::TerminalInvalid)
+        );
     }
 
     #[tokio::test]
