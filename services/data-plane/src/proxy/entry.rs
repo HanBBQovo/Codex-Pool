@@ -95,6 +95,12 @@ enum ProxyRecoveryOutcome {
 #[derive(Debug, Deserialize)]
 struct InternalOAuthRefreshPayload {
     last_refresh_status: String,
+    #[serde(default)]
+    effective_enabled: bool,
+    #[serde(default)]
+    has_access_token_fallback: bool,
+    #[serde(default)]
+    refresh_credential_state: Option<String>,
 }
 
 #[derive(Debug, Default)]

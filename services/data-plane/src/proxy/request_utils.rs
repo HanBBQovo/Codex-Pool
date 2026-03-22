@@ -828,16 +828,20 @@ fn should_cross_account_failover(
     if !state.enable_request_failover || !retryable {
         return false;
     }
-    if Instant::now() < failover_deadline {
-        return true;
-    }
-    has_untried_cross_account_candidate(
+    let has_candidate = has_untried_cross_account_candidate(
         state,
         model,
         sticky_key,
         tried_account_ids,
         current_account_id,
-    )
+    );
+    if !has_candidate {
+        return false;
+    }
+    if Instant::now() < failover_deadline {
+        return true;
+    }
+    has_candidate
 }
 
 fn record_same_account_retry(state: &AppState) {
@@ -1267,7 +1271,10 @@ fn ejection_ttl_for_response(
             )),
             _ => Some(auth_expired_ejection_ttl(base_ejection_ttl)),
         },
-        UpstreamErrorClass::AuthExpired => Some(auth_expired_ejection_ttl(base_ejection_ttl)),
+        UpstreamErrorClass::AuthExpired => match recovery_outcome {
+            ProxyRecoveryOutcome::RotateSucceeded => None,
+            _ => Some(auth_expired_ejection_ttl(base_ejection_ttl)),
+        },
         UpstreamErrorClass::AccountDeactivated => Some(base_ejection_ttl),
         UpstreamErrorClass::QuotaExhausted => Some(quota_exhausted_ejection_ttl(context)),
         UpstreamErrorClass::RateLimited => {
@@ -1641,7 +1648,14 @@ async fn trigger_internal_oauth_refresh(state: &AppState, account_id: Uuid) -> b
             return false;
         }
     };
+    oauth_refresh_recovery_succeeded(&payload)
+}
+
+fn oauth_refresh_recovery_succeeded(payload: &InternalOAuthRefreshPayload) -> bool {
     payload.last_refresh_status == "ok"
+        || (payload.effective_enabled
+            && payload.has_access_token_fallback
+            && payload.refresh_credential_state.as_deref() == Some("terminal_invalid"))
 }
 
 async fn trigger_internal_disable_account(state: &AppState, account_id: Uuid) -> bool {
@@ -2374,14 +2388,16 @@ struct UsageTokens {
 mod request_utils_tests {
     use super::{
         build_upstream_error_context, classify_upstream_error, decide_upstream_error,
-        maybe_adapt_openai_responses_request_for_codex_profile, parse_request_policy_context,
-        LearnedTemplateResolution, RetryScope, UpstreamErrorClass, UpstreamErrorContext,
-        UpstreamErrorSource,
+        ejection_ttl_for_response, maybe_adapt_openai_responses_request_for_codex_profile,
+        oauth_refresh_recovery_succeeded, parse_request_policy_context,
+        InternalOAuthRefreshPayload, LearnedTemplateResolution, ProxyRecoveryOutcome,
+        RetryScope, UpstreamErrorClass, UpstreamErrorContext, UpstreamErrorSource,
     };
     use codex_pool_core::model::{UpstreamErrorAction, UpstreamErrorRetryScope, UpstreamMode};
     use http::{HeaderMap, HeaderValue, StatusCode};
     use serde_json::json;
     use std::io::Cursor;
+    use std::time::Duration;
 
     #[test]
     fn classifies_unknown_403_as_non_retryable_client() {
@@ -2411,6 +2427,44 @@ mod request_utils_tests {
             Some("Failed to extract accountId from token"),
         );
         assert_eq!(class, UpstreamErrorClass::AuthExpired);
+    }
+
+    #[test]
+    fn oauth_refresh_recovery_succeeds_for_terminal_invalid_fallback_payload() {
+        let payload = InternalOAuthRefreshPayload {
+            last_refresh_status: "failed".to_string(),
+            effective_enabled: true,
+            has_access_token_fallback: true,
+            refresh_credential_state: Some("terminal_invalid".to_string()),
+        };
+
+        assert!(oauth_refresh_recovery_succeeded(&payload));
+    }
+
+    #[test]
+    fn auth_expired_recovery_success_skips_ejection_ttl() {
+        let error_context = UpstreamErrorContext {
+            upstream_status: StatusCode::UNAUTHORIZED,
+            status: StatusCode::UNAUTHORIZED,
+            class: UpstreamErrorClass::AuthExpired,
+            error_code: Some("auth_expired".to_string()),
+            error_message: Some("expired".to_string()),
+            raw_error: None,
+            retry_after: None,
+            upstream_request_id: None,
+            learned_resolution: None,
+        };
+
+        assert_eq!(
+            ejection_ttl_for_response(
+                StatusCode::UNAUTHORIZED,
+                Duration::from_secs(30),
+                false,
+                Some(&error_context),
+                ProxyRecoveryOutcome::RotateSucceeded,
+            ),
+            None
+        );
     }
 
     #[test]

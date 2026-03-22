@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{convert::Infallible, net::SocketAddr};
@@ -2582,6 +2583,115 @@ async fn stream_prelude_auth_error_event_maps_to_consistent_error_envelope() {
         payload["error"]["message"],
         "upstream account authentication expired; retry later with another account"
     );
+}
+
+#[tokio::test]
+async fn auth_expired_single_account_recovers_immediately_after_fallback_refresh_success() {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let upstream_router = {
+        let attempts = attempts.clone();
+        Router::new().route(
+            "/v1/responses",
+            post(move || {
+                let attempts = attempts.clone();
+                async move {
+                    let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                    if attempt == 0 {
+                        (
+                            StatusCode::UNAUTHORIZED,
+                            [(CONTENT_TYPE, "application/json")],
+                            Body::from(
+                                json!({
+                                    "error": {
+                                        "message": "Your access token could not be refreshed because you have since logged out."
+                                    }
+                                })
+                                .to_string(),
+                            ),
+                        )
+                    } else {
+                        (
+                            StatusCode::OK,
+                            [(CONTENT_TYPE, "application/json")],
+                            Body::from(json!({"account": "recovered"}).to_string()),
+                        )
+                    }
+                }
+            }),
+        )
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr: SocketAddr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, upstream_router).await.unwrap();
+    });
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let account = test_account(format!("http://{}", addr), "token-a");
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/internal/v1/upstream-accounts/{}/oauth/refresh",
+            account.id
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "last_refresh_status": "failed",
+            "effective_enabled": true,
+            "has_access_token_fallback": true,
+            "refresh_credential_state": "terminal_invalid"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane(
+        vec![account],
+        150,
+        Some(control_plane.uri()),
+    )
+    .await;
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::UNAUTHORIZED);
+
+    let second = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let payload: Value =
+        serde_json::from_slice(&second.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(payload["account"], "recovered");
 }
 
 #[tokio::test]
