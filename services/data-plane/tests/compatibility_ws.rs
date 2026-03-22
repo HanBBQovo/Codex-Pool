@@ -3003,6 +3003,82 @@ async fn ws_session_does_not_rotate_on_previous_response_not_found_error() {
 }
 
 #[tokio::test]
+async fn ws_connection_limit_reconnects_same_account_and_retries_request() {
+    let upstream_base = spawn_ws_scripted_upstream(vec![
+        vec![json!({
+            "type": "error",
+            "request_id": "req-1",
+            "error": {
+                "code": "websocket_connection_limit_reached",
+                "message": "Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue."
+            }
+        })],
+        vec![
+            json!({
+                "type": "response.created",
+                "response": { "id": "resp-reconnected", "model": "gpt-5.4" }
+            }),
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp-reconnected",
+                    "model": "gpt-5.4",
+                    "usage": { "input_tokens": 4, "output_tokens": 2 }
+                }
+            }),
+        ],
+    ])
+    .await;
+
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    ws_client
+        .send(Message::Text(
+            json!({
+                "type": "response.create",
+                "request_id": "req-1",
+                "response": { "model": "gpt-5.4" }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let (first, second) = tokio::time::timeout(Duration::from_secs(2), async {
+        let first = ws_client.next().await.unwrap().unwrap();
+        let second = ws_client.next().await.unwrap().unwrap();
+        (first, second)
+    })
+    .await
+    .expect("request should be replayed after same-account websocket reconnect");
+
+    let first_text = match first {
+        Message::Text(text) => text.to_string(),
+        other => panic!("expected first text message, got {other:?}"),
+    };
+    let second_text = match second {
+        Message::Text(text) => text.to_string(),
+        other => panic!("expected second text message, got {other:?}"),
+    };
+
+    let first_payload: Value = serde_json::from_str(&first_text).unwrap();
+    let second_payload: Value = serde_json::from_str(&second_text).unwrap();
+    assert_eq!(first_payload["type"], "response.created");
+    assert_eq!(second_payload["type"], "response.completed");
+    assert_eq!(second_payload["response"]["id"], "resp-reconnected");
+
+    ws_client.close(None).await.unwrap();
+}
+
+#[tokio::test]
 async fn stream_failover_reauthorizes_and_attributes_final_event_to_second_account() {
     let first_upstream = MockServer::start().await;
     Mock::given(method("POST"))

@@ -562,6 +562,23 @@ fn decide_upstream_error(
     let recovery_action = recovery_action_for_upstream_error_code(context.error_code.as_deref())
         .or_else(|| recovery_action_for_upstream_error_class(context.class));
 
+    if matches!(source, UpstreamErrorSource::WsPrelude)
+        && matches!(
+            context.error_code.as_deref(),
+            Some("websocket_connection_limit_reached")
+        )
+    {
+        return build_upstream_error_decision(
+            RetryScope::SameAccount,
+            false,
+            false,
+            "websocket_connection_limit_reached",
+            "upstream websocket connection hit its lifetime limit",
+            recovery_action,
+            "ws_connection_limit_same_account_reconnect",
+        );
+    }
+
     if let Some(learned) = context.learned_resolution.as_ref() {
         let retry_scope = match learned.action {
             UpstreamErrorAction::RetrySameAccount => RetryScope::SameAccount,
@@ -2509,7 +2526,7 @@ mod request_utils_tests {
     }
 
     #[test]
-    fn ws_connection_limit_reached_does_not_trigger_failover() {
+    fn ws_connection_limit_reached_triggers_same_account_retry() {
         let headers = HeaderMap::new();
         let context = build_upstream_error_context(
             StatusCode::BAD_REQUEST,
@@ -2519,10 +2536,10 @@ mod request_utils_tests {
         .expect("ws connection-limit payload should build context");
         let decision = decide_upstream_error(UpstreamErrorSource::WsPrelude, Some(&context));
 
-        assert_eq!(decision.retry_scope, RetryScope::None);
+        assert_eq!(decision.retry_scope, RetryScope::SameAccount);
         assert!(!decision.allow_cross_account_failover);
-        assert!(decision.track_invalid_request);
-        assert_eq!(decision.outward_code, "upstream_request_failed");
+        assert!(!decision.track_invalid_request);
+        assert_eq!(decision.outward_code, "websocket_connection_limit_reached");
     }
 
     #[test]

@@ -802,77 +802,124 @@ async fn proxy_websocket_streams(
                 }
 
                 if let Some(error_context) = failover_error_context.as_ref() {
-                    if should_rotate_ws_session_on_error(error_context) {
-                        let original_tracked = match parsed_upstream_value.as_ref() {
-                            Some(value) => tracker.find_retryable_request(value),
-                            None => tracker.latest_unstarted_request(),
-                        };
-                        if let Some(original_tracked) = original_tracked {
-                            let recovery_outcome = apply_recovery_action(
-                                state.as_ref(),
-                                ws_usage_context.account_id,
-                                Some(error_context),
-                            )
-                            .await;
-                            let ejection_ttl = ejection_ttl_for_response(
-                                error_context.status,
-                                state.account_ejection_ttl,
-                                false,
-                                Some(error_context),
-                                recovery_outcome,
-                            )
-                            .unwrap_or(state.account_ejection_ttl);
-                            mark_account_unhealthy_and_clear_sticky(
-                                &state,
-                                ws_usage_context.account_id,
-                                ws_usage_context.sticky_key.as_deref(),
-                                ejection_ttl,
-                            )
-                            .await;
+                    match ws_retry_scope_on_error(error_context) {
+                        RetryScope::SameAccount | RetryScope::CrossAccount => {
+                            let original_tracked = match parsed_upstream_value.as_ref() {
+                                Some(value) => tracker.find_retryable_request(value),
+                                None => tracker.latest_unstarted_request(),
+                            };
+                            if let Some(original_tracked) = original_tracked {
+                                let next_upstream = match ws_retry_scope_on_error(error_context) {
+                                    RetryScope::SameAccount => {
+                                        connect_same_account_upstream_for_ws_session(
+                                            &state,
+                                            &ws_usage_context,
+                                        )
+                                        .await
+                                        .map(|socket| (ws_usage_context.account_id, socket))
+                                    }
+                                    RetryScope::CrossAccount => {
+                                        let recovery_outcome = apply_recovery_action(
+                                            state.as_ref(),
+                                            ws_usage_context.account_id,
+                                            Some(error_context),
+                                        )
+                                        .await;
+                                        let ejection_ttl = ejection_ttl_for_response(
+                                            error_context.status,
+                                            state.account_ejection_ttl,
+                                            false,
+                                            Some(error_context),
+                                            recovery_outcome,
+                                        )
+                                        .unwrap_or(state.account_ejection_ttl);
+                                        mark_account_unhealthy_and_clear_sticky(
+                                            &state,
+                                            ws_usage_context.account_id,
+                                            ws_usage_context.sticky_key.as_deref(),
+                                            ejection_ttl,
+                                        )
+                                        .await;
 
-                            let mut excluded_account_ids = HashSet::new();
-                            excluded_account_ids.insert(ws_usage_context.account_id);
-                            if let Some((next_account, next_socket)) =
-                                connect_failover_upstream_for_ws_session(
-                                    &state,
-                                    &ws_usage_context,
-                                    original_tracked.seed.model.as_deref(),
-                                    &excluded_account_ids,
-                                )
-                                .await
-                            {
-                                if let Some(mut retried_tracked) =
-                                    build_retried_ws_tracked_request(
-                                        &state,
-                                        &ws_usage_context,
-                                        next_account.id,
-                                        &original_tracked,
-                                    )
-                                    .await
-                                {
-                                    if !retried_tracked.replay_request_texts.is_empty() {
-                                        let (mut new_upstream_sender, new_upstream_receiver) =
-                                            next_socket.split();
-                                        let mut replay_succeeded = true;
-                                        for request_text in retried_tracked.replay_request_texts.clone() {
-                                            if new_upstream_sender
-                                                .send(TungsteniteMessage::Text(request_text.into()))
-                                                .await
-                                                .is_err()
+                                        let mut excluded_account_ids = HashSet::new();
+                                        excluded_account_ids.insert(ws_usage_context.account_id);
+                                        connect_failover_upstream_for_ws_session(
+                                            &state,
+                                            &ws_usage_context,
+                                            original_tracked.seed.model.as_deref(),
+                                            &excluded_account_ids,
+                                        )
+                                        .await
+                                        .map(|(account, socket)| (account.id, socket))
+                                    }
+                                    RetryScope::None => None,
+                                };
+                                if let Some((next_account_id, next_socket)) = next_upstream {
+                                    if let Some(mut retried_tracked) =
+                                        build_retried_ws_tracked_request(
+                                            &state,
+                                            &ws_usage_context,
+                                            next_account_id,
+                                            &original_tracked,
+                                        )
+                                        .await
+                                    {
+                                        if !retried_tracked.replay_request_texts.is_empty() {
+                                            let (mut new_upstream_sender, new_upstream_receiver) =
+                                                next_socket.split();
+                                            let mut replay_succeeded = true;
+                                            for request_text in
+                                                retried_tracked.replay_request_texts.clone()
                                             {
-                                                replay_succeeded = false;
-                                                break;
+                                                if new_upstream_sender
+                                                    .send(TungsteniteMessage::Text(
+                                                        request_text.into(),
+                                                    ))
+                                                    .await
+                                                    .is_err()
+                                                {
+                                                    replay_succeeded = false;
+                                                    break;
+                                                }
                                             }
-                                        }
-                                        if replay_succeeded {
-                                            let _ = match parsed_upstream_value.as_ref() {
-                                                Some(value) => tracker.take_retryable_request(value),
-                                                None => tracker.take_latest_unstarted_request(),
-                                            };
-                                            if original_tracked.billing_session.is_some() {
+                                            if replay_succeeded {
+                                                let _ = match parsed_upstream_value.as_ref() {
+                                                    Some(value) => {
+                                                        tracker.take_retryable_request(value)
+                                                    }
+                                                    None => tracker.take_latest_unstarted_request(),
+                                                };
+                                                if original_tracked.billing_session.is_some() {
+                                                    release_billing_hold_best_effort(
+                                                        state.clone(),
+                                                        original_tracked.billing_session.clone(),
+                                                        Some(BillingReleaseFailureContext {
+                                                            release_reason: Some(
+                                                                "ws_retry_rebind".to_string(),
+                                                            ),
+                                                            failover_action: Some(
+                                                                "retry_same_request".to_string(),
+                                                            ),
+                                                            failover_reason_class: Some(
+                                                                "ws_retry_rebind".to_string(),
+                                                            ),
+                                                            ..Default::default()
+                                                        }),
+                                                    )
+                                                    .await;
+                                                }
+                                                let _ = upstream_sender.close().await;
+                                                upstream_sender = new_upstream_sender;
+                                                upstream_receiver = new_upstream_receiver;
+                                                ws_usage_context.account_id = next_account_id;
+                                                tracker.requeue_tracked_request(retried_tracked);
+                                                continue;
+                                            }
+
+                                            if retried_tracked.billing_session.is_some() {
                                                 release_billing_hold_best_effort(
                                                     state.clone(),
-                                                    original_tracked.billing_session.clone(),
+                                                    retried_tracked.billing_session.take(),
                                                     Some(BillingReleaseFailureContext {
                                                         release_reason: Some(
                                                             "ws_retry_rebind".to_string(),
@@ -888,37 +935,12 @@ async fn proxy_websocket_streams(
                                                 )
                                                 .await;
                                             }
-                                            let _ = upstream_sender.close().await;
-                                            upstream_sender = new_upstream_sender;
-                                            upstream_receiver = new_upstream_receiver;
-                                            ws_usage_context.account_id = next_account.id;
-                                            tracker.requeue_tracked_request(retried_tracked);
-                                            continue;
-                                        }
-
-                                        if retried_tracked.billing_session.is_some() {
-                                            release_billing_hold_best_effort(
-                                                state.clone(),
-                                                retried_tracked.billing_session.take(),
-                                                Some(BillingReleaseFailureContext {
-                                                    release_reason: Some(
-                                                        "ws_retry_rebind".to_string(),
-                                                    ),
-                                                    failover_action: Some(
-                                                        "retry_same_request".to_string(),
-                                                    ),
-                                                    failover_reason_class: Some(
-                                                        "ws_retry_rebind".to_string(),
-                                                    ),
-                                                    ..Default::default()
-                                                }),
-                                            )
-                                            .await;
                                         }
                                     }
                                 }
                             }
                         }
+                        RetryScope::None => {}
                     }
                 }
 
@@ -964,45 +986,68 @@ async fn proxy_websocket_streams(
                 }
 
                 if let Some(error_context) = failover_error_context.as_ref() {
-                    if should_rotate_ws_session_on_error(error_context) && !tracker.has_unfinished_requests() {
-                        let recovery_outcome = apply_recovery_action(
-                            state.as_ref(),
-                            ws_usage_context.account_id,
-                            Some(error_context),
-                        )
-                        .await;
-                        let ejection_ttl = ejection_ttl_for_response(
-                            error_context.status,
-                            state.account_ejection_ttl,
-                            false,
-                            Some(error_context),
-                            recovery_outcome,
-                        )
-                        .unwrap_or(state.account_ejection_ttl);
-                        mark_account_unhealthy_and_clear_sticky(
-                            &state,
-                            ws_usage_context.account_id,
-                            ws_usage_context.sticky_key.as_deref(),
-                            ejection_ttl,
-                        )
-                        .await;
+                    if !tracker.has_unfinished_requests() {
+                        match ws_retry_scope_on_error(error_context) {
+                            RetryScope::SameAccount => {
+                                if let Some(next_socket) =
+                                    connect_same_account_upstream_for_ws_session(
+                                        &state,
+                                        &ws_usage_context,
+                                    )
+                                    .await
+                                {
+                                    let _ = upstream_sender.close().await;
+                                    let (new_upstream_sender, new_upstream_receiver) =
+                                        next_socket.split();
+                                    upstream_sender = new_upstream_sender;
+                                    upstream_receiver = new_upstream_receiver;
+                                    continue;
+                                }
+                            }
+                            RetryScope::CrossAccount => {
+                                let recovery_outcome = apply_recovery_action(
+                                    state.as_ref(),
+                                    ws_usage_context.account_id,
+                                    Some(error_context),
+                                )
+                                .await;
+                                let ejection_ttl = ejection_ttl_for_response(
+                                    error_context.status,
+                                    state.account_ejection_ttl,
+                                    false,
+                                    Some(error_context),
+                                    recovery_outcome,
+                                )
+                                .unwrap_or(state.account_ejection_ttl);
+                                mark_account_unhealthy_and_clear_sticky(
+                                    &state,
+                                    ws_usage_context.account_id,
+                                    ws_usage_context.sticky_key.as_deref(),
+                                    ejection_ttl,
+                                )
+                                .await;
 
-                        let mut excluded_account_ids = HashSet::new();
-                        excluded_account_ids.insert(ws_usage_context.account_id);
-                        if let Some((next_account, next_socket)) = connect_failover_upstream_for_ws_session(
-                            &state,
-                            &ws_usage_context,
-                            None,
-                            &excluded_account_ids,
-                        )
-                        .await
-                        {
-                            let _ = upstream_sender.close().await;
-                            let (new_upstream_sender, new_upstream_receiver) = next_socket.split();
-                            upstream_sender = new_upstream_sender;
-                            upstream_receiver = new_upstream_receiver;
-                            ws_usage_context.account_id = next_account.id;
-                            continue;
+                                let mut excluded_account_ids = HashSet::new();
+                                excluded_account_ids.insert(ws_usage_context.account_id);
+                                if let Some((next_account, next_socket)) =
+                                    connect_failover_upstream_for_ws_session(
+                                        &state,
+                                        &ws_usage_context,
+                                        None,
+                                        &excluded_account_ids,
+                                    )
+                                    .await
+                                {
+                                    let _ = upstream_sender.close().await;
+                                    let (new_upstream_sender, new_upstream_receiver) =
+                                        next_socket.split();
+                                    upstream_sender = new_upstream_sender;
+                                    upstream_receiver = new_upstream_receiver;
+                                    ws_usage_context.account_id = next_account.id;
+                                    continue;
+                                }
+                            }
+                            RetryScope::None => {}
                         }
                     }
                 }
@@ -1292,10 +1337,43 @@ fn build_ws_failover_error_context(value: &Value) -> Option<UpstreamErrorContext
     build_upstream_error_context(StatusCode::BAD_REQUEST, &HeaderMap::new(), &body)
 }
 
-fn should_rotate_ws_session_on_error(error_context: &UpstreamErrorContext) -> bool {
-    let decision = decide_upstream_error(UpstreamErrorSource::WsPrelude, Some(error_context));
-    decision.allow_cross_account_failover
-        && matches!(decision.retry_scope, RetryScope::CrossAccount)
+fn ws_retry_scope_on_error(error_context: &UpstreamErrorContext) -> RetryScope {
+    decide_upstream_error(UpstreamErrorSource::WsPrelude, Some(error_context)).retry_scope
+}
+
+async fn connect_same_account_upstream_for_ws_session(
+    state: &Arc<AppState>,
+    ws_usage_context: &WsLogicalUsageConnectionContext,
+) -> Option<UpstreamWebSocket> {
+    let account = state.router.pick_account(ws_usage_context.account_id)?;
+    let upstream_request = build_upstream_websocket_request(
+        &account.base_url,
+        &account.mode,
+        &account.bearer_token,
+        account.chatgpt_account_id.as_deref(),
+        &ws_usage_context.request_path,
+        ws_usage_context.request_query.as_deref(),
+        &ws_usage_context.request_headers,
+        ws_usage_context.requested_subprotocol.is_some(),
+    )
+    .ok()?;
+    let Ok((_selected_route, upstream_socket, _)) =
+        state.outbound_proxy_runtime.connect_websocket(upstream_request).await
+    else {
+        return None;
+    };
+    if let Some(sticky_key) = ws_usage_context.sticky_key.as_deref() {
+        let _ = state.router.bind_sticky(sticky_key, account.id);
+        let _ = state
+            .routing_cache
+            .set_sticky_account_id(
+                sticky_key,
+                account.id,
+                Duration::from_secs(ROUTING_CACHE_STICKY_TTL_SEC),
+            )
+            .await;
+    }
+    Some(upstream_socket)
 }
 
 async fn connect_failover_upstream_for_ws_session(
