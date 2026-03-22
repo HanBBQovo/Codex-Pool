@@ -33,9 +33,7 @@ enum AdminCredentialBackend {
         password_hash: String,
     },
     #[cfg(feature = "postgres-backend")]
-    Postgres {
-        pool: PgPool,
-    },
+    Postgres { pool: PgPool },
 }
 
 #[derive(Clone)]
@@ -94,7 +92,8 @@ impl AdminAuthService {
         }
 
         #[cfg(feature = "postgres-backend")]
-        let AdminCredentialBackend::Postgres { pool } = &self.credential_backend else {
+        let AdminCredentialBackend::Postgres { pool } = &self.credential_backend
+        else {
             return Ok(());
         };
         #[cfg(feature = "postgres-backend")]

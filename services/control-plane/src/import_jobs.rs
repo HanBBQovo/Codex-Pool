@@ -1,7 +1,4 @@
-#![cfg_attr(
-    not(feature = "postgres-backend"),
-    allow(dead_code, unused_imports)
-)]
+#![cfg_attr(not(feature = "postgres-backend"), allow(dead_code, unused_imports))]
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,15 +17,15 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
-use crate::store::ControlPlaneStore;
-use crate::store::UpsertOneTimeSessionAccountRequest;
-#[cfg(feature = "postgres-backend")]
-use crate::store::PgPool;
 use crate::contracts::{
     ImportOAuthRefreshTokenRequest, OAuthImportErrorSummary, OAuthImportItemStatus,
     OAuthImportJobActionResponse, OAuthImportJobItem, OAuthImportJobItemsResponse,
     OAuthImportJobStatus, OAuthImportJobSummary,
 };
+use crate::store::ControlPlaneStore;
+#[cfg(feature = "postgres-backend")]
+use crate::store::PgPool;
+use crate::store::UpsertOneTimeSessionAccountRequest;
 
 const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DB_STATUS_QUEUED: &str = "queued";

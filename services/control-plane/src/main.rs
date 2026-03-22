@@ -24,11 +24,11 @@ use control_plane::single_binary::{
     apply_single_binary_runtime_env_defaults, merge_personal_single_binary_app,
     merge_single_binary_app,
 };
+#[cfg(feature = "postgres-backend")]
+use control_plane::store::postgres::PostgresStore;
 use control_plane::store::{
     normalize_sqlite_database_url, ControlPlaneStore, InMemoryStore, SqliteBackedStore,
 };
-#[cfg(feature = "postgres-backend")]
-use control_plane::store::postgres::PostgresStore;
 #[cfg(feature = "clickhouse-backend")]
 use control_plane::tenant::BillingReconcileFactRequest;
 #[cfg(feature = "clickhouse-backend")]
@@ -148,15 +148,18 @@ async fn build_store_bundle(
         }
         #[cfg(feature = "postgres-backend")]
         (StoreBackendFamily::Postgres, Some(database_url)) => {
-            let postgres_store = Arc::new(PostgresStore::connect_with_oauth(
-                database_url,
-                Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
-                    outbound_proxy_runtime,
-                )),
-                CredentialCipher::from_env().unwrap_or(None),
-            )
-            .await?);
-            let import_store = PostgresOAuthImportJobStore::new(postgres_store.clone_pool()).await?;
+            let postgres_store = Arc::new(
+                PostgresStore::connect_with_oauth(
+                    database_url,
+                    Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
+                        outbound_proxy_runtime,
+                    )),
+                    CredentialCipher::from_env().unwrap_or(None),
+                )
+                .await?,
+            );
+            let import_store =
+                PostgresOAuthImportJobStore::new(postgres_store.clone_pool()).await?;
             let tenant_auth_service = Arc::new(
                 TenantAuthService::from_pool(postgres_store.clone_pool())
                     .expect("TENANT_JWT_SECRET (or ADMIN_JWT_SECRET fallback) must be set"),
@@ -246,26 +249,26 @@ async fn build_usage_bundle(
         }
     };
 
-    let usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>> = match profile.usage_ingest_backend
-    {
-        UsageIngestBackendFamily::None => None,
-        UsageIngestBackendFamily::Sqlite => personal_sqlite_usage_repo
-            .clone()
-            .map(|repo| repo as Arc<dyn UsageIngestRepository>),
-        UsageIngestBackendFamily::Postgres => {
-            #[cfg(feature = "postgres-backend")]
-            {
-                postgres_store.map(|store| {
-                    Arc::new(PostgresUsageRepo::new(store.clone_pool()))
-                        as Arc<dyn UsageIngestRepository>
-                })
+    let usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>> =
+        match profile.usage_ingest_backend {
+            UsageIngestBackendFamily::None => None,
+            UsageIngestBackendFamily::Sqlite => personal_sqlite_usage_repo
+                .clone()
+                .map(|repo| repo as Arc<dyn UsageIngestRepository>),
+            UsageIngestBackendFamily::Postgres => {
+                #[cfg(feature = "postgres-backend")]
+                {
+                    postgres_store.map(|store| {
+                        Arc::new(PostgresUsageRepo::new(store.clone_pool()))
+                            as Arc<dyn UsageIngestRepository>
+                    })
+                }
+                #[cfg(not(feature = "postgres-backend"))]
+                {
+                    None
+                }
             }
-            #[cfg(not(feature = "postgres-backend"))]
-            {
-                None
-            }
-        }
-    };
+        };
 
     Ok(RuntimeUsageBundle {
         usage_repo,
@@ -723,175 +726,169 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(not(feature = "clickhouse-backend"))]
             let request_log_reconcile_enabled = false;
             tokio::spawn(async move {
-                        let mut ticker = tokio::time::interval(Duration::from_secs(interval_sec));
-                        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-                        #[cfg(feature = "clickhouse-backend")]
-                        let mut cursor_created_at = chrono::Utc::now()
-                            .timestamp()
-                            .saturating_sub(lookback_sec as i64);
-                        #[cfg(feature = "clickhouse-backend")]
-                        let mut cursor_id = String::new();
-                        #[cfg(feature = "clickhouse-backend")]
-                        let mut last_full_sweep_started_at = std::time::Instant::now();
+                let mut ticker = tokio::time::interval(Duration::from_secs(interval_sec));
+                ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                #[cfg(feature = "clickhouse-backend")]
+                let mut cursor_created_at = chrono::Utc::now()
+                    .timestamp()
+                    .saturating_sub(lookback_sec as i64);
+                #[cfg(feature = "clickhouse-backend")]
+                let mut cursor_id = String::new();
+                #[cfg(feature = "clickhouse-backend")]
+                let mut last_full_sweep_started_at = std::time::Instant::now();
+                loop {
+                    ticker.tick().await;
+                    match tenant_auth
+                        .billing_reconcile_once(BillingReconcileRequest {
+                            stale_sec,
+                            batch_size: batch,
+                        })
+                        .await
+                    {
+                        Ok(stats) => {
+                            record_billing_reconcile_runtime_stats(&stats);
+                            if stats.scanned > 0 {
+                                tracing::info!(
+                                    scanned = stats.scanned,
+                                    adjusted = stats.adjusted,
+                                    released_authorizations = stats.released_authorizations,
+                                    adjusted_microcredits_total = stats.adjusted_microcredits_total,
+                                    "billing reconcile tick completed"
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            record_billing_reconcile_runtime_failed();
+                            tracing::warn!(
+                                error = %err,
+                                interval_sec,
+                                batch,
+                                stale_sec,
+                                "billing reconcile tick failed"
+                            );
+                        }
+                    }
+
+                    #[cfg(feature = "clickhouse-backend")]
+                    if let Some(repo) = request_log_reconcile_repo.as_ref() {
+                        let now_ts = chrono::Utc::now().timestamp();
+                        let lookback_start_ts = now_ts.saturating_sub(lookback_sec as i64);
+                        let full_sweep_due = last_full_sweep_started_at.elapsed()
+                            >= Duration::from_secs(full_sweep_interval_sec);
+                        if full_sweep_due {
+                            cursor_created_at = lookback_start_ts;
+                            cursor_id.clear();
+                            last_full_sweep_started_at = std::time::Instant::now();
+                        } else if cursor_created_at < lookback_start_ts {
+                            cursor_created_at = lookback_start_ts;
+                            cursor_id.clear();
+                        }
+
+                        let mut local_cursor_created_at = cursor_created_at;
+                        let mut local_cursor_id = cursor_id.clone();
+                        let mut request_log_stats = BillingReconcileStats::default();
+                        let mut fetch_failed = false;
                         loop {
-                            ticker.tick().await;
-                            match tenant_auth
-                                .billing_reconcile_once(BillingReconcileRequest {
-                                    stale_sec,
-                                    batch_size: batch,
-                                })
+                            let facts = match repo
+                                .fetch_billing_reconcile_facts(
+                                    lookback_start_ts,
+                                    now_ts,
+                                    local_cursor_created_at,
+                                    &local_cursor_id,
+                                    batch,
+                                )
                                 .await
                             {
-                                Ok(stats) => {
-                                    record_billing_reconcile_runtime_stats(&stats);
-                                    if stats.scanned > 0 {
-                                        tracing::info!(
-                                            scanned = stats.scanned,
-                                            adjusted = stats.adjusted,
-                                            released_authorizations = stats.released_authorizations,
-                                            adjusted_microcredits_total =
-                                                stats.adjusted_microcredits_total,
-                                            "billing reconcile tick completed"
-                                        );
-                                    }
-                                }
+                                Ok(facts) => facts,
                                 Err(err) => {
+                                    fetch_failed = true;
                                     record_billing_reconcile_runtime_failed();
                                     tracing::warn!(
                                         error = %err,
-                                        interval_sec,
-                                        batch,
-                                        stale_sec,
-                                        "billing reconcile tick failed"
-                                    );
-                                }
-                            }
-
-                            #[cfg(feature = "clickhouse-backend")]
-                            if let Some(repo) = request_log_reconcile_repo.as_ref() {
-                                let now_ts = chrono::Utc::now().timestamp();
-                                let lookback_start_ts = now_ts.saturating_sub(lookback_sec as i64);
-                                let full_sweep_due = last_full_sweep_started_at.elapsed()
-                                    >= Duration::from_secs(full_sweep_interval_sec);
-                                if full_sweep_due {
-                                    cursor_created_at = lookback_start_ts;
-                                    cursor_id.clear();
-                                    last_full_sweep_started_at = std::time::Instant::now();
-                                } else if cursor_created_at < lookback_start_ts {
-                                    cursor_created_at = lookback_start_ts;
-                                    cursor_id.clear();
-                                }
-
-                                let mut local_cursor_created_at = cursor_created_at;
-                                let mut local_cursor_id = cursor_id.clone();
-                                let mut request_log_stats = BillingReconcileStats::default();
-                                let mut fetch_failed = false;
-                                loop {
-                                    let facts = match repo
-                                        .fetch_billing_reconcile_facts(
-                                            lookback_start_ts,
-                                            now_ts,
-                                            local_cursor_created_at,
-                                            &local_cursor_id,
-                                            batch,
-                                        )
-                                        .await
-                                    {
-                                        Ok(facts) => facts,
-                                        Err(err) => {
-                                            fetch_failed = true;
-                                            record_billing_reconcile_runtime_failed();
-                                            tracing::warn!(
-                                                error = %err,
-                                                lookback_start_ts,
-                                                now_ts,
-                                                cursor_created_at = local_cursor_created_at,
-                                                cursor_id = %local_cursor_id,
-                                                batch,
-                                                "billing request-log reconcile fetch failed"
-                                            );
-                                            break;
-                                        }
-                                    };
-                                    if facts.is_empty() {
-                                        break;
-                                    }
-
-                                    let fact_count = facts.len();
-                                    for fact in facts.iter() {
-                                        match tenant_auth
-                                            .billing_reconcile_request_fact(
-                                                BillingReconcileFactRequest {
-                                                    tenant_id: fact.tenant_id,
-                                                    api_key_id: fact.api_key_id,
-                                                    request_id: fact.request_id.clone(),
-                                                    model: fact.model.clone(),
-                                                    service_tier: fact.service_tier.clone(),
-                                                    input_tokens: fact.input_tokens,
-                                                    cached_input_tokens: None,
-                                                    output_tokens: fact.output_tokens,
-                                                    reasoning_tokens: None,
-                                                },
-                                            )
-                                            .await
-                                        {
-                                            Ok(stats) => {
-                                                merge_reconcile_stats(
-                                                    &mut request_log_stats,
-                                                    &stats,
-                                                );
-                                            }
-                                            Err(err) => {
-                                                record_billing_reconcile_runtime_failed();
-                                                tracing::warn!(
-                                                    error = %err,
-                                                    tenant_id = %fact.tenant_id,
-                                                    request_id = %fact.request_id,
-                                                    request_log_id = %fact.id,
-                                                    status_code = fact.status_code,
-                                                    billing_phase = ?fact.billing_phase,
-                                                    capture_status = ?fact.capture_status,
-                                                    "billing request-log reconcile apply failed"
-                                                );
-                                            }
-                                        }
-                                        local_cursor_created_at = fact.created_at.timestamp();
-                                        local_cursor_id = fact.id.to_string();
-                                    }
-
-                                    if fact_count < batch {
-                                        break;
-                                    }
-                                }
-
-                                if request_log_stats.scanned > 0 {
-                                    record_billing_reconcile_runtime_stats(&request_log_stats);
-                                    tracing::info!(
-                                        scanned = request_log_stats.scanned,
-                                        adjusted = request_log_stats.adjusted,
-                                        released_authorizations =
-                                            request_log_stats.released_authorizations,
-                                        adjusted_microcredits_total =
-                                            request_log_stats.adjusted_microcredits_total,
+                                        lookback_start_ts,
+                                        now_ts,
                                         cursor_created_at = local_cursor_created_at,
                                         cursor_id = %local_cursor_id,
-                                        "billing request-log reconcile tick completed"
+                                        batch,
+                                        "billing request-log reconcile fetch failed"
                                     );
-                                    cursor_created_at = local_cursor_created_at;
-                                    cursor_id = local_cursor_id;
+                                    break;
                                 }
+                            };
+                            if facts.is_empty() {
+                                break;
+                            }
 
-                                if fetch_failed {
-                                    continue;
+                            let fact_count = facts.len();
+                            for fact in facts.iter() {
+                                match tenant_auth
+                                    .billing_reconcile_request_fact(BillingReconcileFactRequest {
+                                        tenant_id: fact.tenant_id,
+                                        api_key_id: fact.api_key_id,
+                                        request_id: fact.request_id.clone(),
+                                        model: fact.model.clone(),
+                                        service_tier: fact.service_tier.clone(),
+                                        input_tokens: fact.input_tokens,
+                                        cached_input_tokens: None,
+                                        output_tokens: fact.output_tokens,
+                                        reasoning_tokens: None,
+                                    })
+                                    .await
+                                {
+                                    Ok(stats) => {
+                                        merge_reconcile_stats(&mut request_log_stats, &stats);
+                                    }
+                                    Err(err) => {
+                                        record_billing_reconcile_runtime_failed();
+                                        tracing::warn!(
+                                            error = %err,
+                                            tenant_id = %fact.tenant_id,
+                                            request_id = %fact.request_id,
+                                            request_log_id = %fact.id,
+                                            status_code = fact.status_code,
+                                            billing_phase = ?fact.billing_phase,
+                                            capture_status = ?fact.capture_status,
+                                            "billing request-log reconcile apply failed"
+                                        );
+                                    }
                                 }
+                                local_cursor_created_at = fact.created_at.timestamp();
+                                local_cursor_id = fact.id.to_string();
+                            }
 
-                                if request_log_stats.scanned == 0 {
-                                    cursor_created_at = now_ts;
-                                    cursor_id.clear();
-                                }
+                            if fact_count < batch {
+                                break;
                             }
                         }
-                    });
+
+                        if request_log_stats.scanned > 0 {
+                            record_billing_reconcile_runtime_stats(&request_log_stats);
+                            tracing::info!(
+                                scanned = request_log_stats.scanned,
+                                adjusted = request_log_stats.adjusted,
+                                released_authorizations =
+                                    request_log_stats.released_authorizations,
+                                adjusted_microcredits_total =
+                                    request_log_stats.adjusted_microcredits_total,
+                                cursor_created_at = local_cursor_created_at,
+                                cursor_id = %local_cursor_id,
+                                "billing request-log reconcile tick completed"
+                            );
+                            cursor_created_at = local_cursor_created_at;
+                            cursor_id = local_cursor_id;
+                        }
+
+                        if fetch_failed {
+                            continue;
+                        }
+
+                        if request_log_stats.scanned == 0 {
+                            cursor_created_at = now_ts;
+                            cursor_id.clear();
+                        }
+                    }
+                }
+            });
             tracing::info!(
                 interval_sec,
                 batch,
@@ -1005,12 +1002,17 @@ mod tests {
 
     #[test]
     fn billing_reconcile_runs_only_for_business_edition() {
-        assert!(!resolve_backend_profile(ProductEdition::Personal, true, false)
-            .billing_reconcile_enabled());
-        assert!(!resolve_backend_profile(ProductEdition::Team, true, false)
-            .billing_reconcile_enabled());
-        assert!(resolve_backend_profile(ProductEdition::Business, true, true)
-            .billing_reconcile_enabled());
+        assert!(
+            !resolve_backend_profile(ProductEdition::Personal, true, false)
+                .billing_reconcile_enabled()
+        );
+        assert!(
+            !resolve_backend_profile(ProductEdition::Team, true, false).billing_reconcile_enabled()
+        );
+        assert!(
+            resolve_backend_profile(ProductEdition::Business, true, true)
+                .billing_reconcile_enabled()
+        );
     }
 
     #[test]
@@ -1064,7 +1066,10 @@ mod tests {
         let profile = resolve_backend_profile(ProductEdition::Team, true, false);
         assert_eq!(profile.deployment_shape, DeploymentShape::SingleBinary);
         assert_eq!(profile.store_backend, StoreBackendFamily::Postgres);
-        assert_eq!(profile.usage_query_backend, UsageQueryBackendFamily::Postgres);
+        assert_eq!(
+            profile.usage_query_backend,
+            UsageQueryBackendFamily::Postgres
+        );
         assert_eq!(
             profile.usage_ingest_backend,
             UsageIngestBackendFamily::Postgres

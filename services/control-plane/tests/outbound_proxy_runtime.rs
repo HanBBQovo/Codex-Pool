@@ -2,10 +2,10 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use std::{env, ffi::OsString};
 
+use codex_pool_core::model::ProxyFailMode;
 use control_plane::contracts::{
     CreateOutboundProxyNodeRequest, UpdateOutboundProxyPoolSettingsRequest,
 };
-use codex_pool_core::model::ProxyFailMode;
 use control_plane::outbound_proxy_runtime::OutboundProxyRuntime;
 use control_plane::store::{ControlPlaneStore, InMemoryStore};
 use wiremock::matchers::any;

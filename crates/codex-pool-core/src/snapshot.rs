@@ -3,9 +3,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::model::{
-    AccountRoutingTraits, AiErrorLearningSettings, BuiltinErrorTemplateRecord,
-    CompiledRoutingPlan, OutboundProxyNode, OutboundProxyPoolSettings, UpstreamAccount,
-    UpstreamErrorTemplateRecord,
+    AccountRoutingTraits, AiErrorLearningSettings, BuiltinErrorTemplateRecord, CompiledRoutingPlan,
+    OutboundProxyNode, OutboundProxyPoolSettings, UpstreamAccount, UpstreamErrorTemplateRecord,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

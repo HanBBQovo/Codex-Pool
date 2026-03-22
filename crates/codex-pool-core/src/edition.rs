@@ -219,24 +219,21 @@ mod tests {
             ProductEdition::infer_from_binary_name(Some("codex-pool-business")),
             Some(ProductEdition::Business)
         );
-        assert_eq!(ProductEdition::infer_from_binary_name(Some("gateway")), None);
+        assert_eq!(
+            ProductEdition::infer_from_binary_name(Some("gateway")),
+            None
+        );
         assert_eq!(ProductEdition::infer_from_binary_name(None), None);
     }
 
     #[test]
     fn product_edition_resolves_env_before_binary_name() {
         assert_eq!(
-            ProductEdition::resolve_runtime_edition(
-                Some("team"),
-                Some("codex-pool-personal")
-            ),
+            ProductEdition::resolve_runtime_edition(Some("team"), Some("codex-pool-personal")),
             ProductEdition::Team
         );
         assert_eq!(
-            ProductEdition::resolve_runtime_edition(
-                Some("unknown"),
-                Some("codex-pool-personal")
-            ),
+            ProductEdition::resolve_runtime_edition(Some("unknown"), Some("codex-pool-personal")),
             ProductEdition::Business
         );
         assert_eq!(

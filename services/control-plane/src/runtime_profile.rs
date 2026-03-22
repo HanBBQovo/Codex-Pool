@@ -1,4 +1,6 @@
-use codex_pool_core::api::{BillingMode as BillingRuntimeMode, ProductEdition, SystemCapabilitiesResponse};
+use codex_pool_core::api::{
+    BillingMode as BillingRuntimeMode, ProductEdition, SystemCapabilitiesResponse,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeploymentShape {

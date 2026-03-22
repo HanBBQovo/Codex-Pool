@@ -253,11 +253,11 @@ mod tests {
     };
     use std::sync::Arc;
 
+    use crate::contracts::CreateUpstreamAccountRequest;
     use axum::body::to_bytes;
     use axum::http::Request;
     use axum::http::{header, StatusCode};
     use axum::Router;
-    use crate::contracts::CreateUpstreamAccountRequest;
     use codex_pool_core::api::UsageSummary;
     use codex_pool_core::model::{UpstreamAuthProvider, UpstreamMode};
     use tower::util::ServiceExt;

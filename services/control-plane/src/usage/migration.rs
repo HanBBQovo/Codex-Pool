@@ -1,7 +1,4 @@
-#![cfg_attr(
-    not(feature = "postgres-backend"),
-    allow(dead_code, unused_imports)
-)]
+#![cfg_attr(not(feature = "postgres-backend"), allow(dead_code, unused_imports))]
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};

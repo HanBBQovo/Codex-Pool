@@ -1,5 +1,5 @@
-use chrono::{DateTime, Utc};
 use crate::model::UpstreamErrorTemplateRecord;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub use crate::edition::{
