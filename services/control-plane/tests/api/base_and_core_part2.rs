@@ -317,7 +317,7 @@ async fn internal_oauth_refresh_and_disable_routes_work() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/internal/v1/upstream-accounts/{account_id}/disable"
+                    "/internal/v1/upstream-accounts/{account_id}/disable?reason=account_deactivated"
                 ))
                 .header(
                     "authorization",
@@ -335,6 +335,27 @@ async fn internal_oauth_refresh_and_disable_routes_work() {
     let disable_json: Value = serde_json::from_slice(&disable_body).unwrap();
     assert_eq!(disable_json["id"], account_id);
     assert_eq!(disable_json["enabled"], false);
+
+    let status_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/upstream-accounts/{account_id}/oauth/status"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status_response.status(), StatusCode::OK);
+    let status_body = to_bytes(status_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let status_json: Value = serde_json::from_slice(&status_body).unwrap();
+    assert_eq!(status_json["pool_state"], "pending_purge");
+    assert_eq!(status_json["pending_purge_reason"], "account_deactivated");
+    assert!(status_json["pending_purge_at"].is_string());
 
     let snapshot_response = app
         .oneshot(
@@ -360,9 +381,11 @@ async fn internal_oauth_refresh_and_disable_routes_work() {
         .unwrap()
         .iter()
         .find(|item| item["id"] == account_id)
-        .cloned()
-        .expect("snapshot account should exist");
-    assert_eq!(snapshot_account["enabled"], false);
+        .cloned();
+    assert!(
+        snapshot_account.is_none(),
+        "pending purge account should be removed from runtime snapshot"
+    );
 }
 
 #[tokio::test]

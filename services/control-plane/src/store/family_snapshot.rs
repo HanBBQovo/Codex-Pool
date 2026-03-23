@@ -29,10 +29,23 @@ impl InMemoryStore {
         })
     }
 
-    fn disable_oauth_family_inner(&self, family_id: &str) {
-        let affected = self.disable_or_enable_oauth_family(family_id, false);
-        if affected > 0 {
-            self.revision.fetch_add(1, Ordering::Relaxed);
+    fn mark_oauth_family_pending_purge_inner(&self, family_id: &str, reason: Option<String>) {
+        let account_ids = {
+            let credentials = self.oauth_credentials.read().unwrap();
+            credentials
+                .iter()
+                .filter_map(|(account_id, credential)| {
+                    if credential.token_family_id == family_id {
+                        Some(*account_id)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+
+        for account_id in account_ids {
+            let _ = self.mark_upstream_account_pending_purge_inner(account_id, reason.clone());
         }
     }
 
@@ -67,12 +80,19 @@ impl InMemoryStore {
 
         let mut affected = 0_usize;
         let mut accounts = self.accounts.write().unwrap();
-        for account_id in account_ids {
-            if let Some(account) = accounts.get_mut(&account_id) {
+        for account_id in &account_ids {
+            if let Some(account) = accounts.get_mut(account_id) {
                 if account.enabled != enabled {
                     account.enabled = enabled;
                     affected = affected.saturating_add(1);
                 }
+            }
+        }
+        drop(accounts);
+        if enabled {
+            let now = Utc::now();
+            for account_id in account_ids {
+                self.set_account_pool_state_active_inner(account_id, now);
             }
         }
         affected
@@ -308,6 +328,11 @@ impl InMemoryStore {
         let rate_limit_caches = self.oauth_rate_limit_caches.read().unwrap().clone();
         let mut accounts = self.list_upstream_accounts_inner();
         let now = Utc::now();
+
+        accounts.retain(|account| {
+            let state = self.account_pool_state_record_inner(account.id);
+            state.pool_state == AccountPoolState::Active
+        });
 
         for account in &mut accounts {
             let provider = providers

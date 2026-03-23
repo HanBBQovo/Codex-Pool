@@ -1604,7 +1604,12 @@ async fn apply_recovery_action(
             }
         }
         Some(ProxyRecoveryAction::DisableAccount) => {
-            let _ = trigger_internal_disable_account(state, account_id).await;
+            let _ = trigger_internal_disable_account(
+                state,
+                account_id,
+                error_context.and_then(|context| context.error_code.as_deref()),
+            )
+            .await;
             ProxyRecoveryOutcome::DisableAttempted
         }
         None => ProxyRecoveryOutcome::NotApplied,
@@ -1676,22 +1681,32 @@ fn oauth_refresh_recovery_succeeded(payload: &InternalOAuthRefreshPayload) -> bo
             && payload.refresh_credential_state.as_deref() == Some("terminal_invalid"))
 }
 
-async fn trigger_internal_disable_account(state: &AppState, account_id: Uuid) -> bool {
+async fn trigger_internal_disable_account(
+    state: &AppState,
+    account_id: Uuid,
+    reason: Option<&str>,
+) -> bool {
     let Some(base_url) = state.control_plane_base_url.as_deref() else {
         return false;
     };
-    let endpoint = format!(
+    let mut endpoint = format!(
         "{}/internal/v1/upstream-accounts/{account_id}/disable",
         base_url.trim_end_matches('/')
     );
-    let response = match state
+    if let Some(reason) = reason.map(str::trim).filter(|value| !value.is_empty()) {
+        let Ok(mut parsed) = url::Url::parse(&endpoint) else {
+            warn!(account_id = %account_id, "failed to parse internal disable endpoint");
+            return false;
+        };
+        parsed.query_pairs_mut().append_pair("reason", reason);
+        endpoint = parsed.to_string();
+    }
+    let request = state
         .http_client
         .post(endpoint)
         .bearer_auth(state.control_plane_internal_auth_token.as_ref())
-        .timeout(Duration::from_secs(INTERNAL_RECOVERY_TIMEOUT_SEC))
-        .send()
-        .await
-    {
+        .timeout(Duration::from_secs(INTERNAL_RECOVERY_TIMEOUT_SEC));
+    let response = match request.send().await {
         Ok(resp) => resp,
         Err(err) => {
             warn!(error = %err, account_id = %account_id, "failed to trigger internal upstream disable");

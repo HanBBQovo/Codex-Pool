@@ -11,7 +11,7 @@ use control_plane::app::{
 use control_plane::contracts::{
     CreateApiKeyRequest, CreateApiKeyResponse, CreateTenantRequest,
     CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
-    OAuthAccountStatusResponse, OAuthRateLimitRefreshJobStatus,
+    OAuthAccountPoolState, OAuthAccountStatusResponse, OAuthRateLimitRefreshJobStatus,
     OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
     OAuthRefreshStatus, RefreshCredentialState, SessionCredentialKind,
 };
@@ -295,6 +295,11 @@ fn sample_cached_oauth_status(account_id: Uuid) -> OAuthAccountStatusResponse {
         last_refresh_error_code: None,
         last_refresh_error: None,
         effective_enabled: true,
+        pool_state: OAuthAccountPoolState::Active,
+        quarantine_until: None,
+        quarantine_reason: None,
+        pending_purge_at: None,
+        pending_purge_reason: None,
         supported_models: vec!["o3".to_string(), "gpt-5.4".to_string()],
         rate_limits: vec![OAuthRateLimitSnapshot {
             limit_id: Some("five_hours".to_string()),

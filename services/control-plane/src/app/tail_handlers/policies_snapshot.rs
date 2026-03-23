@@ -133,15 +133,21 @@ async fn internal_refresh_oauth_account(
         .map_err(internal_error)
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct InternalDisableUpstreamAccountQuery {
+    reason: Option<String>,
+}
+
 async fn internal_disable_upstream_account(
     Path(account_id): Path<Uuid>,
     State(state): State<AppState>,
+    Query(query): Query<InternalDisableUpstreamAccountQuery>,
     headers: HeaderMap,
 ) -> Result<Json<codex_pool_core::model::UpstreamAccount>, (StatusCode, Json<ErrorEnvelope>)> {
     require_internal_service_token(&state, &headers)?;
     state
         .store
-        .set_upstream_account_enabled(account_id, false)
+        .mark_upstream_account_pending_purge(account_id, query.reason)
         .await
         .map(Json)
         .map_err(internal_error)

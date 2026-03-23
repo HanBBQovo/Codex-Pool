@@ -14,6 +14,47 @@ struct InMemoryRateLimitRefreshBatchStats {
     error_counts: HashMap<String, u64>,
 }
 
+fn classify_vault_activation_error_code(message: &str) -> &'static str {
+    let lowered = message.to_ascii_lowercase();
+    if lowered.contains("refresh token reused") {
+        return "refresh_token_reused";
+    }
+    if lowered.contains("refresh token revoked") {
+        return "refresh_token_revoked";
+    }
+    if lowered.contains("invalid refresh token") {
+        return "invalid_refresh_token";
+    }
+    if lowered.contains("missing client id") {
+        return "missing_client_id";
+    }
+    if lowered.contains("unauthorized client") {
+        return "unauthorized_client";
+    }
+    if lowered.contains("rate_limited")
+        || lowered.contains("rate limit")
+        || lowered.contains("too many requests")
+    {
+        return "rate_limited";
+    }
+    if lowered.contains("upstream unavailable")
+        || lowered.contains("service unavailable")
+        || lowered.contains("temporarily unavailable")
+    {
+        return "upstream_unavailable";
+    }
+    "vault_activation_failed"
+}
+
+fn vault_activation_backoff(failure_count: u32) -> Duration {
+    match failure_count {
+        0 => Duration::seconds(30),
+        1 => Duration::seconds(60),
+        2 => Duration::seconds(120),
+        _ => Duration::seconds(300),
+    }
+}
+
 impl InMemoryStore {
     fn canonical_oauth_account_id_by_identity(
         &self,
@@ -498,6 +539,263 @@ impl InMemoryStore {
         })
     }
 
+    pub(super) fn queue_oauth_refresh_token_inner(
+        &self,
+        req: ImportOAuthRefreshTokenRequest,
+    ) -> Result<bool> {
+        let cipher = self.require_credential_cipher()?;
+        let desired_mode = resolve_oauth_import_mode(req.mode.clone(), req.source_type.as_deref());
+        let normalized_base_url = normalize_upstream_account_base_url(&desired_mode, &req.base_url);
+        let normalized_refresh_hash = refresh_token_sha256(&req.refresh_token);
+        let now = Utc::now();
+
+        let existing_id = {
+            let vault = self.oauth_refresh_token_vault.read().unwrap();
+            vault.iter().find_map(|(id, item)| {
+                if item.refresh_token_sha256 == normalized_refresh_hash
+                    || (req.chatgpt_account_id.is_some()
+                        && item.chatgpt_account_id == req.chatgpt_account_id)
+                {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+        };
+
+        let fallback_access_token_enc = req
+            .fallback_access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|token| cipher.encrypt(token))
+            .transpose()?;
+
+        let record_id = existing_id.unwrap_or_else(Uuid::new_v4);
+        let created_at = if let Some(existing_id) = existing_id {
+            self.oauth_refresh_token_vault
+                .read()
+                .unwrap()
+                .get(&existing_id)
+                .map(|item| item.created_at)
+                .unwrap_or(now)
+        } else {
+            now
+        };
+
+        let record = OAuthRefreshTokenVaultRecord {
+            id: record_id,
+            label: req.label,
+            base_url: normalized_base_url,
+            refresh_token_enc: cipher.encrypt(&req.refresh_token)?,
+            fallback_access_token_enc,
+            fallback_token_expires_at: req.fallback_token_expires_at,
+            refresh_token_sha256: normalized_refresh_hash,
+            chatgpt_account_id: req.chatgpt_account_id,
+            chatgpt_plan_type: req.chatgpt_plan_type,
+            source_type: req.source_type,
+            desired_mode,
+            desired_enabled: req.enabled.unwrap_or(true),
+            desired_priority: req.priority.unwrap_or(100),
+            status: OAuthVaultRecordStatus::Queued,
+            failure_count: 0,
+            backoff_until: None,
+            next_attempt_at: Some(now),
+            last_error_code: None,
+            last_error_message: None,
+            created_at,
+            updated_at: now,
+        };
+
+        self.oauth_refresh_token_vault
+            .write()
+            .unwrap()
+            .insert(record.id, record);
+
+        Ok(existing_id.is_none())
+    }
+
+    fn oauth_active_account_count_inner(&self) -> usize {
+        let accounts = self.accounts.read().unwrap();
+        let providers = self.account_auth_providers.read().unwrap().clone();
+        let states = self.account_health_states.read().unwrap().clone();
+        let now = Utc::now();
+
+        accounts
+            .iter()
+            .filter(|(account_id, account)| {
+                if !account.enabled {
+                    return false;
+                }
+                if providers.get(account_id) != Some(&UpstreamAuthProvider::OAuthRefreshToken) {
+                    return false;
+                }
+                let state = states.get(account_id).cloned().unwrap_or_default();
+                state.pool_state == AccountPoolState::Active
+                    || (state.pool_state == AccountPoolState::Quarantine
+                        && state
+                            .quarantine_until
+                            .is_some_and(|quarantine_until| quarantine_until <= now))
+            })
+            .count()
+    }
+
+    fn oauth_vault_activation_candidates_inner(
+        &self,
+        now: DateTime<Utc>,
+        limit: usize,
+    ) -> Vec<OAuthRefreshTokenVaultRecord> {
+        let mut items = self
+            .oauth_refresh_token_vault
+            .read()
+            .unwrap()
+            .values()
+            .filter(|item| {
+                item.status == OAuthVaultRecordStatus::Queued
+                    && item.backoff_until.is_none_or(|backoff_until| backoff_until <= now)
+                    && item.next_attempt_at.is_none_or(|next_attempt_at| next_attempt_at <= now)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        items.truncate(limit);
+        items
+    }
+
+    pub(super) async fn activate_oauth_refresh_token_vault_inner(&self) -> Result<u64> {
+        let active_count = self.oauth_active_account_count_inner();
+        let target = active_pool_target_from_env();
+        let active_min = active_pool_min_from_env().min(target);
+        if active_count >= target {
+            return Ok(0);
+        }
+        if active_count < active_min {
+            tracing::warn!(
+                active_count,
+                active_min,
+                target,
+                "sqlite active oauth pool dropped below configured minimum"
+            );
+        }
+
+        let needed = target.saturating_sub(active_count);
+        let batch_size = oauth_vault_activate_batch_size_from_env();
+        let limit = needed.min(batch_size);
+        if limit == 0 {
+            return Ok(0);
+        }
+
+        let candidates = self.oauth_vault_activation_candidates_inner(Utc::now(), limit);
+        if candidates.is_empty() {
+            return Ok(0);
+        }
+
+        let _concurrency = oauth_vault_activate_concurrency_from_env();
+        let max_rps = oauth_vault_activate_max_rps_from_env();
+        let launch_interval = std::time::Duration::from_secs_f64(1.0 / f64::from(max_rps));
+
+        let cipher = self.require_credential_cipher()?;
+        let mut activated = 0_u64;
+        for (index, candidate) in candidates.into_iter().enumerate() {
+            if index > 0 {
+                tokio::time::sleep(launch_interval).await;
+            }
+
+            let refresh_token = match cipher.decrypt(&candidate.refresh_token_enc) {
+                Ok(refresh_token) => refresh_token,
+                Err(err) => {
+                    let error_message = truncate_error_message(err.to_string());
+                    let error_code = "vault_decrypt_failed".to_string();
+                    let fatal = is_fatal_refresh_error_code(Some(error_code.as_str()));
+                    let mut vault = self.oauth_refresh_token_vault.write().unwrap();
+                    if let Some(item) = vault.get_mut(&candidate.id) {
+                        item.status = if fatal {
+                            OAuthVaultRecordStatus::Failed
+                        } else {
+                            OAuthVaultRecordStatus::Queued
+                        };
+                        item.failure_count = item.failure_count.saturating_add(1);
+                        item.last_error_code = Some(error_code);
+                        item.last_error_message = Some(error_message);
+                        item.updated_at = Utc::now();
+                        if fatal {
+                            item.backoff_until = None;
+                            item.next_attempt_at = None;
+                        } else {
+                            let backoff = vault_activation_backoff(item.failure_count);
+                            item.backoff_until = Some(Utc::now() + backoff);
+                            item.next_attempt_at = item.backoff_until;
+                        }
+                    }
+                    continue;
+                }
+            };
+
+            let fallback_access_token = candidate
+                .fallback_access_token_enc
+                .as_deref()
+                .map(|token| cipher.decrypt(token))
+                .transpose()?;
+
+            let req = ImportOAuthRefreshTokenRequest {
+                label: candidate.label.clone(),
+                base_url: candidate.base_url.clone(),
+                refresh_token,
+                fallback_access_token,
+                fallback_token_expires_at: candidate.fallback_token_expires_at,
+                chatgpt_account_id: candidate.chatgpt_account_id.clone(),
+                mode: Some(candidate.desired_mode.clone()),
+                enabled: Some(candidate.desired_enabled),
+                priority: Some(candidate.desired_priority),
+                chatgpt_plan_type: candidate.chatgpt_plan_type.clone(),
+                source_type: candidate.source_type.clone(),
+            };
+
+            match self.upsert_oauth_refresh_token_inner(req).await {
+                Ok(upserted) => {
+                    self.set_account_pool_state_active_inner(upserted.account.id, Utc::now());
+                    self.oauth_refresh_token_vault
+                        .write()
+                        .unwrap()
+                        .remove(&candidate.id);
+                    activated = activated.saturating_add(1);
+                }
+                Err(err) => {
+                    let error_message = truncate_error_message(err.to_string());
+                    let error_code =
+                        classify_vault_activation_error_code(error_message.as_str()).to_string();
+                    let fatal = is_fatal_refresh_error_code(Some(error_code.as_str()));
+                    let mut vault = self.oauth_refresh_token_vault.write().unwrap();
+                    if let Some(item) = vault.get_mut(&candidate.id) {
+                        item.status = if fatal {
+                            OAuthVaultRecordStatus::Failed
+                        } else {
+                            OAuthVaultRecordStatus::Queued
+                        };
+                        item.failure_count = item.failure_count.saturating_add(1);
+                        item.last_error_code = Some(error_code);
+                        item.last_error_message = Some(error_message);
+                        item.updated_at = Utc::now();
+                        if fatal {
+                            item.backoff_until = None;
+                            item.next_attempt_at = None;
+                        } else {
+                            let backoff = vault_activation_backoff(item.failure_count);
+                            item.backoff_until = Some(Utc::now() + backoff);
+                            item.next_attempt_at = item.backoff_until;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(activated)
+    }
+
     async fn import_oauth_refresh_token_inner(
         &self,
         req: ImportOAuthRefreshTokenRequest,
@@ -951,13 +1249,14 @@ impl InMemoryStore {
                 self.revision.fetch_add(1, Ordering::Relaxed);
             }
             Err(err) => {
+                let error_code = err.code().as_str().to_string();
                 oauth_credential.last_refresh_status = OAuthRefreshStatus::Failed;
                 oauth_credential.last_refresh_at = Some(now);
                 oauth_credential.refresh_reused_detected = matches!(
-                    err.code().as_str(),
+                    error_code.as_str(),
                     "refresh_token_reused" | "refresh_token_revoked"
                 );
-                oauth_credential.last_refresh_error_code = Some(err.code().as_str().to_string());
+                oauth_credential.last_refresh_error_code = Some(error_code.clone());
                 oauth_credential.last_refresh_error = Some(truncate_error_message(err.to_string()));
                 oauth_credential.refresh_failure_count =
                     oauth_credential.refresh_failure_count.saturating_add(1);
@@ -966,7 +1265,16 @@ impl InMemoryStore {
                 self.upsert_oauth_credential(account_id, oauth_credential.clone());
                 if oauth_credential.refresh_reused_detected {
                     let family_id = oauth_credential.token_family_id.clone();
-                    self.disable_oauth_family_inner(&family_id);
+                    self.mark_oauth_family_pending_purge_inner(&family_id, Some(error_code));
+                } else if is_fatal_refresh_error_code(Some(error_code.as_str()))
+                    && !has_usable_access_token_fallback(
+                        oauth_credential.has_access_token_fallback(),
+                        oauth_credential.fallback_token_expires_at,
+                        now,
+                    )
+                {
+                    let _ =
+                        self.mark_upstream_account_pending_purge_inner(account_id, Some(error_code));
                 }
             }
         }
@@ -1122,6 +1430,11 @@ impl InMemoryStore {
                     .iter()
                     .filter_map(|(account_id, account)| {
                         if !account.enabled {
+                            return None;
+                        }
+                        if self.account_pool_state_record_inner(*account_id).pool_state
+                            != AccountPoolState::Active
+                        {
                             return None;
                         }
 

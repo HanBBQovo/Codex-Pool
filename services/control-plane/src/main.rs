@@ -52,6 +52,8 @@ const RATE_LIMIT_CACHE_REFRESH_INTERVAL_SEC_ENV: &str =
     "CONTROL_PLANE_RATE_LIMIT_CACHE_REFRESH_INTERVAL_SEC";
 const OAUTH_VAULT_ACTIVATE_ENABLED_ENV: &str = "CONTROL_PLANE_VAULT_ACTIVATE_ENABLED";
 const OAUTH_VAULT_ACTIVATE_INTERVAL_SEC_ENV: &str = "CONTROL_PLANE_VAULT_ACTIVATE_INTERVAL_SEC";
+const PENDING_PURGE_ENABLED_ENV: &str = "CONTROL_PLANE_PENDING_PURGE_ENABLED";
+const PENDING_PURGE_INTERVAL_SEC_ENV: &str = "CONTROL_PLANE_PENDING_PURGE_INTERVAL_SEC";
 const DATA_PLANE_OUTBOX_CLEANUP_INTERVAL_SEC_ENV: &str =
     "CONTROL_PLANE_DATA_PLANE_OUTBOX_CLEANUP_INTERVAL_SEC";
 const DATA_PLANE_OUTBOX_RETENTION_SEC_ENV: &str = "CONTROL_PLANE_DATA_PLANE_OUTBOX_RETENTION_SEC";
@@ -69,6 +71,10 @@ const DEFAULT_OAUTH_VAULT_ACTIVATE_ENABLED: bool = true;
 const DEFAULT_OAUTH_VAULT_ACTIVATE_INTERVAL_SEC: u64 = 30;
 const MIN_OAUTH_VAULT_ACTIVATE_INTERVAL_SEC: u64 = 5;
 const MAX_OAUTH_VAULT_ACTIVATE_INTERVAL_SEC: u64 = 3_600;
+const DEFAULT_PENDING_PURGE_ENABLED: bool = true;
+const DEFAULT_PENDING_PURGE_INTERVAL_SEC: u64 = 30;
+const MIN_PENDING_PURGE_INTERVAL_SEC: u64 = 5;
+const MAX_PENDING_PURGE_INTERVAL_SEC: u64 = 3_600;
 const DEFAULT_DATA_PLANE_OUTBOX_CLEANUP_INTERVAL_SEC: u64 = 300;
 const MIN_DATA_PLANE_OUTBOX_CLEANUP_INTERVAL_SEC: u64 = 30;
 const MAX_DATA_PLANE_OUTBOX_CLEANUP_INTERVAL_SEC: u64 = 3_600;
@@ -349,6 +355,31 @@ fn oauth_vault_activate_interval_sec_from_env() -> u64 {
         )
 }
 
+fn pending_purge_enabled_from_env() -> bool {
+    std::env::var(PENDING_PURGE_ENABLED_ENV)
+        .ok()
+        .and_then(|raw| {
+            let normalized = raw.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => Some(true),
+                "0" | "false" | "no" | "off" => Some(false),
+                _ => None,
+            }
+        })
+        .unwrap_or(DEFAULT_PENDING_PURGE_ENABLED)
+}
+
+fn pending_purge_interval_sec_from_env() -> u64 {
+    std::env::var(PENDING_PURGE_INTERVAL_SEC_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_PENDING_PURGE_INTERVAL_SEC)
+        .clamp(
+            MIN_PENDING_PURGE_INTERVAL_SEC,
+            MAX_PENDING_PURGE_INTERVAL_SEC,
+        )
+}
+
 fn data_plane_outbox_cleanup_interval_sec_from_env() -> u64 {
     std::env::var(DATA_PLANE_OUTBOX_CLEANUP_INTERVAL_SEC_ENV)
         .ok()
@@ -626,6 +657,24 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(interval_sec, "oauth vault activation loop started");
     } else {
         tracing::info!("oauth vault activation loop disabled by config");
+    }
+
+    if pending_purge_enabled_from_env() {
+        let purge_store = store.clone();
+        let interval_sec = pending_purge_interval_sec_from_env();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(interval_sec));
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                if let Err(err) = purge_store.purge_pending_upstream_accounts().await {
+                    tracing::warn!(error = %err, "pending purge loop tick failed");
+                }
+            }
+        });
+        tracing::info!(interval_sec, "pending purge loop started");
+    } else {
+        tracing::info!("pending purge loop disabled by config");
     }
 
     if rate_limit_cache_refresh_enabled_from_env() {

@@ -1,9 +1,9 @@
 use anyhow::Context;
 use sqlx_core::pool::PoolOptions;
 use sqlx_sqlite::SqlitePool;
+use tokio::sync::{Mutex, watch};
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
-use tokio::sync::{Mutex, watch};
 
 const SQLITE_STORE_STATE_ROW_ID: i64 = 1;
 const SQLITE_STORE_STATE_VERSION: i64 = 1;
@@ -32,6 +32,8 @@ struct SqlitePersistedStoreState {
     accounts: HashMap<Uuid, UpstreamAccount>,
     account_auth_providers: HashMap<Uuid, UpstreamAuthProvider>,
     oauth_credentials: HashMap<Uuid, OAuthCredentialRecord>,
+    #[serde(default)]
+    oauth_refresh_token_vault: HashMap<Uuid, OAuthRefreshTokenVaultRecord>,
     session_profiles: HashMap<Uuid, SessionProfileRecord>,
     account_health_states: HashMap<Uuid, UpstreamAccountHealthStateRecord>,
     account_model_support: HashMap<Uuid, AccountModelSupportRecord>,
@@ -63,6 +65,7 @@ impl InMemoryStore {
             accounts: self.accounts.read().unwrap().clone(),
             account_auth_providers: self.account_auth_providers.read().unwrap().clone(),
             oauth_credentials: self.oauth_credentials.read().unwrap().clone(),
+            oauth_refresh_token_vault: self.oauth_refresh_token_vault.read().unwrap().clone(),
             session_profiles: self.session_profiles.read().unwrap().clone(),
             account_health_states: self.account_health_states.read().unwrap().clone(),
             account_model_support: self.account_model_support.read().unwrap().clone(),
@@ -130,6 +133,7 @@ impl InMemoryStore {
             accounts: Arc::new(RwLock::new(state.accounts)),
             account_auth_providers: Arc::new(RwLock::new(state.account_auth_providers)),
             oauth_credentials: Arc::new(RwLock::new(state.oauth_credentials)),
+            oauth_refresh_token_vault: Arc::new(RwLock::new(state.oauth_refresh_token_vault)),
             session_profiles: Arc::new(RwLock::new(state.session_profiles)),
             account_health_states: Arc::new(RwLock::new(state.account_health_states)),
             account_model_support: Arc::new(RwLock::new(state.account_model_support)),
@@ -506,6 +510,15 @@ impl ControlPlaneStore for SqliteBackedStore {
         Ok(result)
     }
 
+    async fn queue_oauth_refresh_token(
+        &self,
+        req: ImportOAuthRefreshTokenRequest,
+    ) -> Result<bool> {
+        let created = self.inner.queue_oauth_refresh_token_inner(req)?;
+        self.persist_state_after_write().await?;
+        Ok(created)
+    }
+
     async fn dedupe_oauth_accounts_by_identity(&self) -> Result<u64> {
         let removed = self.inner.dedupe_oauth_accounts_by_identity().await?;
         self.persist_state_after_write().await?;
@@ -720,7 +733,29 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn activate_oauth_refresh_token_vault(&self) -> Result<u64> {
-        ControlPlaneStore::activate_oauth_refresh_token_vault(&self.inner).await
+        let activated = self.inner.activate_oauth_refresh_token_vault_inner().await?;
+        self.persist_state_after_write().await?;
+        Ok(activated)
+    }
+
+    async fn mark_upstream_account_pending_purge(
+        &self,
+        account_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<UpstreamAccount> {
+        let account =
+            ControlPlaneStore::mark_upstream_account_pending_purge(&self.inner, account_id, reason)
+                .await?;
+        self.persist_state_after_write().await?;
+        Ok(account)
+    }
+
+    async fn purge_pending_upstream_accounts(&self) -> Result<u64> {
+        let purged = ControlPlaneStore::purge_pending_upstream_accounts(&self.inner).await?;
+        if purged > 0 {
+            self.persist_state_after_write().await?;
+        }
+        Ok(purged)
     }
 
     async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64> {
@@ -841,19 +876,25 @@ impl ControlPlaneStore for SqliteBackedStore {
 
 #[cfg(test)]
 mod sqlite_backed_store_tests {
-    use super::{normalize_sqlite_database_url, SqliteBackedStore};
+    use super::{
+        normalize_sqlite_database_url, AccountPoolState, OAuthVaultRecordStatus,
+        SqliteBackedStore,
+    };
+    use crate::contracts::{ImportOAuthRefreshTokenRequest, OAuthAccountPoolState};
+    use crate::crypto::CredentialCipher;
+    use crate::oauth::{
+        OAuthRefreshErrorCode, OAuthTokenClient, OAuthTokenClientError, OAuthTokenInfo,
+    };
+    use crate::store::ControlPlaneStore;
     use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
-        ImportOAuthRefreshTokenRequest,
     };
-    use crate::crypto::CredentialCipher;
-    use crate::oauth::{OAuthTokenClient, OAuthTokenInfo};
-    use crate::store::ControlPlaneStore;
     use async_trait::async_trait;
     use base64::Engine;
     use chrono::{Duration, Utc};
     use codex_pool_core::model::{UpstreamAuthProvider, UpstreamMode};
     use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tokio::sync::Barrier;
     use uuid::Uuid;
@@ -904,6 +945,81 @@ mod sqlite_backed_store_tests {
                     "title": "Personal",
                 })]),
                 groups: Some(vec![]),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct CountingOAuthTokenClient {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl OAuthTokenClient for CountingOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(OAuthTokenInfo {
+                access_token: format!("counting-access-{refresh_token}"),
+                refresh_token: refresh_token.to_string(),
+                expires_at: Utc::now() + Duration::seconds(3600),
+                token_type: Some("Bearer".to_string()),
+                scope: Some("model.read".to_string()),
+                email: Some("counting-sqlite-oauth@example.com".to_string()),
+                oauth_subject: Some("auth0|counting-sqlite-oauth".to_string()),
+                oauth_identity_provider: Some("google-oauth2".to_string()),
+                email_verified: Some(true),
+                chatgpt_account_id: Some(format!("acct_{refresh_token}")),
+                chatgpt_user_id: Some(format!("user_{refresh_token}")),
+                chatgpt_plan_type: Some("free".to_string()),
+                chatgpt_subscription_active_start: None,
+                chatgpt_subscription_active_until: None,
+                chatgpt_subscription_last_checked: None,
+                chatgpt_account_user_id: Some(format!("acct_user_{refresh_token}")),
+                chatgpt_compute_residency: Some("us".to_string()),
+                workspace_name: None,
+                organizations: Some(vec![json!({
+                    "id": "org_counting_sqlite_demo",
+                    "title": "Personal",
+                })]),
+                groups: Some(vec![]),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct RateLimitedOAuthTokenClient;
+
+    #[async_trait]
+    impl OAuthTokenClient for RateLimitedOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            _refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            Err(OAuthTokenClientError::Upstream {
+                code: OAuthRefreshErrorCode::RateLimited,
+                message: "rate_limited: upstream busy".to_string(),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct RevokedOAuthTokenClient;
+
+    #[async_trait]
+    impl OAuthTokenClient for RevokedOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            _refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            Err(OAuthTokenClientError::InvalidRefreshToken {
+                code: OAuthRefreshErrorCode::RefreshTokenRevoked,
+                message: "refresh token revoked by upstream".to_string(),
             })
         }
     }
@@ -1111,7 +1227,7 @@ mod sqlite_backed_store_tests {
     }
 
     #[tokio::test]
-    async fn sqlite_backed_store_mixed_delete_and_import_should_not_persist_every_item() {
+    async fn sqlite_backed_store_mixed_delete_and_queue_import_should_not_persist_every_item() {
         let database_url = temp_sqlite_url("cp-store-mixed-persist-coalesce");
         let store = Arc::new(
             SqliteBackedStore::connect_with_oauth(
@@ -1143,12 +1259,12 @@ mod sqlite_backed_store_tests {
 
         let import_requests = (0..8)
             .map(|index| ImportOAuthRefreshTokenRequest {
-                label: format!("mixed-import-{index}"),
+                label: format!("mixed-queue-{index}"),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
-                refresh_token: format!("rt-mixed-import-{index}"),
+                refresh_token: format!("rt-mixed-queue-{index}"),
                 fallback_access_token: None,
                 fallback_token_expires_at: None,
-                chatgpt_account_id: Some(format!("acct-mixed-import-{index}")),
+                chatgpt_account_id: Some(format!("acct-mixed-queue-{index}")),
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
                 priority: Some(100),
@@ -1179,10 +1295,11 @@ mod sqlite_backed_store_tests {
             let barrier = barrier.clone();
             handles.push(tokio::spawn(async move {
                 barrier.wait().await;
-                store
-                    .import_oauth_refresh_token(request)
+                let created = store
+                    .queue_oauth_refresh_token(request)
                     .await
-                    .expect("import oauth refresh token");
+                    .expect("queue oauth refresh token");
+                assert!(created, "each queued refresh token should create a new vault item");
             }));
         }
 
@@ -1196,14 +1313,573 @@ mod sqlite_backed_store_tests {
             persist_writes < total_operations,
             "expected mixed concurrent writes to coalesce persists, got {persist_writes} writes for {total_operations} operations"
         );
-
-        let remaining_accounts = store.list_upstream_accounts().await.expect("list accounts");
-        assert_eq!(remaining_accounts.len(), 8, "deleted accounts should be replaced by imported accounts");
         assert!(
-            remaining_accounts
-                .iter()
-                .all(|item| item.label.starts_with("mixed-import-")),
-            "only imported oauth accounts should remain after mixed writes"
+            store.list_upstream_accounts().await.expect("list accounts").is_empty(),
+            "deletes should remove all runtime accounts while queued imports stay cold"
+        );
+        assert_eq!(
+            store.inner.oauth_refresh_token_vault.read().unwrap().len(),
+            8,
+            "all queued imports should be retained in the vault"
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_queue_oauth_refresh_token_keeps_account_out_of_runtime_until_activation(
+    ) {
+        let database_url = temp_sqlite_url("cp-store-sqlite-vault-queue");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(StaticOAuthTokenClient),
+            Some(test_cipher(21)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        let created = store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-vault-demo".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-vault-demo".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_demo".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        assert!(created);
+
+        let queued_accounts = store
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts after queue");
+        assert!(queued_accounts.is_empty(), "queued oauth account should stay cold before activation");
+
+        let activated = store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate oauth vault");
+        assert_eq!(activated, 1);
+
+        let active_accounts = store
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts after activation");
+        assert_eq!(active_accounts.len(), 1);
+        assert_eq!(active_accounts[0].label, "sqlite-vault-demo");
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_queued_vault_survives_reopen_before_activation() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-vault-reopen");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(StaticOAuthTokenClient),
+            Some(test_cipher(22)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-vault-reopen".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-vault-reopen".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_demo".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        drop(store);
+
+        let reopened = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(StaticOAuthTokenClient),
+            Some(test_cipher(22)),
+        )
+        .await
+        .expect("reopen sqlite store with oauth");
+
+        let before_activation = reopened
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts after reopen");
+        assert!(
+            before_activation.is_empty(),
+            "queued vault items should survive reopen without becoming runtime accounts"
+        );
+
+        let activated = reopened
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate oauth vault after reopen");
+        assert_eq!(activated, 1);
+
+        let after_activation = reopened
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts after reopen activation");
+        assert_eq!(after_activation.len(), 1);
+        assert_eq!(after_activation[0].label, "sqlite-vault-reopen");
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_snapshot_excludes_quarantined_accounts() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-quarantine-snapshot");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(StaticOAuthTokenClient),
+            Some(test_cipher(23)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-quarantine".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-quarantine".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_quarantine".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+        store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate vault");
+
+        let account = store
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts")
+            .into_iter()
+            .next()
+            .expect("materialized account");
+
+        {
+            let mut health = store.inner.account_health_states.write().unwrap();
+            let state = health.entry(account.id).or_default();
+            state.pool_state = AccountPoolState::Quarantine;
+            state.quarantine_until = Some(Utc::now() + Duration::minutes(5));
+            state.quarantine_reason = Some("rate_limited".to_string());
+        }
+        store
+            .persist_state_after_write()
+            .await
+            .expect("persist quarantine state");
+
+        let snapshot = store.snapshot().await.expect("load snapshot");
+        assert!(
+            snapshot.accounts.iter().all(|item| item.id != account.id),
+            "quarantined account should not enter runtime snapshot"
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_snapshot_recovers_expired_quarantine() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-quarantine-recover");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(StaticOAuthTokenClient),
+            Some(test_cipher(26)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-quarantine-recover".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-quarantine-recover".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_quarantine_recover".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+        store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate vault");
+
+        let account = store
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts")
+            .into_iter()
+            .next()
+            .expect("materialized account");
+
+        {
+            let mut health = store.inner.account_health_states.write().unwrap();
+            let state = health.entry(account.id).or_default();
+            state.pool_state = AccountPoolState::Quarantine;
+            state.quarantine_until = Some(Utc::now() - Duration::seconds(5));
+            state.quarantine_reason = Some("rate_limited".to_string());
+        }
+        store
+            .persist_state_after_write()
+            .await
+            .expect("persist quarantine state");
+
+        let snapshot = store.snapshot().await.expect("load snapshot");
+        assert!(
+            snapshot.accounts.iter().any(|item| item.id == account.id),
+            "expired quarantine should automatically recover into runtime snapshot"
+        );
+
+        let status = store
+            .oauth_account_status(account.id)
+            .await
+            .expect("load oauth account status after recovery");
+        assert_eq!(status.pool_state, OAuthAccountPoolState::Active);
+        assert_eq!(status.quarantine_reason, None);
+        assert_eq!(status.quarantine_until, None);
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_refresh_expiring_oauth_accounts_skips_quarantined_accounts() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-quarantine-refresh");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(CountingOAuthTokenClient {
+                calls: calls.clone(),
+            }),
+            Some(test_cipher(24)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        for (label, refresh_token) in [
+            ("sqlite-active-refresh", "rt-sqlite-active-refresh"),
+            ("sqlite-quarantine-refresh", "rt-sqlite-quarantine-refresh"),
+        ] {
+            store
+                .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                    label: label.to_string(),
+                    base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                    refresh_token: refresh_token.to_string(),
+                    fallback_access_token: None,
+                    fallback_token_expires_at: None,
+                    chatgpt_account_id: None,
+                    mode: Some(UpstreamMode::CodexOauth),
+                    enabled: Some(true),
+                    priority: Some(100),
+                    chatgpt_plan_type: Some("free".to_string()),
+                    source_type: Some("codex".to_string()),
+                })
+                .await
+                .expect("queue oauth refresh token");
+        }
+
+        let activated = store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate vault");
+        assert_eq!(activated, 2);
+        calls.store(0, Ordering::SeqCst);
+
+        let accounts = store
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts after activation");
+        let quarantine_id = accounts
+            .iter()
+            .find(|item| item.label == "sqlite-quarantine-refresh")
+            .map(|item| item.id)
+            .expect("quarantine account id");
+
+        {
+            let mut credentials = store.inner.oauth_credentials.write().unwrap();
+            for credential in credentials.values_mut() {
+                credential.token_expires_at = Utc::now() + Duration::seconds(30);
+            }
+        }
+        {
+            let mut health = store.inner.account_health_states.write().unwrap();
+            let state = health.entry(quarantine_id).or_default();
+            state.pool_state = AccountPoolState::Quarantine;
+            state.quarantine_until = Some(Utc::now() + Duration::minutes(5));
+            state.quarantine_reason = Some("rate_limited".to_string());
+        }
+        store
+            .persist_state_after_write()
+            .await
+            .expect("persist quarantine state");
+
+        store
+            .refresh_expiring_oauth_accounts()
+            .await
+            .expect("refresh expiring oauth accounts");
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "refresh loop should only touch active expiring accounts"
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_activation_backoffs_nonfatal_vault_failures() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-vault-backoff");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(RateLimitedOAuthTokenClient),
+            Some(test_cipher(27)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-vault-backoff".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-vault-backoff".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_vault_backoff".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        let activated = store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate oauth vault");
+        assert_eq!(activated, 0);
+        assert!(
+            store.list_upstream_accounts().await.expect("list accounts").is_empty(),
+            "nonfatal activation failures should keep item in vault instead of materializing account"
+        );
+
+        let vault = store.inner.oauth_refresh_token_vault.read().unwrap();
+        let record = vault.values().next().expect("vault record");
+        assert_eq!(record.status, OAuthVaultRecordStatus::Queued);
+        assert_eq!(record.failure_count, 1);
+        assert_eq!(record.last_error_code.as_deref(), Some("rate_limited"));
+        assert!(record.backoff_until.is_some());
+        assert_eq!(record.next_attempt_at, record.backoff_until);
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_activation_marks_fatal_vault_failures_failed() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-vault-fatal");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(RevokedOAuthTokenClient),
+            Some(test_cipher(28)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-vault-fatal".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-vault-fatal".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_vault_fatal".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        let activated = store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate oauth vault");
+        assert_eq!(activated, 0);
+        assert!(
+            store.list_upstream_accounts().await.expect("list accounts").is_empty(),
+            "fatal activation failures should never materialize runtime accounts"
+        );
+
+        let vault = store.inner.oauth_refresh_token_vault.read().unwrap();
+        let record = vault.values().next().expect("vault record");
+        assert_eq!(record.status, OAuthVaultRecordStatus::Failed);
+        assert_eq!(record.failure_count, 1);
+        assert_eq!(record.last_error_code.as_deref(), Some("refresh_token_revoked"));
+        assert_eq!(record.backoff_until, None);
+        assert_eq!(record.next_attempt_at, None);
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_oauth_status_exposes_pool_state() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-status-pool-state");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(StaticOAuthTokenClient),
+            Some(test_cipher(25)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-status-pool-state".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-status-pool-state".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+        store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate vault");
+
+        let account = store
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts")
+            .into_iter()
+            .next()
+            .expect("materialized account");
+        let expected_until = Utc::now() + Duration::minutes(10);
+        {
+            let mut health = store.inner.account_health_states.write().unwrap();
+            let state = health.entry(account.id).or_default();
+            state.pool_state = AccountPoolState::Quarantine;
+            state.quarantine_until = Some(expected_until);
+            state.quarantine_reason = Some("rate_limited".to_string());
+        }
+
+        let status = store
+            .oauth_account_status(account.id)
+            .await
+            .expect("load oauth account status");
+        assert_eq!(status.pool_state, OAuthAccountPoolState::Quarantine);
+        assert_eq!(status.quarantine_reason.as_deref(), Some("rate_limited"));
+        assert_eq!(status.quarantine_until, Some(expected_until));
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_purges_pending_purge_accounts_after_due_time() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-pending-purge");
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(StaticOAuthTokenClient),
+            Some(test_cipher(30)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-pending-purge".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-pending-purge".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_pending_purge".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+        store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate vault");
+
+        let account = store
+            .list_upstream_accounts()
+            .await
+            .expect("list accounts")
+            .into_iter()
+            .next()
+            .expect("materialized account");
+
+        let pending = store
+            .mark_upstream_account_pending_purge(
+                account.id,
+                Some("account_deactivated".to_string()),
+            )
+            .await
+            .expect("mark pending purge");
+        assert!(!pending.enabled);
+
+        let status = store
+            .oauth_account_status(account.id)
+            .await
+            .expect("load oauth account status");
+        assert_eq!(status.pool_state, OAuthAccountPoolState::PendingPurge);
+        assert_eq!(
+            status.pending_purge_reason.as_deref(),
+            Some("account_deactivated")
+        );
+        assert!(status.pending_purge_at.is_some());
+
+        let purged = store
+            .purge_pending_upstream_accounts()
+            .await
+            .expect("purge pending accounts before due");
+        assert_eq!(purged, 0);
+
+        {
+            let mut health = store.inner.account_health_states.write().unwrap();
+            let state = health.entry(account.id).or_default();
+            state.pending_purge_at = Some(Utc::now() - Duration::seconds(5));
+        }
+        store
+            .persist_state_after_write()
+            .await
+            .expect("persist pending purge state");
+
+        let purged = store
+            .purge_pending_upstream_accounts()
+            .await
+            .expect("purge pending accounts after due");
+        assert_eq!(purged, 1);
+        assert!(
+            store.list_upstream_accounts().await.expect("list accounts").is_empty(),
+            "purged account should be deleted from runtime store"
         );
     }
 }

@@ -10,6 +10,7 @@ impl InMemoryStore {
             accounts: Arc::new(RwLock::new(HashMap::new())),
             account_auth_providers: Arc::new(RwLock::new(HashMap::new())),
             oauth_credentials: Arc::new(RwLock::new(HashMap::new())),
+            oauth_refresh_token_vault: Arc::new(RwLock::new(HashMap::new())),
             session_profiles: Arc::new(RwLock::new(HashMap::new())),
             account_health_states: Arc::new(RwLock::new(HashMap::new())),
             account_model_support: Arc::new(RwLock::new(HashMap::new())),
@@ -310,6 +311,10 @@ impl InMemoryStore {
         let updated = account.clone();
         drop(accounts);
 
+        if enabled {
+            self.set_account_pool_state_active_inner(account_id, Utc::now());
+        }
+
         self.revision.fetch_add(1, Ordering::Relaxed);
         Ok(updated)
     }
@@ -426,6 +431,114 @@ impl InMemoryStore {
                 .map_or(seen_ok_at, |previous| previous.max(seen_ok_at)),
         );
         true
+    }
+
+    fn set_account_pool_state_active_inner(&self, account_id: Uuid, at: DateTime<Utc>) {
+        let mut states = self.account_health_states.write().unwrap();
+        let state = states.entry(account_id).or_default();
+        state.pool_state = AccountPoolState::Active;
+        state.quarantine_until = None;
+        state.quarantine_reason = None;
+        state.pending_purge_at = None;
+        state.pending_purge_reason = None;
+        state.last_pool_transition_at = Some(at);
+    }
+
+    fn mark_upstream_account_pending_purge_inner(
+        &self,
+        account_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<UpstreamAccount> {
+        let now = Utc::now();
+        let pending_purge_at = now + Duration::seconds(pending_purge_delay_sec_from_env());
+        let normalized_reason = reason.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+
+        let mut accounts = self.accounts.write().unwrap();
+        let account = accounts
+            .get_mut(&account_id)
+            .ok_or_else(|| anyhow!("upstream account not found"))?;
+        account.enabled = false;
+        let updated = account.clone();
+        drop(accounts);
+
+        let mut states = self.account_health_states.write().unwrap();
+        let state = states.entry(account_id).or_default();
+        let scheduled_at = state
+            .pending_purge_at
+            .filter(|existing| *existing > now)
+            .unwrap_or(pending_purge_at);
+        state.pool_state = AccountPoolState::PendingPurge;
+        state.quarantine_until = None;
+        state.quarantine_reason = None;
+        state.pending_purge_at = Some(scheduled_at);
+        state.pending_purge_reason = normalized_reason.or_else(|| state.pending_purge_reason.clone());
+        state.last_pool_transition_at = Some(now);
+        drop(states);
+
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(updated)
+    }
+
+    fn pending_purge_due_account_ids_inner(&self, now: DateTime<Utc>, limit: usize) -> Vec<Uuid> {
+        let mut items = self
+            .account_health_states
+            .read()
+            .unwrap()
+            .iter()
+            .filter_map(|(account_id, state)| {
+                if state.pool_state != AccountPoolState::PendingPurge {
+                    return None;
+                }
+                match state.pending_purge_at {
+                    Some(pending_purge_at) if pending_purge_at > now => None,
+                    _ => Some((*account_id, state.pending_purge_at, state.last_pool_transition_at)),
+                }
+            })
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| {
+            left.1
+                .cmp(&right.1)
+                .then_with(|| left.2.cmp(&right.2))
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        items.truncate(limit);
+        items.into_iter().map(|item| item.0).collect()
+    }
+
+    fn purge_pending_upstream_accounts_inner(&self) -> Result<u64> {
+        let candidates =
+            self.pending_purge_due_account_ids_inner(Utc::now(), pending_purge_batch_size_from_env());
+        let mut purged = 0_u64;
+        for account_id in candidates {
+            if self.delete_upstream_account_inner(account_id).is_ok() {
+                purged = purged.saturating_add(1);
+            }
+        }
+        Ok(purged)
+    }
+
+    fn account_pool_state_record_inner(&self, account_id: Uuid) -> UpstreamAccountHealthStateRecord {
+        let mut states = self.account_health_states.write().unwrap();
+        let now = Utc::now();
+        let state = states.entry(account_id).or_default();
+        if state.pool_state == AccountPoolState::Quarantine
+            && state
+                .quarantine_until
+                .is_some_and(|quarantine_until| quarantine_until <= now)
+        {
+            state.pool_state = AccountPoolState::Active;
+            state.quarantine_until = None;
+            state.quarantine_reason = None;
+            state.last_pool_transition_at = Some(now);
+        }
+        state.clone()
     }
 
     fn require_credential_cipher(&self) -> Result<&CredentialCipher> {
@@ -572,6 +685,12 @@ impl InMemoryStore {
             .get(&account.id)
             .map(|item| item.supported_models.clone())
             .unwrap_or_default();
+        let pool_state_record = self.account_pool_state_record_inner(account.id);
+        let pool_state = match pool_state_record.pool_state {
+            AccountPoolState::Active => OAuthAccountPoolState::Active,
+            AccountPoolState::Quarantine => OAuthAccountPoolState::Quarantine,
+            AccountPoolState::PendingPurge => OAuthAccountPoolState::PendingPurge,
+        };
 
         OAuthAccountStatusResponse {
             account_id: account.id,
@@ -617,6 +736,11 @@ impl InMemoryStore {
                 .and_then(|item| item.last_refresh_error_code.clone()),
             last_refresh_error: credential.and_then(|item| item.last_refresh_error.clone()),
             effective_enabled,
+            pool_state,
+            quarantine_until: pool_state_record.quarantine_until,
+            quarantine_reason: pool_state_record.quarantine_reason,
+            pending_purge_at: pool_state_record.pending_purge_at,
+            pending_purge_reason: pool_state_record.pending_purge_reason,
             supported_models,
             rate_limits: rate_limit_cache.rate_limits,
             rate_limits_fetched_at: rate_limit_cache.fetched_at,

@@ -101,6 +101,18 @@ impl ControlPlaneStore for InMemoryStore {
         self.set_upstream_account_enabled_inner(account_id, enabled)
     }
 
+    async fn mark_upstream_account_pending_purge(
+        &self,
+        account_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<UpstreamAccount> {
+        self.mark_upstream_account_pending_purge_inner(account_id, reason)
+    }
+
+    async fn purge_pending_upstream_accounts(&self) -> Result<u64> {
+        self.purge_pending_upstream_accounts_inner()
+    }
+
     async fn delete_upstream_account(&self, account_id: Uuid) -> Result<()> {
         self.delete_upstream_account_inner(account_id)
     }
@@ -782,7 +794,7 @@ mod tests {
     use chrono::{DateTime, Duration, Utc};
     use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
-        ImportOAuthRefreshTokenRequest, OAuthRateLimitRefreshJobStatus,
+        ImportOAuthRefreshTokenRequest, OAuthAccountPoolState, OAuthRateLimitRefreshJobStatus,
         OAuthRateLimitSnapshot, OAuthRateLimitWindow, RefreshCredentialState,
         SessionCredentialKind, UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
     };
@@ -790,6 +802,7 @@ mod tests {
         RoutingProfileSelector, UpstreamAuthProvider, UpstreamMode,
     };
     use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -935,6 +948,30 @@ mod tests {
             _refresh_token: &str,
             _base_url: Option<&str>,
         ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            Err(crate::oauth::OAuthTokenClientError::InvalidRefreshToken {
+                code: crate::oauth::OAuthRefreshErrorCode::InvalidRefreshToken,
+                message: "refresh token is invalid".to_string(),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct ImportOkThenTerminalFailureOAuthTokenClient {
+        refresh_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl OAuthTokenClient for ImportOkThenTerminalFailureOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            refresh_token: &str,
+            base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            if self.refresh_calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                return StaticOAuthTokenClient
+                    .refresh_token(refresh_token, base_url)
+                    .await;
+            }
             Err(crate::oauth::OAuthTokenClientError::InvalidRefreshToken {
                 code: crate::oauth::OAuthRefreshErrorCode::InvalidRefreshToken,
                 message: "refresh token is invalid".to_string(),
@@ -1514,6 +1551,51 @@ mod tests {
         assert_eq!(
             status.refresh_credential_state,
             Some(RefreshCredentialState::TerminalInvalid)
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_refresh_oauth_account_marks_terminal_failure_pending_purge() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([16_u8; 32]),
+        )
+        .unwrap();
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(ImportOkThenTerminalFailureOAuthTokenClient {
+                refresh_calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Some(cipher),
+        );
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-pending-purge".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-pending-purge".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let status = store.refresh_oauth_account(account.id).await.unwrap();
+        assert_eq!(status.pool_state, OAuthAccountPoolState::PendingPurge);
+        assert_eq!(
+            status.pending_purge_reason.as_deref(),
+            Some("invalid_refresh_token")
+        );
+        assert!(status.pending_purge_at.is_some());
+
+        let snapshot = store.snapshot().await.unwrap();
+        assert!(
+            snapshot.accounts.iter().all(|item| item.id != account.id),
+            "pending purge account should be excluded from runtime snapshot"
         );
     }
 

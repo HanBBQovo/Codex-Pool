@@ -24,9 +24,10 @@ use uuid::Uuid;
 use crate::contracts::{
     CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest,
     CreateTenantRequest, CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
-    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary,
-    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
-    OAuthRefreshStatus, RefreshCredentialState, SessionCredentialKind,
+    OAuthAccountPoolState, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
+    OAuthRateLimitRefreshErrorSummary, OAuthRateLimitRefreshJobStatus,
+    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRefreshStatus,
+    RefreshCredentialState, SessionCredentialKind,
     UpdateAiErrorLearningSettingsRequest, UpdateModelRoutingSettingsRequest,
     UpdateOutboundProxyNodeRequest, UpdateOutboundProxyPoolSettingsRequest,
     UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
@@ -56,6 +57,35 @@ const OAUTH_REFRESH_CONCURRENCY_ENV: &str = "CONTROL_PLANE_OAUTH_REFRESH_CONCURR
 const DEFAULT_OAUTH_REFRESH_CONCURRENCY: usize = 8;
 const MIN_OAUTH_REFRESH_CONCURRENCY: usize = 1;
 const MAX_OAUTH_REFRESH_CONCURRENCY: usize = 64;
+const OAUTH_VAULT_ACTIVATE_BATCH_SIZE_ENV: &str = "CONTROL_PLANE_VAULT_ACTIVATE_BATCH_SIZE";
+const DEFAULT_OAUTH_VAULT_ACTIVATE_BATCH_SIZE: usize = 200;
+const MIN_OAUTH_VAULT_ACTIVATE_BATCH_SIZE: usize = 1;
+const MAX_OAUTH_VAULT_ACTIVATE_BATCH_SIZE: usize = 2_000;
+const OAUTH_VAULT_ACTIVATE_CONCURRENCY_ENV: &str =
+    "CONTROL_PLANE_VAULT_ACTIVATE_CONCURRENCY";
+const DEFAULT_OAUTH_VAULT_ACTIVATE_CONCURRENCY: usize = 8;
+const MIN_OAUTH_VAULT_ACTIVATE_CONCURRENCY: usize = 1;
+const MAX_OAUTH_VAULT_ACTIVATE_CONCURRENCY: usize = 64;
+const OAUTH_VAULT_ACTIVATE_MAX_RPS_ENV: &str = "CONTROL_PLANE_VAULT_ACTIVATE_MAX_RPS";
+const DEFAULT_OAUTH_VAULT_ACTIVATE_MAX_RPS: u32 = 1;
+const MIN_OAUTH_VAULT_ACTIVATE_MAX_RPS: u32 = 1;
+const MAX_OAUTH_VAULT_ACTIVATE_MAX_RPS: u32 = 100;
+const ACTIVE_POOL_TARGET_ENV: &str = "CONTROL_PLANE_ACTIVE_POOL_TARGET";
+const DEFAULT_ACTIVE_POOL_TARGET: usize = 5_000;
+const MIN_ACTIVE_POOL_TARGET: usize = 1;
+const MAX_ACTIVE_POOL_TARGET: usize = 100_000;
+const ACTIVE_POOL_MIN_ENV: &str = "CONTROL_PLANE_ACTIVE_POOL_MIN";
+const DEFAULT_ACTIVE_POOL_MIN: usize = 4_500;
+const MIN_ACTIVE_POOL_MIN: usize = 1;
+const MAX_ACTIVE_POOL_MIN: usize = 100_000;
+const PENDING_PURGE_DELAY_SEC_ENV: &str = "CONTROL_PLANE_PENDING_PURGE_DELAY_SEC";
+const DEFAULT_PENDING_PURGE_DELAY_SEC: i64 = 300;
+const MIN_PENDING_PURGE_DELAY_SEC: i64 = 5;
+const MAX_PENDING_PURGE_DELAY_SEC: i64 = 7 * 24 * 60 * 60;
+const PENDING_PURGE_BATCH_SIZE_ENV: &str = "CONTROL_PLANE_PENDING_PURGE_BATCH_SIZE";
+const DEFAULT_PENDING_PURGE_BATCH_SIZE: usize = 200;
+const MIN_PENDING_PURGE_BATCH_SIZE: usize = 1;
+const MAX_PENDING_PURGE_BATCH_SIZE: usize = 5_000;
 const RATE_LIMIT_CACHE_TTL_SEC_ENV: &str = "CONTROL_PLANE_RATE_LIMIT_CACHE_TTL_SEC";
 const DEFAULT_RATE_LIMIT_CACHE_TTL_SEC: i64 = 180;
 const MIN_RATE_LIMIT_CACHE_TTL_SEC: i64 = 30;
@@ -105,6 +135,71 @@ fn oauth_refresh_concurrency_from_env() -> usize {
         .and_then(|raw| raw.parse::<usize>().ok())
         .unwrap_or(DEFAULT_OAUTH_REFRESH_CONCURRENCY)
         .clamp(MIN_OAUTH_REFRESH_CONCURRENCY, MAX_OAUTH_REFRESH_CONCURRENCY)
+}
+
+fn oauth_vault_activate_batch_size_from_env() -> usize {
+    std::env::var(OAUTH_VAULT_ACTIVATE_BATCH_SIZE_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_OAUTH_VAULT_ACTIVATE_BATCH_SIZE)
+        .clamp(
+            MIN_OAUTH_VAULT_ACTIVATE_BATCH_SIZE,
+            MAX_OAUTH_VAULT_ACTIVATE_BATCH_SIZE,
+        )
+}
+
+fn oauth_vault_activate_concurrency_from_env() -> usize {
+    std::env::var(OAUTH_VAULT_ACTIVATE_CONCURRENCY_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_OAUTH_VAULT_ACTIVATE_CONCURRENCY)
+        .clamp(
+            MIN_OAUTH_VAULT_ACTIVATE_CONCURRENCY,
+            MAX_OAUTH_VAULT_ACTIVATE_CONCURRENCY,
+        )
+}
+
+fn oauth_vault_activate_max_rps_from_env() -> u32 {
+    std::env::var(OAUTH_VAULT_ACTIVATE_MAX_RPS_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .unwrap_or(DEFAULT_OAUTH_VAULT_ACTIVATE_MAX_RPS)
+        .clamp(
+            MIN_OAUTH_VAULT_ACTIVATE_MAX_RPS,
+            MAX_OAUTH_VAULT_ACTIVATE_MAX_RPS,
+        )
+}
+
+fn active_pool_target_from_env() -> usize {
+    std::env::var(ACTIVE_POOL_TARGET_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_ACTIVE_POOL_TARGET)
+        .clamp(MIN_ACTIVE_POOL_TARGET, MAX_ACTIVE_POOL_TARGET)
+}
+
+fn active_pool_min_from_env() -> usize {
+    std::env::var(ACTIVE_POOL_MIN_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_ACTIVE_POOL_MIN)
+        .clamp(MIN_ACTIVE_POOL_MIN, MAX_ACTIVE_POOL_MIN)
+}
+
+fn pending_purge_delay_sec_from_env() -> i64 {
+    std::env::var(PENDING_PURGE_DELAY_SEC_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<i64>().ok())
+        .unwrap_or(DEFAULT_PENDING_PURGE_DELAY_SEC)
+        .clamp(MIN_PENDING_PURGE_DELAY_SEC, MAX_PENDING_PURGE_DELAY_SEC)
+}
+
+fn pending_purge_batch_size_from_env() -> usize {
+    std::env::var(PENDING_PURGE_BATCH_SIZE_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_PENDING_PURGE_BATCH_SIZE)
+        .clamp(MIN_PENDING_PURGE_BATCH_SIZE, MAX_PENDING_PURGE_BATCH_SIZE)
 }
 
 fn rate_limit_cache_ttl_sec_from_env() -> i64 {
@@ -882,6 +977,16 @@ pub trait ControlPlaneStore: Send + Sync {
     async fn activate_oauth_refresh_token_vault(&self) -> Result<u64> {
         Ok(0)
     }
+    async fn mark_upstream_account_pending_purge(
+        &self,
+        account_id: Uuid,
+        _reason: Option<String>,
+    ) -> Result<UpstreamAccount> {
+        self.set_upstream_account_enabled(account_id, false).await
+    }
+    async fn purge_pending_upstream_accounts(&self) -> Result<u64> {
+        Ok(0)
+    }
     async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64> {
         Ok(0)
     }
@@ -1377,11 +1482,76 @@ impl SessionProfileRecord {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct UpstreamAccountHealthStateRecord {
     seen_ok_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pool_state: AccountPoolState,
+    #[serde(default)]
+    quarantine_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    quarantine_reason: Option<String>,
+    #[serde(default)]
+    pending_purge_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pending_purge_reason: Option<String>,
+    #[serde(default)]
+    last_pool_transition_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AccountModelSupportRecord {
     supported_models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+enum AccountPoolState {
+    #[default]
+    Active,
+    Quarantine,
+    PendingPurge,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+enum OAuthVaultRecordStatus {
+    #[default]
+    Queued,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OAuthRefreshTokenVaultRecord {
+    id: Uuid,
+    label: String,
+    base_url: String,
+    refresh_token_enc: String,
+    #[serde(default)]
+    fallback_access_token_enc: Option<String>,
+    #[serde(default)]
+    fallback_token_expires_at: Option<DateTime<Utc>>,
+    refresh_token_sha256: String,
+    #[serde(default)]
+    chatgpt_account_id: Option<String>,
+    #[serde(default)]
+    chatgpt_plan_type: Option<String>,
+    #[serde(default)]
+    source_type: Option<String>,
+    desired_mode: UpstreamMode,
+    desired_enabled: bool,
+    desired_priority: i32,
+    #[serde(default)]
+    status: OAuthVaultRecordStatus,
+    #[serde(default)]
+    failure_count: u32,
+    #[serde(default)]
+    backoff_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    next_attempt_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    last_error_code: Option<String>,
+    #[serde(default)]
+    last_error_message: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1400,6 +1570,7 @@ pub struct InMemoryStore {
     accounts: Arc<RwLock<HashMap<Uuid, UpstreamAccount>>>,
     account_auth_providers: Arc<RwLock<HashMap<Uuid, UpstreamAuthProvider>>>,
     oauth_credentials: Arc<RwLock<HashMap<Uuid, OAuthCredentialRecord>>>,
+    oauth_refresh_token_vault: Arc<RwLock<HashMap<Uuid, OAuthRefreshTokenVaultRecord>>>,
     session_profiles: Arc<RwLock<HashMap<Uuid, SessionProfileRecord>>>,
     account_health_states: Arc<RwLock<HashMap<Uuid, UpstreamAccountHealthStateRecord>>>,
     account_model_support: Arc<RwLock<HashMap<Uuid, AccountModelSupportRecord>>>,

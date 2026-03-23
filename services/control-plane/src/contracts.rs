@@ -163,6 +163,14 @@ pub enum OAuthRefreshStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthAccountPoolState {
+    Active,
+    Quarantine,
+    PendingPurge,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionCredentialKind {
@@ -236,6 +244,15 @@ pub struct OAuthAccountStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_refresh_error: Option<String>,
     pub effective_enabled: bool,
+    pub pool_state: OAuthAccountPoolState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quarantine_until: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quarantine_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_purge_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_purge_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supported_models: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
