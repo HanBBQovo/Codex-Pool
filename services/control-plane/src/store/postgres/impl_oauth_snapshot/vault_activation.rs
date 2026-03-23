@@ -31,6 +31,18 @@ fn classify_vault_activation_error_code(message: &str) -> &'static str {
     if lowered.contains("unauthorized client") {
         return "unauthorized_client";
     }
+    if lowered.contains("rate_limited")
+        || lowered.contains("rate limit")
+        || lowered.contains("too many requests")
+    {
+        return "rate_limited";
+    }
+    if lowered.contains("upstream unavailable")
+        || lowered.contains("service unavailable")
+        || lowered.contains("temporarily unavailable")
+    {
+        return "upstream_unavailable";
+    }
     "vault_activation_failed"
 }
 
