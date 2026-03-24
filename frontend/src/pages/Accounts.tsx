@@ -233,6 +233,14 @@ export default function Accounts() {
     refetchOnWindowFocus: 'always',
   })
 
+  const { data: runtimePoolSummary } = useQuery({
+    queryKey: ['oauthRuntimePoolSummary'],
+    queryFn: accountsApi.getOAuthRuntimePoolSummary,
+    staleTime: 60000,
+    refetchInterval: 60000,
+    refetchOnWindowFocus: 'always',
+  })
+
   const oauthStatusMap = useMemo(() => {
     const map = new Map<string, OAuthAccountStatusResponse>()
     oauthStatusesRaw.forEach((status) => {
@@ -241,23 +249,11 @@ export default function Accounts() {
     return map
   }, [oauthStatusesRaw])
 
-  const runtimePoolCounts = useMemo(() => {
-    return oauthStatusesRaw.reduce(
-      (acc, status) => {
-        if (status.pool_state === 'active') {
-          acc.active += 1
-        } else if (status.pool_state === 'quarantine') {
-          acc.quarantine += 1
-        } else if (status.pool_state === 'pending_purge') {
-          acc.pendingPurge += 1
-        } else {
-          acc.unknown += 1
-        }
-        return acc
-      },
-      { active: 0, quarantine: 0, pendingPurge: 0, unknown: 0 },
-    )
-  }, [oauthStatusesRaw])
+  const runtimePoolCounts = useMemo(() => ({
+    active: runtimePoolSummary?.active ?? 0,
+    quarantine: runtimePoolSummary?.quarantine ?? 0,
+    pendingPurge: runtimePoolSummary?.pending_purge ?? 0,
+  }), [runtimePoolSummary])
 
   const detailIsSessionAccount = Boolean(detailAccount && isSessionMode(detailAccount.mode))
 

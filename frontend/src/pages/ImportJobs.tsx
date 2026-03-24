@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/select'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import { cn } from '@/lib/utils'
+import { getInventoryFailureStageLabel } from '@/features/accounts/utils'
 import {
   MAX_RECENT_JOBS,
   RECENT_JOBS_STORAGE_KEY,
@@ -718,6 +719,37 @@ export default function ImportJobs() {
               <div className="truncate text-sm text-foreground" title={tooltip}>
                 {label}
               </div>
+              {row.original.failure_stage ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t('importJobs.admission.failureStage', { defaultValue: 'Failure stage' })}:{' '}
+                  {getInventoryFailureStageLabel(row.original.failure_stage, t)}
+                </div>
+              ) : null}
+              {(row.original.attempt_count ?? 0) > 0 ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t('importJobs.admission.attempts', { defaultValue: 'Attempts' })}:{' '}
+                  {row.original.attempt_count}
+                  {' · '}
+                  {t('importJobs.admission.transientRetries', {
+                    defaultValue: 'Transient retries',
+                  })}:{' '}
+                  {row.original.transient_retry_count}
+                </div>
+              ) : null}
+              {row.original.next_retry_at ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t('importJobs.admission.nextRetryAt', { defaultValue: 'Next retry' })}:{' '}
+                  {new Date(row.original.next_retry_at).toLocaleString()}
+                </div>
+              ) : null}
+              {row.original.terminal_reason ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t('importJobs.admission.terminalReason', {
+                    defaultValue: 'Terminal reason',
+                  })}:{' '}
+                  {localizeOAuthErrorCodeDisplay(t, row.original.terminal_reason).label}
+                </div>
+              ) : null}
               {row.original.error_message ? (
                 <div className="mt-1 truncate text-xs text-muted-foreground" title={row.original.error_message}>
                   {row.original.error_message}

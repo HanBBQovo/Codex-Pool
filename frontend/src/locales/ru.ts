@@ -114,11 +114,18 @@ export default {
                 quarantineUntil: "Карантин до",
                 pendingPurgeReason: "Причина pending purge",
                 pendingPurgeAt: "Время pending purge",
+                lastLiveResult: "Последний Live Result",
+                lastLiveResultAt: "Время последнего Live Result",
+                lastLiveResultError: "Последняя Live ошибка",
                 hasRefreshCredential: "Есть refresh credential",
                 hasAccessTokenFallback: "Есть fallback access token",
                 rawAccount: "Сырые данные аккаунта",
                 rawOauthStatus: "Сырые данные статуса OAuth"
             }
+        },
+        liveResult: {
+            ok: "Успех",
+            failed: "Ошибка"
         },
         filters: {
             active: "Активные",
@@ -633,6 +640,19 @@ export default {
             pendingPurge: "Pending purge",
             pendingPurgeDesc: "Фатальные аккаунты уже сняты с маршрутизации."
         },
+        healthSignals: {
+            eyebrow: "Health signals",
+            title: "Последние runtime-сигналы",
+            description: "Отслеживайте успешные и неуспешные live-result сигналы, чтобы карантин и purge были видны до ручного разбора логов.",
+            liveOk: "Live-result OK",
+            liveOkDesc: "Недавние успешные сигналы от runtime-аккаунтов.",
+            liveFailed: "Live-result failed",
+            liveFailedDesc: "Недавние сигналы отказа от runtime-аккаунтов.",
+            quarantine: "Quarantine signals",
+            quarantineDesc: "Сигналы, переведшие runtime-аккаунты в карантин.",
+            pendingPurge: "Pending purge signals",
+            pendingPurgeDesc: "Сигналы, уже выведшие аккаунты из маршрутизации."
+        },
         tokenComponents: {
             cached: "Кэшированный ввод",
             input: "Ввод",
@@ -763,6 +783,11 @@ export default {
             quotaExhausted: "Квота исчерпана, ожидается повторная probe.",
             quotaReady: "Probe успешен, квота доступна.",
             quotaNotApplicable: "Сводка по квоте недоступна.",
+            failureStage: "Этап сбоя",
+            attempts: "Количество попыток",
+            transientRetries: "Повторные временные попытки",
+            nextRetryAt: "Следующая попытка",
+            terminalReason: "Терминальная причина",
             status: {
                 queued: "Queued",
                 ready: "Ready",
@@ -930,7 +955,24 @@ export default {
         fields: {
             checkedAt: "Проверено",
             retryAfter: "Повтор после",
+            nextRetryAt: "Следующая попытка",
+            failureStage: "Этап сбоя",
+            retryPolicy: "Политика повторов",
+            attempts: "Количество попыток",
+            transientRetries: "Повторные временные попытки",
+            terminalReason: "Терминальная причина",
             source: "Источник"
+        },
+        retryable: {
+            yes: "Будет повторено автоматически",
+            no: "Автоповтор отключен"
+        },
+        failureStage: {
+            admissionProbe: "Admission probe",
+            activationRefresh: "Activation refresh",
+            activationRateLimits: "Проверка rate-limit при активации",
+            runtimeRefresh: "Runtime refresh",
+            unknown: "Неизвестный этап"
         },
         table: {
             eyebrow: "Vault view",

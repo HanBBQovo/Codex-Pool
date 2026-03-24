@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { OAuthInventoryFailureStage } from './accounts'
 
 export interface OAuthImportJobItem {
     item_id: number;
@@ -14,6 +15,12 @@ export interface OAuthImportJobItem {
     admission_status?: OAuthImportAdmissionStatus;
     admission_source?: string;
     admission_reason?: string;
+    failure_stage?: OAuthInventoryFailureStage;
+    attempt_count: number;
+    transient_retry_count: number;
+    next_retry_at?: string;
+    retryable: boolean;
+    terminal_reason?: string;
 }
 
 export interface OAuthImportErrorSummary {

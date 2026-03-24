@@ -114,11 +114,18 @@ export default {
                 quarantineUntil: "Quarantine Until",
                 pendingPurgeReason: "Pending Purge Reason",
                 pendingPurgeAt: "Pending Purge At",
+                lastLiveResult: "Last Live Result",
+                lastLiveResultAt: "Last Live Result At",
+                lastLiveResultError: "Last Live Error",
                 hasRefreshCredential: "Has Refresh Credential",
                 hasAccessTokenFallback: "Has Access Token Fallback",
                 rawAccount: "Account Payload",
                 rawOauthStatus: "OAuth Status Payload"
             }
+        },
+        liveResult: {
+            ok: "OK",
+            failed: "Failed"
         },
         filters: {
             active: "Active",
@@ -623,6 +630,19 @@ export default {
             pendingPurge: "Pending purge",
             pendingPurgeDesc: "Fatal runtime credentials already removed from routing."
         },
+        healthSignals: {
+            eyebrow: "Health signals",
+            title: "Recent runtime signals",
+            description: "Track live-result success and failure signals so quarantines and purges show up before operators need to dig through logs.",
+            liveOk: "Live-result OK",
+            liveOkDesc: "Recent success signals seen from runtime accounts.",
+            liveFailed: "Live-result failed",
+            liveFailedDesc: "Recent failure signals reported from runtime accounts.",
+            quarantine: "Quarantine signals",
+            quarantineDesc: "Signals that moved runtime accounts into quarantine.",
+            pendingPurge: "Pending purge signals",
+            pendingPurgeDesc: "Signals that already pushed runtime accounts out of routing."
+        },
         scope: {
             apiKey: "API Key View",
             global: "Global View",
@@ -763,6 +783,11 @@ export default {
             quotaExhausted: "Quota exhausted, waiting for reprobe.",
             quotaReady: "Probe succeeded and quota is available.",
             quotaNotApplicable: "Quota summary unavailable.",
+            failureStage: "Failure stage",
+            attempts: "Attempts",
+            transientRetries: "Transient retries",
+            nextRetryAt: "Next retry",
+            terminalReason: "Terminal reason",
             status: {
                 queued: "Queued",
                 ready: "Ready",
@@ -930,7 +955,24 @@ export default {
         fields: {
             checkedAt: "Checked",
             retryAfter: "Retry after",
+            nextRetryAt: "Next retry",
+            failureStage: "Failure stage",
+            retryPolicy: "Retry policy",
+            attempts: "Attempts",
+            transientRetries: "Transient retries",
+            terminalReason: "Terminal reason",
             source: "Source"
+        },
+        retryable: {
+            yes: "Will retry automatically",
+            no: "No automatic retry"
+        },
+        failureStage: {
+            admissionProbe: "Admission probe",
+            activationRefresh: "Activation refresh",
+            activationRateLimits: "Activation rate-limit check",
+            runtimeRefresh: "Runtime refresh",
+            unknown: "Unknown stage"
         },
         table: {
             eyebrow: "Vault view",

@@ -114,11 +114,18 @@ export default {
                 quarantineUntil: "隔離到期",
                 pendingPurgeReason: "待清理原因",
                 pendingPurgeAt: "待清理時間",
+                lastLiveResult: "最近 Live Result",
+                lastLiveResultAt: "最近 Live Result 時間",
+                lastLiveResultError: "最近 Live 錯誤",
                 hasRefreshCredential: "是否有刷新憑證",
                 hasAccessTokenFallback: "是否有存取權杖回退",
                 rawAccount: "帳號原始資料",
                 rawOauthStatus: "OAuth 狀態原始資料"
             }
+        },
+        liveResult: {
+            ok: "成功",
+            failed: "失敗"
         },
         filters: {
             active: "正常",
@@ -633,6 +640,19 @@ export default {
             pendingPurge: "待清理",
             pendingPurgeDesc: "已判定致命並從路由摘除。"
         },
+        healthSignals: {
+            eyebrow: "健康訊號",
+            title: "近期運行時訊號",
+            description: "集中查看 live-result 成功與失敗訊號，讓隔離與待清理在翻日誌前就暴露出來。",
+            liveOk: "Live-result 成功",
+            liveOkDesc: "近期從運行帳號收到的成功訊號。",
+            liveFailed: "Live-result 失敗",
+            liveFailedDesc: "近期從運行帳號收到的失敗訊號。",
+            quarantine: "隔離訊號",
+            quarantineDesc: "把運行帳號推入 quarantine 的訊號數量。",
+            pendingPurge: "待清理訊號",
+            pendingPurgeDesc: "已把運行帳號推出路由的致命訊號數量。"
+        },
         tokenComponents: {
             cached: "快取輸入",
             input: "輸入",
@@ -763,6 +783,11 @@ export default {
             quotaExhausted: "額度已耗盡，等待重新探測。",
             quotaReady: "探測成功且目前有額度。",
             quotaNotApplicable: "暫無額度摘要。",
+            failureStage: "失敗階段",
+            attempts: "嘗試次數",
+            transientRetries: "瞬時重試次數",
+            nextRetryAt: "下一次重試",
+            terminalReason: "終態原因",
             status: {
                 queued: "排隊中",
                 ready: "已就緒",
@@ -930,7 +955,24 @@ export default {
         fields: {
             checkedAt: "探測時間",
             retryAfter: "重試時間",
+            nextRetryAt: "下一次重試",
+            failureStage: "失敗階段",
+            retryPolicy: "重試策略",
+            attempts: "嘗試次數",
+            transientRetries: "瞬時重試次數",
+            terminalReason: "終態原因",
             source: "來源"
+        },
+        retryable: {
+            yes: "系統將自動重試",
+            no: "不會自動重試"
+        },
+        failureStage: {
+            admissionProbe: "准入探測",
+            activationRefresh: "激活刷新",
+            activationRateLimits: "激活額度探測",
+            runtimeRefresh: "運行時刷新",
+            unknown: "未知階段"
         },
         table: {
             eyebrow: "Vault 視圖",

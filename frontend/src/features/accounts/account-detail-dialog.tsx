@@ -24,6 +24,7 @@ import {
   formatRateLimitResetText,
   getAuthProviderLabel,
   getCredentialKindLabel,
+  getLiveResultStatusLabel,
   getModeLabel,
   getPoolStateBadgeVariant,
   getPoolStateLabel,
@@ -402,6 +403,17 @@ export function AccountDetailDialog({
                           </DetailField>
                           <DetailField label={fieldLabel('pendingPurgeAt', 'Pending Purge At')}>
                             {formatOptionalDateTime(oauthStatus.pending_purge_at)}
+                          </DetailField>
+                          <DetailField label={fieldLabel('lastLiveResult', 'Last Live Result')}>
+                            {getLiveResultStatusLabel(oauthStatus.last_live_result_status, t)}
+                          </DetailField>
+                          <DetailField label={fieldLabel('lastLiveResultAt', 'Last Live Result At')}>
+                            {formatOptionalDateTime(oauthStatus.last_live_result_at)}
+                          </DetailField>
+                          <DetailField label={fieldLabel('lastLiveResultError', 'Last Live Error')}>
+                            {oauthStatus.last_live_error_code
+                              ? localizeOAuthErrorCodeDisplay(t, oauthStatus.last_live_error_code).label
+                              : oauthStatus.last_live_error_message_preview ?? '-'}
                           </DetailField>
                           <DetailField label={fieldLabel('hasRefreshCredential', 'Has Refresh Credential')}>
                             <Badge variant={oauthStatus.has_refresh_credential ? 'success' : 'secondary'}>

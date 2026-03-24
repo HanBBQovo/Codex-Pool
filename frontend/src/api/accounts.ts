@@ -50,6 +50,12 @@ export interface OAuthAccountStatusResponse {
     quarantine_until?: string
     pending_purge_at?: string
     pending_purge_reason?: string
+    last_live_result_at?: string
+    last_live_result_status?: 'ok' | 'failed'
+    last_live_result_source?: 'active' | 'passive'
+    last_live_result_status_code?: number
+    last_live_error_code?: string
+    last_live_error_message_preview?: string
     email?: string
     oauth_subject?: string
     oauth_identity_provider?: string
@@ -159,6 +165,12 @@ export type OAuthInventoryStatus =
     | 'no_quota'
     | 'failed'
 
+export type OAuthInventoryFailureStage =
+    | 'admission_probe'
+    | 'activation_refresh'
+    | 'activation_rate_limits'
+    | 'runtime_refresh'
+
 export interface OAuthInventoryRecord {
     id: string
     label: string
@@ -176,6 +188,12 @@ export interface OAuthInventoryRecord {
     admission_error_message?: string
     admission_rate_limits?: OAuthRateLimitSnapshot[]
     admission_rate_limits_expires_at?: string
+    failure_stage?: OAuthInventoryFailureStage
+    attempt_count: number
+    transient_retry_count: number
+    next_retry_at?: string
+    retryable: boolean
+    terminal_reason?: string
     created_at: string
     updated_at: string
 }
@@ -187,6 +205,24 @@ export interface OAuthInventorySummaryResponse {
     needs_refresh: number
     no_quota: number
     failed: number
+}
+
+export interface OAuthRuntimePoolSummaryResponse {
+    total: number
+    active: number
+    quarantine: number
+    pending_purge: number
+    oauth_refresh_token: number
+    legacy_bearer: number
+    rate_limits_ready: number
+}
+
+export interface OAuthHealthSignalsSummaryResponse {
+    total: number
+    live_result_ok: number
+    live_result_failed: number
+    pending_purge_signals: number
+    quarantine_signals: number
 }
 
 export const accountsApi = {
@@ -227,6 +263,12 @@ export const accountsApi = {
 
     getOAuthInventoryRecords: () =>
         apiClient.get<OAuthInventoryRecord[]>('/upstream-accounts/oauth/inventory/records'),
+
+    getOAuthRuntimePoolSummary: () =>
+        apiClient.get<OAuthRuntimePoolSummaryResponse>('/upstream-accounts/runtime/summary'),
+
+    getOAuthHealthSignalsSummary: () =>
+        apiClient.get<OAuthHealthSignalsSummaryResponse>('/upstream-accounts/health/signals/summary'),
 
     refreshOAuth: (accountId: string) =>
         apiClient.post<OAuthAccountStatusResponse>(

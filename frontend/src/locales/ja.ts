@@ -114,11 +114,18 @@ export default {
                 quarantineUntil: "隔離終了時刻",
                 pendingPurgeReason: "削除待ち理由",
                 pendingPurgeAt: "削除待ち時刻",
+                lastLiveResult: "最新 Live Result",
+                lastLiveResultAt: "最新 Live Result 時刻",
+                lastLiveResultError: "最新 Live エラー",
                 hasRefreshCredential: "更新資格情報あり",
                 hasAccessTokenFallback: "アクセストークン fallback あり",
                 rawAccount: "アカウント生データ",
                 rawOauthStatus: "OAuth ステータス生データ"
             }
+        },
+        liveResult: {
+            ok: "成功",
+            failed: "失敗"
         },
         filters: {
             active: "アクティブ",
@@ -633,6 +640,19 @@ export default {
             pendingPurge: "削除待ち",
             pendingPurgeDesc: "致命判定済みでルーティングから外されています。"
         },
+        healthSignals: {
+            eyebrow: "ヘルスシグナル",
+            title: "最近のランタイムシグナル",
+            description: "live-result の成功・失敗シグナルをまとめて確認し、隔離や削除待ちをログを掘る前に把握します。",
+            liveOk: "Live-result 成功",
+            liveOkDesc: "最近ランタイムアカウントから届いた成功シグナルです。",
+            liveFailed: "Live-result 失敗",
+            liveFailedDesc: "最近ランタイムアカウントから届いた失敗シグナルです。",
+            quarantine: "隔離シグナル",
+            quarantineDesc: "ランタイムアカウントを quarantine に移したシグナル数です。",
+            pendingPurge: "削除待ちシグナル",
+            pendingPurgeDesc: "ランタイムアカウントをルーティングから外した致命シグナル数です。"
+        },
         tokenComponents: {
             cached: "キャッシュ入力",
             input: "入力",
@@ -763,6 +783,11 @@ export default {
             quotaExhausted: "クォータ切れのため再 probe 待ちです。",
             quotaReady: "probe 成功、現在クォータあり。",
             quotaNotApplicable: "クォータ概要はありません。",
+            failureStage: "失敗段階",
+            attempts: "試行回数",
+            transientRetries: "一時エラー再試行",
+            nextRetryAt: "次回再試行",
+            terminalReason: "終端理由",
             status: {
                 queued: "Queued",
                 ready: "Ready",
@@ -930,7 +955,24 @@ export default {
         fields: {
             checkedAt: "確認時刻",
             retryAfter: "再試行時刻",
+            nextRetryAt: "次回再試行",
+            failureStage: "失敗段階",
+            retryPolicy: "再試行ポリシー",
+            attempts: "試行回数",
+            transientRetries: "一時エラー再試行",
+            terminalReason: "終端理由",
             source: "ソース"
+        },
+        retryable: {
+            yes: "自動で再試行します",
+            no: "自動再試行しません"
+        },
+        failureStage: {
+            admissionProbe: "Admission probe",
+            activationRefresh: "Activation refresh",
+            activationRateLimits: "Activation rate-limit check",
+            runtimeRefresh: "Runtime refresh",
+            unknown: "Unknown stage"
         },
         table: {
             eyebrow: "Vault view",

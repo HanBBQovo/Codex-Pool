@@ -26,6 +26,7 @@ import {
   extractRateLimitDisplaysFromSnapshots,
   formatAbsoluteDateTime,
   formatRateLimitResetText,
+  getInventoryFailureStageLabel,
   getInventoryStatusBadgeVariant,
   getInventoryStatusLabel,
   getSourceTypeLabel,
@@ -237,6 +238,9 @@ export default function Inventory() {
             <div>
               {t('inventory.fields.retryAfter', { defaultValue: 'Retry after' })}: {formatOptionalDateTime(row.original.admission_retry_after)}
             </div>
+            <div>
+              {t('inventory.fields.nextRetryAt', { defaultValue: 'Next retry' })}: {formatOptionalDateTime(row.original.next_retry_at)}
+            </div>
           </div>
         ),
       },
@@ -258,6 +262,30 @@ export default function Inventory() {
               <div className="truncate text-sm text-foreground" title={tooltip}>
                 {reasonLabel}
               </div>
+              {row.original.failure_stage ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t('inventory.fields.failureStage', { defaultValue: 'Failure stage' })}:{' '}
+                  {getInventoryFailureStageLabel(row.original.failure_stage, t)}
+                </div>
+              ) : null}
+              <div className="mt-1 text-xs text-muted-foreground">
+                {t('inventory.fields.retryPolicy', { defaultValue: 'Retry policy' })}:{' '}
+                {row.original.retryable
+                  ? t('inventory.retryable.yes', { defaultValue: 'Will retry automatically' })
+                  : t('inventory.retryable.no', { defaultValue: 'No automatic retry' })}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {t('inventory.fields.attempts', { defaultValue: 'Attempts' })}: {row.original.attempt_count}
+                {' · '}
+                {t('inventory.fields.transientRetries', { defaultValue: 'Transient retries' })}:{' '}
+                {row.original.transient_retry_count}
+              </div>
+              {row.original.terminal_reason ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t('inventory.fields.terminalReason', { defaultValue: 'Terminal reason' })}:{' '}
+                  {localizeOAuthErrorCodeDisplay(t, row.original.terminal_reason).label}
+                </div>
+              ) : null}
               {row.original.admission_source ? (
                 <div className="mt-1 text-xs text-muted-foreground">
                   {t('inventory.fields.source', { defaultValue: 'Source' })}: {row.original.admission_source}

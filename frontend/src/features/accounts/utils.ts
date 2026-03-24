@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next'
 
 import type {
   OAuthAccountStatusResponse,
+  OAuthInventoryFailureStage,
   OAuthInventoryStatus,
   OAuthRateLimitRefreshJobSummary,
   OAuthRateLimitSnapshot,
@@ -23,6 +24,16 @@ import {
 
 export function isSessionMode(mode: string) {
   return SESSION_MODES.has(mode)
+}
+
+export function getLiveResultStatusLabel(status: 'ok' | 'failed' | undefined, t: TFunction) {
+  if (status === 'ok') {
+    return t('accounts.liveResult.ok', { defaultValue: 'OK' })
+  }
+  if (status === 'failed') {
+    return t('accounts.liveResult.failed', { defaultValue: 'Failed' })
+  }
+  return '-'
 }
 
 export function clampPercent(value: number | undefined) {
@@ -434,4 +445,25 @@ export function getInventoryStatusBadgeVariant(
     return 'destructive'
   }
   return 'secondary'
+}
+
+export function getInventoryFailureStageLabel(
+  stage: OAuthInventoryFailureStage | undefined,
+  t: TFunction,
+) {
+  if (stage === 'admission_probe') {
+    return t('inventory.failureStage.admissionProbe', { defaultValue: 'Admission probe' })
+  }
+  if (stage === 'activation_refresh') {
+    return t('inventory.failureStage.activationRefresh', { defaultValue: 'Activation refresh' })
+  }
+  if (stage === 'activation_rate_limits') {
+    return t('inventory.failureStage.activationRateLimits', {
+      defaultValue: 'Activation rate-limit check',
+    })
+  }
+  if (stage === 'runtime_refresh') {
+    return t('inventory.failureStage.runtimeRefresh', { defaultValue: 'Runtime refresh' })
+  }
+  return t('inventory.failureStage.unknown', { defaultValue: 'Unknown stage' })
 }

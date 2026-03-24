@@ -79,7 +79,6 @@ import {
 import { formatExactCount } from '@/lib/count-number-format'
 import { describeDashboardOverviewLayout } from '@/lib/page-archetypes'
 import { cn } from '@/lib/utils'
-import { isSessionMode } from '@/features/accounts/utils'
 
 type AlertSeverity = 'critical' | 'warning' | 'info'
 type AlertStatus = 'open' | 'resolved'
@@ -298,25 +297,18 @@ export default function Dashboard() {
     refetchInterval: 60_000,
   })
 
-  const { data: dashboardAccounts = [] } = useQuery({
-    queryKey: ['dashboardUpstreamAccounts'],
-    queryFn: accountsApi.listAccounts,
+  const { data: runtimePoolSummary } = useQuery({
+    queryKey: ['dashboardOauthRuntimePoolSummary'],
+    queryFn: accountsApi.getOAuthRuntimePoolSummary,
     staleTime: 60_000,
     refetchInterval: 60_000,
   })
 
-  const dashboardSessionAccountIds = useMemo(
-    () => dashboardAccounts.filter((account) => isSessionMode(account.mode)).map((account) => account.id),
-    [dashboardAccounts],
-  )
-
-  const { data: dashboardOauthStatuses = [] } = useQuery({
-    queryKey: ['dashboardOauthStatuses', dashboardSessionAccountIds],
-    queryFn: () => accountsApi.listOAuthStatuses(dashboardSessionAccountIds),
-    enabled: dashboardSessionAccountIds.length > 0,
+  const { data: healthSignalsSummary } = useQuery({
+    queryKey: ['dashboardOauthHealthSignalsSummary'],
+    queryFn: accountsApi.getOAuthHealthSignalsSummary,
     staleTime: 60_000,
     refetchInterval: 60_000,
-    retry: false,
   })
 
   const {
@@ -351,21 +343,11 @@ export default function Dashboard() {
   const isRefreshing = manualRefreshing || isRefetchingSystem || isRefetchingSummary || isRefetchingLeaderboard
   const isLoading = isLoadingSystem || isLoadingSummary
 
-  const runtimePoolCounts = useMemo(() => {
-    return dashboardOauthStatuses.reduce(
-      (acc, status) => {
-        if (status.pool_state === 'active') {
-          acc.active += 1
-        } else if (status.pool_state === 'quarantine') {
-          acc.quarantine += 1
-        } else if (status.pool_state === 'pending_purge') {
-          acc.pendingPurge += 1
-        }
-        return acc
-      },
-      { active: 0, quarantine: 0, pendingPurge: 0 },
-    )
-  }, [dashboardOauthStatuses])
+  const runtimePoolCounts = useMemo(() => ({
+    active: runtimePoolSummary?.active ?? 0,
+    quarantine: runtimePoolSummary?.quarantine ?? 0,
+    pendingPurge: runtimePoolSummary?.pending_purge ?? 0,
+  }), [runtimePoolSummary])
 
   const handleRefresh = () => {
     setRangeAnchorMs(Date.now())
@@ -1155,6 +1137,55 @@ export default function Dashboard() {
                 icon={<metric.icon className="h-4 w-4" />}
               />
             ))}
+          </DashboardMetricGrid>
+        </PagePanel>
+
+        <PagePanel className="space-y-4">
+          <SectionHeader
+            eyebrow={t('dashboard.healthSignals.eyebrow', { defaultValue: 'Health signals' })}
+            title={t('dashboard.healthSignals.title', { defaultValue: 'Recent runtime signals' })}
+            description={t('dashboard.healthSignals.description', {
+              defaultValue:
+                'Track live-result success and failure signals so quarantines and purges show up before operators need to dig through logs.',
+            })}
+          />
+          <DashboardMetricGrid className="xl:grid-cols-4 2xl:grid-cols-4">
+            <DashboardMetricCard
+              title={t('dashboard.healthSignals.liveOk', { defaultValue: 'Live-result OK' })}
+              value={formatDashboardCount(healthSignalsSummary?.live_result_ok ?? 0)}
+              valueTitle={formatExactCount(healthSignalsSummary?.live_result_ok ?? 0)}
+              description={t('dashboard.healthSignals.liveOkDesc', {
+                defaultValue: 'Recent success signals seen from runtime accounts.',
+              })}
+              icon={<ShieldCheck className="h-4 w-4" />}
+            />
+            <DashboardMetricCard
+              title={t('dashboard.healthSignals.liveFailed', { defaultValue: 'Live-result failed' })}
+              value={formatDashboardCount(healthSignalsSummary?.live_result_failed ?? 0)}
+              valueTitle={formatExactCount(healthSignalsSummary?.live_result_failed ?? 0)}
+              description={t('dashboard.healthSignals.liveFailedDesc', {
+                defaultValue: 'Recent failure signals reported from runtime accounts.',
+              })}
+              icon={<TriangleAlert className="h-4 w-4" />}
+            />
+            <DashboardMetricCard
+              title={t('dashboard.healthSignals.quarantine', { defaultValue: 'Quarantine signals' })}
+              value={formatDashboardCount(healthSignalsSummary?.quarantine_signals ?? 0)}
+              valueTitle={formatExactCount(healthSignalsSummary?.quarantine_signals ?? 0)}
+              description={t('dashboard.healthSignals.quarantineDesc', {
+                defaultValue: 'Signals that moved runtime accounts into quarantine.',
+              })}
+              icon={<Gauge className="h-4 w-4" />}
+            />
+            <DashboardMetricCard
+              title={t('dashboard.healthSignals.pendingPurge', { defaultValue: 'Pending purge signals' })}
+              value={formatDashboardCount(healthSignalsSummary?.pending_purge_signals ?? 0)}
+              valueTitle={formatExactCount(healthSignalsSummary?.pending_purge_signals ?? 0)}
+              description={t('dashboard.healthSignals.pendingPurgeDesc', {
+                defaultValue: 'Signals that already pushed runtime accounts out of routing.',
+              })}
+              icon={<Archive className="h-4 w-4" />}
+            />
           </DashboardMetricGrid>
         </PagePanel>
 
