@@ -13,6 +13,7 @@
 
 - `POST /v1/responses`
 - `GET /v1/responses/{response_id}`
+- `GET /v1/responses/{response_id}/input_items`
 - `POST /v1/responses/{response_id}/cancel`
 - `POST /v1/responses/input_tokens`
 - `GET /v1/responses`（WebSocket Upgrade）
@@ -33,8 +34,11 @@
 | `previous_response_id`（compact） | `POST /v1/responses/compact` | 保留 continuation 锚点；若上游返回 `previous_response_not_found`，代理同账号重试并去掉 stale 锚点 | `adapted` | `recovers_compact_responses_from_previous_response_not_found_without_reusing_stale_id` |
 | `previous_response_id`（WebSocket） | `GET /v1/responses` | 作为 continuation / sticky 锚点；`previous_response_not_found` 时会重放必要帧并去掉 stale 锚点 | `adapted` | `services/data-plane/tests/compatibility_ws.rs::ws_session_recovers_from_previous_response_not_found_without_reusing_stale_id` |
 | response retrieve | `GET /v1/responses/{response_id}` | 对已存储的普通/后台 response 返回标准 JSON；`store=false` 不可检索 | `adapted` | `retrieves_stored_http_response_by_response_id`、`does_not_retrieve_http_responses_when_store_is_false` |
-| response cancel | `POST /v1/responses/{response_id}/cancel` | 对后台 response 标记 `cancelled`，后续上游完成不会覆盖已取消状态 | `adapted` | `cancels_background_responses_before_completion` |
-| `background=true` | `POST /v1/responses` | 立即返回 `queued` response，后台排队自调用本地 `/v1/responses` 执行，并可通过 retrieve/cancel 管理 | `adapted` | `completes_background_responses_and_makes_them_retrievable`、`cancels_background_responses_before_completion` |
+| response input items | `GET /v1/responses/{response_id}/input_items` | 返回已存储 response 的输入项列表，支持 `limit/order/after` 分页参数 | `adapted` | `lists_input_items_for_stored_response` |
+| response cancel | `POST /v1/responses/{response_id}/cancel` | 仅允许取消 `background=true` 的 response；对后台 response 标记 `cancelled`，后续上游完成不会覆盖已取消状态 | `adapted` | `cancels_background_responses_before_completion`、`does_not_cancel_non_background_responses` |
+| `background=true` | `POST /v1/responses` | `store=false` 会被显式拒绝；普通 background 立即返回 `queued` response，后台排队自调用本地 `/v1/responses` 执行，并可通过 retrieve/cancel 管理 | `adapted` | `completes_background_responses_and_makes_them_retrievable`、`rejects_background_responses_when_store_is_false` |
+| `background=true` + `stream=true` | `POST /v1/responses` | 立即返回 SSE；代理为 background 响应生成本地稳定 `response_id`，记录事件序列，并支持后续 retrieve/续流 | `adapted` | `streams_background_responses_and_supports_starting_after_resume` |
+| background streaming retrieve/resume | `GET /v1/responses/{response_id}?stream=true&starting_after=...` | 对 background stream 回放已记录的 SSE 事件，并从 `starting_after` 之后续流 | `adapted` | `streams_background_responses_and_supports_starting_after_resume` |
 | `conversation` 参数 | `POST /v1/responses` | 代理在本地维护 `conversation -> latest response_id` 游标，并自动补出续链所需的 `previous_response_id`；不会原样透传给 Codex 上游 | `adapted` | `conversation_reuses_last_response_id_without_explicit_previous_response_id` |
 | `input_tokens` 计数 | `POST /v1/responses/input_tokens` | 复用本地请求体估算逻辑返回 `response.input_tokens` | `adapted` | `counts_input_tokens_for_responses_payloads` |
 | `compact` 路径改写 | `POST /v1/responses/compact` | 路径改写到 `/backend-api/codex/responses/compact` | `adapted` | `services/data-plane/tests/compatibility.rs::rewrites_v1_responses_compact_to_codex_responses_compact_for_codex_base_profile` |
@@ -54,6 +58,8 @@
 - `max_output_tokens` 会按调用方原值保留并透传。
 - 若携带 `conversation`，只在代理本地用它维护续链游标，不会原样透传给 Codex 上游。
 - 不再默认强制插入 `store=false`。
+- 若 `background=true`，显式 `store=false` 会返回 `400 background_requires_store`。
+- 若同时携带 `background=true` 和 `stream=true`，代理会把首轮请求作为 SSE 返回，并为该 background response 记录可续流的事件序列。
 
 对 `POST /v1/responses/compact`：
 
@@ -83,5 +89,6 @@
 ## 已知限制
 
 - `compact` 对显式 `store` 的保留还没有完全对齐普通 `Responses`。
+- `GET /v1/responses/{response_id}?stream=true` 当前仅对 `background=true && stream=true` 创建出的 response 提供续流恢复；普通同步 `stream=true` 请求尚未纳入 retrieve 流视图。
 - retrieve / cancel / background 当前是 data-plane 进程内运行时存储，默认保留 24 小时；它们在进程重启后不会跨进程恢复。
 - 本矩阵只描述 `Codex profile` 的兼容行为；非 Codex 上游会走普通 OpenAI 代理链路，不受这里的字段改写规则约束。

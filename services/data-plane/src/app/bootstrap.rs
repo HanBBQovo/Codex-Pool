@@ -34,7 +34,8 @@ use crate::event::{EventSink, NoopEventSink};
 use crate::outbound_proxy_runtime::OutboundProxyRuntime;
 use crate::proxy::{
     proxy_handler, proxy_websocket_handler, responses_cancel_handler,
-    responses_input_tokens_handler, responses_retrieve_handler, BackgroundResponsesRuntime,
+    responses_input_items_handler, responses_input_tokens_handler, responses_retrieve_handler,
+    BackgroundResponsesRuntime,
 };
 use crate::router::RoundRobinRouter;
 #[cfg(feature = "redis-backend")]
@@ -666,6 +667,10 @@ async fn build_app_with_options(
             post(proxy_handler).get(proxy_websocket_handler),
         )
         .route("/v1/responses/input_tokens", post(responses_input_tokens_handler))
+        .route(
+            "/v1/responses/{response_id}/input_items",
+            get(responses_input_items_handler),
+        )
         .route("/v1/responses/{response_id}", get(responses_retrieve_handler))
         .route(
             "/v1/responses/{response_id}/cancel",

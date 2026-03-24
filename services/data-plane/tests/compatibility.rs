@@ -1470,6 +1470,218 @@ async fn counts_input_tokens_for_responses_payloads() {
 }
 
 #[tokio::test]
+async fn lists_input_items_for_stored_response() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_with_inputs",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "stored"}]
+            }]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let create = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "input": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "first"},
+                        {"type": "input_text", "text": "second"}
+                    ]
+                }]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create.status(), reqwest::StatusCode::OK);
+
+    let listed = client
+        .get(format!(
+            "{base_url}/v1/responses/resp_with_inputs/input_items?limit=1&order=asc"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), reqwest::StatusCode::OK);
+    let payload: Value = listed.json().await.unwrap();
+    assert_eq!(payload["object"], "list");
+    assert_eq!(payload["data"].as_array().map(Vec::len), Some(1));
+    assert_eq!(payload["has_more"], Value::Bool(false));
+    assert_eq!(payload["data"][0]["type"], "message");
+    assert_eq!(payload["data"][0]["role"], "user");
+}
+
+#[tokio::test]
+async fn rejects_background_responses_when_store_is_false() {
+    let upstream = MockServer::start().await;
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "background": true,
+                "store": false,
+                "input": "must fail"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+    let payload: Value = response.json().await.unwrap();
+    assert_eq!(payload["error"]["code"], "background_requires_store");
+}
+
+#[tokio::test]
+async fn does_not_cancel_non_background_responses() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_sync_only",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "sync"}]
+            }]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let create = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "input": "sync only"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create.status(), reqwest::StatusCode::OK);
+
+    let cancel = client
+        .post(format!("{base_url}/v1/responses/resp_sync_only/cancel"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cancel.status(), reqwest::StatusCode::BAD_REQUEST);
+    let payload: Value = cancel.json().await.unwrap();
+    assert_eq!(payload["error"]["code"], "response_not_cancellable");
+}
+
+#[tokio::test]
+async fn streams_background_responses_and_supports_starting_after_resume() {
+    let sse_payload = concat!(
+        "event: response.created\n",
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_bg_stream\",\"status\":\"in_progress\"}}\n\n",
+        "event: response.output_text.delta\n",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n",
+        "event: response.completed\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bg_stream\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}]}}\n\n"
+    );
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_payload, "text/event-stream"))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let create = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "background": true,
+                "stream": true,
+                "input": "stream me"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create.status(), reqwest::StatusCode::OK);
+    let create_content_type = create
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(create_content_type.contains("text/event-stream"));
+    let create_body = create.bytes().await.unwrap();
+    let create_text = String::from_utf8_lossy(&create_body);
+    assert!(create_text.contains("\"sequence_number\":1"));
+    assert!(create_text.contains("\"sequence_number\":2"));
+    assert!(create_text.contains("\"sequence_number\":3"));
+    let response_id = create_text
+        .split("\"response\":{\"id\":\"")
+        .nth(1)
+        .and_then(|tail| tail.split('"').next())
+        .expect("stream should expose a response id")
+        .to_string();
+
+    let resumed = client
+        .get(format!(
+            "{base_url}/v1/responses/{response_id}?stream=true&starting_after=1"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resumed.status(), reqwest::StatusCode::OK);
+    let resume_content_type = resumed
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(resume_content_type.contains("text/event-stream"));
+    let resumed_body = resumed.bytes().await.unwrap();
+    let resumed_text = String::from_utf8_lossy(&resumed_body);
+    assert!(!resumed_text.contains("\"sequence_number\":1"));
+    assert!(resumed_text.contains("\"sequence_number\":2"));
+    assert!(resumed_text.contains("\"sequence_number\":3"));
+}
+
+#[tokio::test]
 async fn passes_input_image_items_through_for_codex_profile() {
     let upstream = MockServer::start().await;
 

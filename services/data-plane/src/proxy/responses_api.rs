@@ -1,13 +1,14 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use chrono::Utc;
 use serde_json::{Map, json};
-use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::sync::{Mutex, Notify, RwLock, Semaphore};
 
 const BACKGROUND_SELF_REQUEST_HEADER: &str = "x-codex-background-task";
 const BACKGROUND_RESPONSES_RETENTION_SEC_ENV: &str = "DATA_PLANE_RESPONSES_RETENTION_SEC";
@@ -42,13 +43,16 @@ pub struct BackgroundResponsesRuntime {
     in_flight_total: Arc<AtomicU64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct StoredResponseRecord {
     owner_key: String,
     response: Value,
     allow_retrieve: bool,
+    input_items: Vec<Value>,
     request_body: Option<Value>,
     cancelled: bool,
+    background: bool,
+    stream_state: Option<StoredResponseStream>,
     expires_at: Instant,
 }
 
@@ -62,11 +66,106 @@ struct ConversationCursor {
 #[derive(Debug, Clone)]
 struct BackgroundRequestSnapshot {
     response_id: String,
+    owner_key: String,
     principal_token: String,
     headers: Vec<(String, String)>,
     body: Value,
     detected_locale: String,
     conversation_id: Option<String>,
+    stream: bool,
+}
+
+#[derive(Debug)]
+struct StoredResponseStream {
+    events: Vec<StoredStreamEvent>,
+    next_sequence_number: u64,
+    terminal: bool,
+    notify: Arc<Notify>,
+}
+
+#[derive(Debug, Clone)]
+struct StoredStreamEvent {
+    sequence_number: u64,
+    bytes: Bytes,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ResponseRetrieveQuery {
+    #[serde(default)]
+    include: Vec<String>,
+    stream: Option<bool>,
+    starting_after: Option<u64>,
+    include_obfuscation: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ResponseInputItemsQuery {
+    limit: Option<usize>,
+    order: Option<String>,
+    after: Option<String>,
+    #[serde(default)]
+    include: Vec<String>,
+}
+
+#[derive(Debug)]
+enum CancelResponseOutcome {
+    NotFound,
+    NotCancellable,
+    Response(Value),
+}
+
+#[derive(Debug)]
+enum StreamLookupOutcome {
+    NotFound,
+    NotStreamable,
+    Response(Response),
+}
+
+impl StoredResponseStream {
+    fn new() -> Self {
+        Self {
+            events: Vec::new(),
+            next_sequence_number: 1,
+            terminal: false,
+            notify: Arc::new(Notify::new()),
+        }
+    }
+
+    fn append_frame(
+        &mut self,
+        event_name: Option<&str>,
+        mut event_value: Value,
+    ) -> (u64, bool, Option<Value>) {
+        let sequence_number = self.next_sequence_number;
+        self.next_sequence_number += 1;
+        if let Some(object) = event_value.as_object_mut() {
+            object.insert(
+                "sequence_number".to_string(),
+                Value::Number(serde_json::Number::from(sequence_number)),
+            );
+        }
+        let terminal = matches!(
+            event_value.get("type").and_then(Value::as_str),
+            Some(
+                "response.completed"
+                    | "response.done"
+                    | "response.failed"
+                    | "response.incomplete"
+                    | "response.cancelled"
+            )
+        );
+        let response = event_value.get("response").cloned();
+        let bytes = build_sse_frame(event_name, &event_value);
+        self.events.push(StoredStreamEvent {
+            sequence_number,
+            bytes,
+        });
+        if terminal {
+            self.terminal = true;
+        }
+        self.notify.notify_waiters();
+        (sequence_number, terminal, response)
+    }
 }
 
 impl BackgroundResponsesRuntime {
@@ -142,18 +241,83 @@ impl BackgroundResponsesRuntime {
         Some(record.response.clone())
     }
 
-    async fn cancel_response(&self, owner_key: &str, response_id: &str) -> Option<Value> {
-        let mut entries = self.entries.write().await;
-        let record = entries.get_mut(response_id)?;
-        if record.owner_key != owner_key || record.expires_at <= Instant::now() {
+    async fn lookup_input_items(
+        &self,
+        owner_key: &str,
+        response_id: &str,
+        query: &ResponseInputItemsQuery,
+    ) -> Option<Value> {
+        let entries = self.entries.read().await;
+        let record = entries.get(response_id)?;
+        if record.owner_key != owner_key
+            || record.expires_at <= Instant::now()
+            || !record.allow_retrieve
+        {
             return None;
+        }
+
+        let mut items = record.input_items.clone();
+        drop(entries);
+
+        let order = query.order.as_deref().unwrap_or("desc");
+        if order != "asc" {
+            items.reverse();
+        }
+
+        if let Some(after) = query.after.as_deref() {
+            if let Some(position) = items
+                .iter()
+                .position(|item| item.get("id").and_then(Value::as_str) == Some(after))
+            {
+                items = items.into_iter().skip(position + 1).collect();
+            }
+        }
+
+        let limit = query.limit.unwrap_or(20).clamp(1, 100);
+        let has_more = items.len() > limit;
+        let page = items.into_iter().take(limit).collect::<Vec<_>>();
+        let first_id = page
+            .first()
+            .and_then(|item| item.get("id").cloned())
+            .unwrap_or(Value::Null);
+        let last_id = page
+            .last()
+            .and_then(|item| item.get("id").cloned())
+            .unwrap_or(Value::Null);
+
+        Some(json!({
+            "object": "list",
+            "data": page,
+            "first_id": first_id,
+            "last_id": last_id,
+            "has_more": has_more,
+        }))
+    }
+
+    async fn cancel_response(&self, owner_key: &str, response_id: &str) -> CancelResponseOutcome {
+        let mut entries = self.entries.write().await;
+        let Some(record) = entries.get_mut(response_id) else {
+            return CancelResponseOutcome::NotFound;
+        };
+        if record.owner_key != owner_key || record.expires_at <= Instant::now() {
+            return CancelResponseOutcome::NotFound;
+        }
+        if !record.background {
+            return CancelResponseOutcome::NotCancellable;
         }
         record.cancelled = true;
         if !is_terminal_response_status(record.response.get("status").and_then(Value::as_str)) {
             set_response_status(&mut record.response, "cancelled");
             set_response_timestamp(&mut record.response, "cancelled_at", Utc::now().timestamp());
+            if let Some(stream_state) = record.stream_state.as_mut() {
+                let cancellation_event = json!({
+                    "type": "response.cancelled",
+                    "response": record.response.clone(),
+                });
+                let _ = stream_state.append_frame(Some("response.cancelled"), cancellation_event);
+            }
         }
-        Some(record.response.clone())
+        CancelResponseOutcome::Response(record.response.clone())
     }
 
     async fn current_conversation_response_id(
@@ -189,8 +353,15 @@ impl BackgroundResponsesRuntime {
             owner_key,
             response,
             allow_retrieve: true,
-            request_body: Some(request_body),
+            input_items: derive_input_items(&request_body, response_id.as_str()),
+            request_body: Some(request_body.clone()),
             cancelled: false,
+            background: true,
+            stream_state: request_body
+                .get("stream")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                .then(StoredResponseStream::new),
             expires_at: Instant::now() + self.retention,
         };
         self.entries.write().await.insert(response_id.clone(), record);
@@ -216,6 +387,7 @@ impl BackgroundResponsesRuntime {
         mut response_value: Value,
         conversation_id: Option<String>,
     ) {
+        rewrite_response_ids(&mut response_value, response_id);
         let mut entries = self.entries.write().await;
         let Some(record) = entries.get_mut(response_id) else {
             return;
@@ -247,6 +419,52 @@ impl BackgroundResponsesRuntime {
                         expires_at,
                     },
                 );
+            }
+        }
+    }
+
+    async fn apply_background_response_snapshot(
+        &self,
+        response_id: &str,
+        mut response_value: Value,
+        conversation_id: Option<String>,
+        terminal: bool,
+    ) {
+        let mut entries = self.entries.write().await;
+        let Some(record) = entries.get_mut(response_id) else {
+            return;
+        };
+        if record.cancelled {
+            return;
+        }
+        if let Some(object) = response_value.as_object_mut() {
+            object.insert("background".to_string(), Value::Bool(record.background));
+            if let Some(conversation_id_value) = conversation_id.as_deref() {
+                object
+                    .entry("conversation".to_string())
+                    .or_insert_with(|| Value::String(conversation_id_value.to_string()));
+            }
+        }
+        let owner_key = record.owner_key.clone();
+        let expires_at = record.expires_at;
+        record.response = response_value.clone();
+        if terminal {
+            record.request_body = None;
+        }
+        drop(entries);
+
+        if terminal {
+            if let Some(conversation_id) = conversation_id {
+                if let Some(final_response_id) = response_value.get("id").and_then(Value::as_str) {
+                    self.conversations.write().await.insert(
+                        conversation_id,
+                        ConversationCursor {
+                            owner_key,
+                            response_id: final_response_id.to_string(),
+                            expires_at,
+                        },
+                    );
+                }
             }
         }
     }
@@ -321,8 +539,11 @@ impl BackgroundResponsesRuntime {
                 owner_key: owner_key.clone(),
                 response: response_value.clone(),
                 allow_retrieve: !request_explicitly_disables_store(request_body) || force_store,
+                input_items: derive_input_items(request_body, response_id.as_str()),
                 request_body: None,
                 cancelled: false,
+                background: false,
+                stream_state: None,
                 expires_at,
             },
         );
@@ -352,20 +573,189 @@ impl BackgroundResponsesRuntime {
         }
         *next_dispatch_at = Instant::now() + spacing;
     }
+
+    async fn append_background_stream_frame(
+        &self,
+        owner_key: &str,
+        response_id: &str,
+        frame: &[u8],
+        conversation_id: Option<String>,
+    ) {
+        let parsed = parse_sse_frame(frame);
+        let Some(event_value) = parsed
+            .as_ref()
+            .and_then(|(_, payload)| serde_json::from_slice::<Value>(payload).ok())
+        else {
+            return;
+        };
+        let mut event_value = event_value;
+        rewrite_response_ids(&mut event_value, response_id);
+
+        let (terminal, response_snapshot) = {
+            let mut entries = self.entries.write().await;
+            let Some(record) = entries.get_mut(response_id) else {
+                return;
+            };
+            if record.owner_key != owner_key || record.expires_at <= Instant::now() {
+                return;
+            }
+            let Some(stream_state) = record.stream_state.as_mut() else {
+                return;
+            };
+            let (_, terminal, response_snapshot) =
+                stream_state.append_frame(parsed.as_ref().and_then(|(name, _)| name.as_deref()), event_value);
+            (terminal, response_snapshot)
+        };
+
+        if let Some(response_snapshot) = response_snapshot {
+            self.apply_background_response_snapshot(
+                response_id,
+                response_snapshot,
+                conversation_id,
+                terminal,
+            )
+            .await;
+        }
+    }
+
+    async fn stream_response(
+        &self,
+        owner_key: &str,
+        response_id: &str,
+        starting_after: Option<u64>,
+    ) -> StreamLookupOutcome {
+        let notify = {
+            let entries = self.entries.read().await;
+            let Some(record) = entries.get(response_id) else {
+                return StreamLookupOutcome::NotFound;
+            };
+            if record.owner_key != owner_key || record.expires_at <= Instant::now() {
+                return StreamLookupOutcome::NotFound;
+            }
+            let Some(stream_state) = record.stream_state.as_ref() else {
+                return StreamLookupOutcome::NotStreamable;
+            };
+            stream_state.notify.clone()
+        };
+
+        let entries = self.entries.clone();
+        let owner_key = owner_key.to_string();
+        let response_id = response_id.to_string();
+        let mut next_sequence = starting_after.unwrap_or(0) + 1;
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(16);
+
+        tokio::spawn(async move {
+            loop {
+                let (pending_events, terminal) = {
+                    let entries = entries.read().await;
+                    let Some(record) = entries.get(response_id.as_str()) else {
+                        return;
+                    };
+                    if record.owner_key != owner_key || record.expires_at <= Instant::now() {
+                        return;
+                    }
+                    let Some(stream_state) = record.stream_state.as_ref() else {
+                        return;
+                    };
+                    let pending_events = stream_state
+                        .events
+                        .iter()
+                        .filter(|event| event.sequence_number >= next_sequence)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    (pending_events, stream_state.terminal)
+                };
+
+                for event in pending_events {
+                    next_sequence = event.sequence_number + 1;
+                    if tx.send(Ok(event.bytes.clone())).await.is_err() {
+                        return;
+                    }
+                }
+
+                if terminal {
+                    return;
+                }
+                notify.notified().await;
+            }
+        });
+
+        let body = Body::from_stream(ReceiverStream::new(rx));
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, "text/event-stream")
+            .header(axum::http::header::CACHE_CONTROL, "no-cache")
+            .body(body)
+            .unwrap_or_else(|_| Response::new(Body::empty()));
+        StreamLookupOutcome::Response(response)
+    }
 }
 
 pub async fn responses_retrieve_handler(
     State(state): State<Arc<AppState>>,
     principal: Option<axum::Extension<ApiPrincipal>>,
     Path(response_id): Path<String>,
+    Query(query): Query<ResponseRetrieveQuery>,
 ) -> Response {
     let owner_key = response_owner_key(principal.as_ref().map(|item| &item.0));
+    let _ = (&query.include, query.include_obfuscation);
+    if query.stream.unwrap_or(false) {
+        return match state
+            .background_responses
+            .stream_response(
+                owner_key.as_str(),
+                response_id.as_str(),
+                query.starting_after,
+            )
+            .await
+        {
+            StreamLookupOutcome::Response(response) => response,
+            StreamLookupOutcome::NotFound => localized_json_error_with_state(
+                state.as_ref(),
+                "en",
+                StatusCode::NOT_FOUND,
+                "response_not_found",
+                "response was not found",
+            ),
+            StreamLookupOutcome::NotStreamable => localized_json_error_with_state(
+                state.as_ref(),
+                "en",
+                StatusCode::BAD_REQUEST,
+                "response_not_streamable",
+                "response was not created as a background stream",
+            ),
+        };
+    }
     match state
         .background_responses
         .lookup_response(owner_key.as_str(), response_id.as_str())
         .await
     {
         Some(response) => axum::Json(response).into_response(),
+        None => localized_json_error_with_state(
+            state.as_ref(),
+            "en",
+            StatusCode::NOT_FOUND,
+            "response_not_found",
+            "response was not found",
+        ),
+    }
+}
+
+pub async fn responses_input_items_handler(
+    State(state): State<Arc<AppState>>,
+    principal: Option<axum::Extension<ApiPrincipal>>,
+    Path(response_id): Path<String>,
+    Query(query): Query<ResponseInputItemsQuery>,
+) -> Response {
+    let owner_key = response_owner_key(principal.as_ref().map(|item| &item.0));
+    let _ = &query.include;
+    match state
+        .background_responses
+        .lookup_input_items(owner_key.as_str(), response_id.as_str(), &query)
+        .await
+    {
+        Some(items) => axum::Json(items).into_response(),
         None => localized_json_error_with_state(
             state.as_ref(),
             "en",
@@ -387,13 +777,20 @@ pub async fn responses_cancel_handler(
         .cancel_response(owner_key.as_str(), response_id.as_str())
         .await
     {
-        Some(response) => axum::Json(response).into_response(),
-        None => localized_json_error_with_state(
+        CancelResponseOutcome::Response(response) => axum::Json(response).into_response(),
+        CancelResponseOutcome::NotFound => localized_json_error_with_state(
             state.as_ref(),
             "en",
             StatusCode::NOT_FOUND,
             "response_not_found",
             "response was not found",
+        ),
+        CancelResponseOutcome::NotCancellable => localized_json_error_with_state(
+            state.as_ref(),
+            "en",
+            StatusCode::BAD_REQUEST,
+            "response_not_cancellable",
+            "response was not created in background mode",
         ),
     }
 }
@@ -463,11 +860,25 @@ async fn maybe_handle_background_response_request(
         return None;
     }
     let detected_locale = parsed_policy_context.detected_locale.as_str();
+    if request_explicitly_disables_store(&request_value) {
+        let response = localized_json_error_with_state(
+            state.as_ref(),
+            detected_locale,
+            StatusCode::BAD_REQUEST,
+            "background_requires_store",
+            "background responses require store=true",
+        );
+        return Some(response);
+    }
     let owner_key = response_owner_key(principal);
     let principal_token = principal.map(|item| item.token.clone()).unwrap_or_default();
     let conversation_id = parsed_policy_context.conversation_id.clone();
+    let requested_stream = request_value
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
-    if request_value.get("stream").and_then(Value::as_bool) == Some(true) {
+    if !requested_stream {
         if let Some(object) = request_value.as_object_mut() {
             object.insert("stream".to_string(), Value::Bool(false));
         }
@@ -496,15 +907,37 @@ async fn maybe_handle_background_response_request(
             )
         });
 
+    let background_response_id = response_id.clone();
     let snapshot = BackgroundRequestSnapshot {
         response_id,
+        owner_key: owner_key.clone(),
         principal_token,
         headers: collect_background_headers(headers),
         body: request_value,
         detected_locale: detected_locale.to_string(),
         conversation_id,
+        stream: requested_stream,
     };
-    spawn_background_response_worker(state, snapshot);
+    spawn_background_response_worker(state.clone(), snapshot);
+
+    if requested_stream {
+        return match state
+            .background_responses
+            .stream_response(owner_key.as_str(), background_response_id.as_str(), None)
+            .await
+        {
+            StreamLookupOutcome::Response(response) => Some(response),
+            StreamLookupOutcome::NotFound | StreamLookupOutcome::NotStreamable => {
+                Some(localized_json_error_with_state(
+                    state.as_ref(),
+                    detected_locale,
+                    StatusCode::BAD_GATEWAY,
+                    "background_stream_unavailable",
+                    "background stream is unavailable",
+                ))
+            }
+        };
+    }
 
     let response = axum::Json(queued_response).into_response();
     Some(with_status(response, StatusCode::ACCEPTED))
@@ -522,6 +955,120 @@ fn response_owner_key(principal: Option<&ApiPrincipal>) -> String {
 
 fn request_explicitly_disables_store(value: &Value) -> bool {
     value.get("store").and_then(Value::as_bool) == Some(false)
+}
+
+fn derive_input_items(request_body: &Value, response_id: &str) -> Vec<Value> {
+    let base_items = match request_body.get("input") {
+        Some(Value::String(text)) => vec![json!({
+            "type": "message",
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": text
+            }]
+        })],
+        Some(Value::Array(items)) => items.clone(),
+        Some(Value::Object(object)) => vec![Value::Object(object.clone())],
+        _ => Vec::new(),
+    };
+
+    base_items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| ensure_input_item_shape(item, response_id, index))
+        .collect()
+}
+
+fn rewrite_response_ids(value: &mut Value, response_id: &str) {
+    if let Some(object) = value.as_object_mut() {
+        if object.contains_key("response_id") {
+            object.insert(
+                "response_id".to_string(),
+                Value::String(response_id.to_string()),
+            );
+        }
+        if let Some(response_object) = object.get_mut("response").and_then(Value::as_object_mut) {
+            response_object.insert("id".to_string(), Value::String(response_id.to_string()));
+        }
+        if object
+            .get("object")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind == "response")
+        {
+            object.insert("id".to_string(), Value::String(response_id.to_string()));
+        }
+    }
+}
+
+fn ensure_input_item_shape(mut item: Value, response_id: &str, index: usize) -> Value {
+    let generated_id = format!("item_{response_id}_{index}");
+    if let Some(object) = item.as_object_mut() {
+        if !object.contains_key("type") && object.contains_key("role") && object.contains_key("content")
+        {
+            object.insert("type".to_string(), Value::String("message".to_string()));
+        }
+        object
+            .entry("id".to_string())
+            .or_insert_with(|| Value::String(generated_id));
+    }
+    item
+}
+
+fn find_sse_frame_end(buffer: &[u8]) -> Option<usize> {
+    for (index, window) in buffer.windows(4).enumerate() {
+        if window == b"\r\n\r\n" {
+            return Some(index + 4);
+        }
+    }
+    for (index, window) in buffer.windows(2).enumerate() {
+        if window == b"\n\n" {
+            return Some(index + 2);
+        }
+    }
+    None
+}
+
+fn parse_sse_frame(frame: &[u8]) -> Option<(Option<String>, Vec<u8>)> {
+    let mut event_name: Option<String> = None;
+    let mut payload_lines: Vec<Vec<u8>> = Vec::new();
+    for raw_line in frame.split(|byte| *byte == b'\n') {
+        let line = trim_ascii(raw_line);
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(raw_event_name) = line.strip_prefix(b"event:") {
+            let event = trim_ascii(raw_event_name);
+            if !event.is_empty() {
+                event_name = Some(String::from_utf8_lossy(event).to_string());
+            }
+            continue;
+        }
+        if let Some(raw_payload) = line.strip_prefix(b"data:") {
+            let payload = trim_ascii(raw_payload);
+            if !payload.is_empty() {
+                payload_lines.push(payload.to_vec());
+            }
+            continue;
+        }
+        payload_lines.push(line.to_vec());
+    }
+    if payload_lines.is_empty() {
+        return None;
+    }
+    Some((event_name, payload_lines.join(&b'\n')))
+}
+
+fn build_sse_frame(event_name: Option<&str>, event_value: &Value) -> Bytes {
+    let mut frame = String::new();
+    if let Some(event_name) = event_name {
+        frame.push_str("event: ");
+        frame.push_str(event_name);
+        frame.push('\n');
+    }
+    frame.push_str("data: ");
+    frame.push_str(&event_value.to_string());
+    frame.push_str("\n\n");
+    Bytes::from(frame)
 }
 
 async fn store_completed_response_from_proxy(
@@ -611,7 +1158,7 @@ fn spawn_background_response_worker(state: Arc<AppState>, snapshot: BackgroundRe
         let mut request_value = snapshot.body.clone();
         if let Some(object) = request_value.as_object_mut() {
             object.remove("background");
-            object.insert("stream".to_string(), Value::Bool(false));
+            object.insert("stream".to_string(), Value::Bool(snapshot.stream));
         }
 
         let body = match serde_json::to_vec(&request_value) {
@@ -652,42 +1199,136 @@ fn spawn_background_response_worker(state: Arc<AppState>, snapshot: BackgroundRe
         match result {
             Ok(response) => {
                 let status = response.status();
-                let response_body = response.bytes().await.ok();
-                if status.is_success() {
-                    if let Some(response_body) = response_body {
-                        if let Ok(response_value) = serde_json::from_slice::<Value>(&response_body) {
-                            state
-                                .background_responses
-                                .apply_background_result(
-                                    snapshot.response_id.as_str(),
-                                    response_value,
-                                    snapshot.conversation_id,
-                                )
-                                .await;
-                        } else {
-                            state
-                                .background_responses
-                                .apply_background_failure(
-                                    snapshot.response_id.as_str(),
-                                    &snapshot.body,
-                                    StatusCode::BAD_GATEWAY,
-                                    Some(&response_body),
-                                    snapshot.conversation_id,
-                                )
-                                .await;
+                if status.is_success() && snapshot.stream {
+                    let mut body_stream = response.bytes_stream();
+                    let mut buffer = Vec::new();
+                    let mut saw_terminal = false;
+                    while let Some(item) = body_stream.next().await {
+                        match item {
+                            Ok(chunk) => {
+                                buffer.extend_from_slice(&chunk);
+                                while let Some(frame_end) = find_sse_frame_end(&buffer) {
+                                    let frame = buffer.drain(..frame_end).collect::<Vec<_>>();
+                                    state
+                                        .background_responses
+                                        .append_background_stream_frame(
+                                            snapshot.owner_key.as_str(),
+                                            snapshot.response_id.as_str(),
+                                            &frame,
+                                            snapshot.conversation_id.clone(),
+                                        )
+                                        .await;
+                                    let status = state
+                                        .background_responses
+                                        .lookup_response(
+                                            snapshot.owner_key.as_str(),
+                                            snapshot.response_id.as_str(),
+                                        )
+                                        .await
+                                        .and_then(|value| {
+                                            value.get("status")
+                                                .and_then(Value::as_str)
+                                                .map(ToString::to_string)
+                                        });
+                                    if status
+                                        .as_deref()
+                                        .is_some_and(|status| is_terminal_response_status(Some(status)))
+                                    {
+                                        saw_terminal = true;
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                warn!(
+                                    error = %err,
+                                    response_id = %snapshot.response_id,
+                                    "background response stream self-request failed during read"
+                                );
+                                state
+                                    .background_responses
+                                    .apply_background_failure(
+                                        snapshot.response_id.as_str(),
+                                        &snapshot.body,
+                                        StatusCode::BAD_GATEWAY,
+                                        None,
+                                        snapshot.conversation_id.clone(),
+                                    )
+                                    .await;
+                                state
+                                    .background_responses
+                                    .in_flight_total
+                                    .fetch_sub(1, Ordering::Relaxed);
+                                return;
+                            }
                         }
                     }
+
+                    if let Some(frame_end) = find_sse_frame_end(&buffer).or_else(|| {
+                        (!trim_ascii(&buffer).is_empty()).then_some(buffer.len())
+                    }) {
+                        let frame = buffer.drain(..frame_end).collect::<Vec<_>>();
+                        state
+                            .background_responses
+                            .append_background_stream_frame(
+                                snapshot.owner_key.as_str(),
+                                snapshot.response_id.as_str(),
+                                &frame,
+                                snapshot.conversation_id.clone(),
+                            )
+                            .await;
+                    }
+
+                    if !saw_terminal {
+                        state
+                            .background_responses
+                            .apply_background_failure(
+                                snapshot.response_id.as_str(),
+                                &snapshot.body,
+                                StatusCode::BAD_GATEWAY,
+                                None,
+                                snapshot.conversation_id,
+                            )
+                            .await;
+                    }
                 } else {
-                    state
-                        .background_responses
-                        .apply_background_failure(
-                            snapshot.response_id.as_str(),
-                            &snapshot.body,
-                            status,
-                            response_body.as_ref(),
-                            snapshot.conversation_id,
-                        )
-                        .await;
+                    let response_body = response.bytes().await.ok();
+                    if status.is_success() {
+                        if let Some(response_body) = response_body {
+                            if let Ok(response_value) = serde_json::from_slice::<Value>(&response_body)
+                            {
+                                state
+                                    .background_responses
+                                    .apply_background_result(
+                                        snapshot.response_id.as_str(),
+                                        response_value,
+                                        snapshot.conversation_id,
+                                    )
+                                    .await;
+                            } else {
+                                state
+                                    .background_responses
+                                    .apply_background_failure(
+                                        snapshot.response_id.as_str(),
+                                        &snapshot.body,
+                                        StatusCode::BAD_GATEWAY,
+                                        Some(&response_body),
+                                        snapshot.conversation_id,
+                                    )
+                                    .await;
+                            }
+                        }
+                    } else {
+                        state
+                            .background_responses
+                            .apply_background_failure(
+                                snapshot.response_id.as_str(),
+                                &snapshot.body,
+                                status,
+                                response_body.as_ref(),
+                                snapshot.conversation_id,
+                            )
+                            .await;
+                    }
                 }
             }
             Err(err) => {
