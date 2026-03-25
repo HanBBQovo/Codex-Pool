@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::store::ControlPlaneStore;
 
 const DEFAULT_PROXY_TRANSPORT_FAILURE_TTL: Duration = Duration::from_secs(30);
+const ALLOW_SYSTEM_PROXY_ENV: &str = "CONTROL_PLANE_ALLOW_SYSTEM_PROXY";
 
 #[derive(Clone)]
 pub struct SelectedHttpClient {
@@ -27,11 +28,19 @@ pub struct OutboundProxyRuntime {
     client_cache: Arc<Mutex<HashMap<String, reqwest::Client>>>,
     sequence: Arc<AtomicU64>,
     unavailable_until: Arc<RwLock<HashMap<Uuid, Instant>>>,
+    allow_system_proxy: bool,
 }
 
 impl OutboundProxyRuntime {
     pub fn new() -> Self {
-        Self::default()
+        let allow_system_proxy = std::env::var(ALLOW_SYSTEM_PROXY_ENV)
+            .ok()
+            .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
+        Self {
+            allow_system_proxy,
+            ..Self::default()
+        }
     }
 
     pub fn attach_store(&self, store: Arc<dyn ControlPlaneStore>) {
@@ -175,7 +184,10 @@ impl OutboundProxyRuntime {
         let timeout_ms = timeout.as_millis();
         let cache_key = match proxy_url {
             Some(proxy_url) => format!("proxy:{proxy_url}|timeout_ms:{timeout_ms}"),
-            None => format!("direct|timeout_ms:{timeout_ms}"),
+            None => format!(
+                "direct|timeout_ms:{timeout_ms}|allow_system_proxy:{}",
+                self.allow_system_proxy
+            ),
         };
         if let Some(client) = self.client_cache.lock().await.get(&cache_key).cloned() {
             return Ok(client);
@@ -183,7 +195,10 @@ impl OutboundProxyRuntime {
 
         // Direct requests should not inherit shell-level proxy variables.
         // Only the outbound proxy pool should decide whether a proxy is used.
-        let mut builder = reqwest::Client::builder().no_proxy().timeout(timeout);
+        let mut builder = reqwest::Client::builder().timeout(timeout);
+        if !self.allow_system_proxy {
+            builder = builder.no_proxy();
+        }
         if let Some(proxy_url) = proxy_url {
             let proxy = reqwest::Proxy::all(proxy_url).with_context(|| {
                 format!("failed to configure outbound proxy client for {proxy_url}")

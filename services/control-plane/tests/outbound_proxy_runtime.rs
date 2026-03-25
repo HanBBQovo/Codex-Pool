@@ -89,6 +89,7 @@ async fn direct_client_bypasses_ambient_http_proxy() {
     unsafe {
         env::set_var("http_proxy", fake_proxy.uri());
         env::set_var("HTTP_PROXY", fake_proxy.uri());
+        env::remove_var("CONTROL_PLANE_ALLOW_SYSTEM_PROXY");
         env::remove_var("https_proxy");
         env::remove_var("HTTPS_PROXY");
         env::remove_var("all_proxy");
@@ -124,6 +125,73 @@ async fn direct_client_bypasses_ambient_http_proxy() {
 
     assert_eq!(status, reqwest::StatusCode::OK, "unexpected body: {body}");
     assert_eq!(body, "target");
+}
+
+#[tokio::test]
+async fn direct_client_can_use_ambient_http_proxy_when_enabled() {
+    let _env_guard = ENV_LOCK.lock().await;
+    let target = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200).set_body_string("target"))
+        .mount(&target)
+        .await;
+
+    let fake_proxy = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(503).set_body_string("proxy"))
+        .mount(&fake_proxy)
+        .await;
+
+    let previous_http_proxy = env::var_os("http_proxy");
+    let previous_http_proxy_upper = env::var_os("HTTP_PROXY");
+    let previous_https_proxy = env::var_os("https_proxy");
+    let previous_https_proxy_upper = env::var_os("HTTPS_PROXY");
+    let previous_all_proxy = env::var_os("all_proxy");
+    let previous_all_proxy_upper = env::var_os("ALL_PROXY");
+    let previous_no_proxy = env::var_os("no_proxy");
+    let previous_no_proxy_upper = env::var_os("NO_PROXY");
+    let previous_allow_system_proxy = env::var_os("CONTROL_PLANE_ALLOW_SYSTEM_PROXY");
+
+    unsafe {
+        env::set_var("http_proxy", fake_proxy.uri());
+        env::set_var("HTTP_PROXY", fake_proxy.uri());
+        env::set_var("CONTROL_PLANE_ALLOW_SYSTEM_PROXY", "true");
+        env::remove_var("https_proxy");
+        env::remove_var("HTTPS_PROXY");
+        env::remove_var("all_proxy");
+        env::remove_var("ALL_PROXY");
+        env::remove_var("no_proxy");
+        env::remove_var("NO_PROXY");
+    }
+
+    let runtime = Arc::new(OutboundProxyRuntime::new());
+    let selected = runtime
+        .select_http_client(Duration::from_secs(5))
+        .await
+        .expect("direct selection should succeed");
+    let response = selected
+        .client
+        .get(target.uri())
+        .send()
+        .await
+        .expect("request should succeed");
+    let status = response.status();
+    let body = response.text().await.expect("response body");
+
+    unsafe {
+        restore_env("http_proxy", previous_http_proxy);
+        restore_env("HTTP_PROXY", previous_http_proxy_upper);
+        restore_env("https_proxy", previous_https_proxy);
+        restore_env("HTTPS_PROXY", previous_https_proxy_upper);
+        restore_env("all_proxy", previous_all_proxy);
+        restore_env("ALL_PROXY", previous_all_proxy_upper);
+        restore_env("no_proxy", previous_no_proxy);
+        restore_env("NO_PROXY", previous_no_proxy_upper);
+        restore_env("CONTROL_PLANE_ALLOW_SYSTEM_PROXY", previous_allow_system_proxy);
+    }
+
+    assert_eq!(status, reqwest::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body, "proxy");
 }
 
 unsafe fn restore_env(key: &str, value: Option<OsString>) {

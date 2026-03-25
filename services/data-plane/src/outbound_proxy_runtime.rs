@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 const DEFAULT_PROXY_TRANSPORT_FAILURE_TTL: Duration = Duration::from_secs(30);
 const CONNECT_RESPONSE_MAX_BYTES: usize = 8 * 1024;
+const ALLOW_SYSTEM_PROXY_ENV: &str = "DATA_PLANE_ALLOW_SYSTEM_PROXY";
 
 pub(crate) trait AsyncIo: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncIo for T {}
@@ -72,16 +73,22 @@ pub struct OutboundProxyRuntime {
     client_cache: Arc<Mutex<HashMap<String, reqwest::Client>>>,
     sequence: Arc<AtomicU64>,
     unavailable_until: Arc<RwLock<HashMap<Uuid, Instant>>>,
+    allow_system_proxy: bool,
 }
 
 impl OutboundProxyRuntime {
     pub fn new() -> Self {
+        let allow_system_proxy = std::env::var(ALLOW_SYSTEM_PROXY_ENV)
+            .ok()
+            .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
         Self {
             settings: Arc::new(RwLock::new(OutboundProxyPoolSettings::default())),
             nodes: Arc::new(RwLock::new(Vec::new())),
             client_cache: Arc::new(Mutex::new(HashMap::new())),
             sequence: Arc::new(AtomicU64::new(0)),
             unavailable_until: Arc::new(RwLock::new(HashMap::new())),
+            allow_system_proxy,
         }
     }
 
@@ -289,7 +296,10 @@ impl OutboundProxyRuntime {
         let timeout_ms = timeout.map(|value| value.as_millis()).unwrap_or(0);
         let cache_key = match proxy_url {
             Some(proxy_url) => format!("proxy:{proxy_url}|timeout_ms:{timeout_ms}"),
-            None => format!("direct|timeout_ms:{timeout_ms}"),
+            None => format!(
+                "direct|timeout_ms:{timeout_ms}|allow_system_proxy:{}",
+                self.allow_system_proxy
+            ),
         };
         if let Some(client) = self.client_cache.lock().await.get(&cache_key).cloned() {
             return Ok(client);
@@ -297,7 +307,10 @@ impl OutboundProxyRuntime {
 
         // Direct fallback must bypass ambient HTTP(S)_PROXY variables so the
         // runtime only uses the explicit proxy pool configuration.
-        let mut builder = reqwest::Client::builder().no_proxy();
+        let mut builder = reqwest::Client::builder();
+        if !self.allow_system_proxy {
+            builder = builder.no_proxy();
+        }
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
