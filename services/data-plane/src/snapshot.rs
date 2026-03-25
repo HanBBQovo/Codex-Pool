@@ -47,6 +47,7 @@ impl AppState {
             revision,
             cursor,
             accounts,
+            account_traits,
             compiled_routing_plan,
             ai_error_learning_settings,
             approved_upstream_error_templates,
@@ -57,6 +58,7 @@ impl AppState {
         } = snapshot;
 
         self.router.replace_accounts(accounts);
+        self.router.replace_account_traits(account_traits);
         self.router.replace_compiled_routing_plan(compiled_routing_plan);
         *self
             .ai_error_learning_settings

@@ -900,6 +900,8 @@ impl PostgresStore {
                     supported_models: parse_json_string_array(
                         row.try_get::<Option<String>, _>("supported_models_json_text")?,
                     ),
+                    health_freshness: None,
+                    last_probe_at: None,
                     blocked_until,
                     hard_block_reason,
                 },

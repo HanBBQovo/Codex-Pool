@@ -1,4 +1,20 @@
 impl InMemoryStore {
+    fn routing_health_freshness_from_contract(
+        freshness: crate::contracts::AccountHealthFreshness,
+    ) -> codex_pool_core::model::AccountRoutingHealthFreshness {
+        match freshness {
+            crate::contracts::AccountHealthFreshness::Fresh => {
+                codex_pool_core::model::AccountRoutingHealthFreshness::Fresh
+            }
+            crate::contracts::AccountHealthFreshness::Stale => {
+                codex_pool_core::model::AccountRoutingHealthFreshness::Stale
+            }
+            crate::contracts::AccountHealthFreshness::Unknown => {
+                codex_pool_core::model::AccountRoutingHealthFreshness::Unknown
+            }
+        }
+    }
+
     fn set_oauth_family_enabled_inner(
         &self,
         account_id: Uuid,
@@ -106,6 +122,7 @@ impl InMemoryStore {
         let providers = self.account_auth_providers.read().unwrap().clone();
         let model_support = self.account_model_support.read().unwrap().clone();
         let rate_limit_caches = self.oauth_rate_limit_caches.read().unwrap().clone();
+        let health_states = self.account_health_states.read().unwrap().clone();
         let now = Utc::now();
 
         accounts
@@ -122,6 +139,15 @@ impl InMemoryStore {
                     .unwrap_or_default();
                 let (blocked_until, hard_block_reason) =
                     derive_rate_limit_block(&rate_limits, now);
+                let health_state = health_states.get(&account.id).cloned().unwrap_or_default();
+                let freshness = account_health_freshness_from_signals(
+                    now,
+                    health_state.seen_ok_at,
+                    health_state.last_probe_at,
+                    health_state.last_probe_outcome,
+                    health_state.last_live_result_at,
+                    health_state.last_live_result_status.as_ref(),
+                );
                 (
                     account.id,
                     AccountRoutingTraits {
@@ -131,6 +157,10 @@ impl InMemoryStore {
                             .and_then(|profile| profile.chatgpt_plan_type.clone()),
                         auth_provider: Some(provider),
                         supported_models: support.supported_models,
+                        health_freshness: Some(Self::routing_health_freshness_from_contract(
+                            freshness,
+                        )),
+                        last_probe_at: health_state.last_probe_at,
                         blocked_until,
                         hard_block_reason,
                     },

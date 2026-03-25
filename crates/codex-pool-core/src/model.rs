@@ -150,9 +150,21 @@ pub struct AccountRoutingTraits {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supported_models: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_freshness: Option<AccountRoutingHealthFreshness>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_probe_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked_until: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hard_block_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountRoutingHealthFreshness {
+    Unknown,
+    Stale,
+    Fresh,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

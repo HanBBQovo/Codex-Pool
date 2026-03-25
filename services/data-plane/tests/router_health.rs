@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use codex_pool_core::model::{UpstreamAccount, UpstreamMode};
+use codex_pool_core::model::{
+    AccountRoutingHealthFreshness, AccountRoutingTraits, UpstreamAccount, UpstreamMode,
+};
 use data_plane::router::RoundRobinRouter;
 use uuid::Uuid;
 
@@ -119,6 +121,53 @@ async fn prefers_recently_successful_accounts_before_round_robin_fallback() {
     assert_eq!(router.pick().unwrap().id, b.id);
 
     router.mark_unhealthy(b.id, Duration::from_secs(30));
+
+    assert_eq!(router.pick().unwrap().id, a.id);
+}
+
+#[tokio::test]
+async fn prefers_freshly_probed_accounts_before_unknown_accounts() {
+    let a = test_account("a");
+    let b = test_account("b");
+    let router = RoundRobinRouter::new(vec![a.clone(), b.clone()]);
+
+    router.replace_account_traits(vec![
+        AccountRoutingTraits {
+            account_id: a.id,
+            health_freshness: Some(AccountRoutingHealthFreshness::Unknown),
+            ..Default::default()
+        },
+        AccountRoutingTraits {
+            account_id: b.id,
+            health_freshness: Some(AccountRoutingHealthFreshness::Fresh),
+            last_probe_at: Some(chrono::Utc::now()),
+            ..Default::default()
+        },
+    ]);
+
+    assert_eq!(router.pick().unwrap().id, b.id);
+}
+
+#[tokio::test]
+async fn keeps_recent_success_priority_over_fresh_probe_priority() {
+    let a = test_account("a");
+    let b = test_account("b");
+    let router = RoundRobinRouter::new(vec![a.clone(), b.clone()]);
+
+    router.replace_account_traits(vec![
+        AccountRoutingTraits {
+            account_id: a.id,
+            health_freshness: Some(AccountRoutingHealthFreshness::Unknown),
+            ..Default::default()
+        },
+        AccountRoutingTraits {
+            account_id: b.id,
+            health_freshness: Some(AccountRoutingHealthFreshness::Fresh),
+            last_probe_at: Some(chrono::Utc::now()),
+            ..Default::default()
+        },
+    ]);
+    router.record_success(a.id);
 
     assert_eq!(router.pick().unwrap().id, a.id);
 }

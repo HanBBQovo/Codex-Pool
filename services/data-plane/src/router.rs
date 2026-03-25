@@ -3,7 +3,10 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use codex_pool_core::model::{CompiledRoutingPlan, UpstreamAccount, UpstreamMode};
+use codex_pool_core::model::{
+    AccountRoutingHealthFreshness, AccountRoutingTraits, CompiledRoutingPlan, UpstreamAccount,
+    UpstreamMode,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -31,6 +34,7 @@ struct StickySessionEntry {
 #[derive(Debug, Clone)]
 pub struct RoundRobinRouter {
     accounts: Arc<RwLock<Vec<UpstreamAccount>>>,
+    account_traits: Arc<RwLock<HashMap<Uuid, AccountRoutingTraits>>>,
     compiled_routing_plan: Arc<RwLock<Option<CompiledRoutingPlan>>>,
     cursor: Arc<AtomicUsize>,
     health: Arc<RwLock<HashMap<Uuid, Instant>>>,
@@ -69,6 +73,7 @@ impl RoundRobinRouter {
     ) -> Self {
         Self {
             accounts: Arc::new(RwLock::new(accounts)),
+            account_traits: Arc::new(RwLock::new(HashMap::new())),
             compiled_routing_plan: Arc::new(RwLock::new(None)),
             cursor: Arc::new(AtomicUsize::new(0)),
             health: Arc::new(RwLock::new(HashMap::new())),
@@ -97,6 +102,14 @@ impl RoundRobinRouter {
 
         if let Some(account_id) =
             self.preferred_recent_success_account_id(&accounts, excluded_account_ids)
+        {
+            if let Some(account) = accounts.iter().find(|account| account.id == account_id) {
+                return Some(account.clone());
+            }
+        }
+
+        if let Some(account_id) =
+            self.preferred_recent_probe_account_id(&accounts, excluded_account_ids)
         {
             if let Some(account) = accounts.iter().find(|account| account.id == account_id) {
                 return Some(account.clone());
@@ -257,6 +270,9 @@ impl RoundRobinRouter {
         let valid_ids: HashSet<Uuid> = accounts.iter().map(|account| account.id).collect();
         *self.accounts.write().unwrap() = accounts;
         self.cursor.store(0, Ordering::Relaxed);
+        if let Ok(mut account_traits) = self.account_traits.write() {
+            account_traits.retain(|account_id, _| valid_ids.contains(account_id));
+        }
         if let Ok(mut health) = self.health.write() {
             health.retain(|account_id, _| valid_ids.contains(account_id));
         }
@@ -266,6 +282,22 @@ impl RoundRobinRouter {
         if let Ok(mut sticky_sessions) = self.sticky_sessions.write() {
             sticky_sessions.retain(|_, entry| valid_ids.contains(&entry.account_id));
         }
+    }
+
+    pub fn replace_account_traits(&self, account_traits: Vec<AccountRoutingTraits>) {
+        let valid_ids = self
+            .accounts
+            .read()
+            .unwrap()
+            .iter()
+            .map(|account| account.id)
+            .collect::<HashSet<_>>();
+        let traits = account_traits
+            .into_iter()
+            .filter(|item| valid_ids.contains(&item.account_id))
+            .map(|item| (item.account_id, item))
+            .collect::<HashMap<_, _>>();
+        *self.account_traits.write().unwrap() = traits;
     }
 
     fn candidate_account_ids_for_model(&self, model: Option<&str>) -> Option<Vec<Uuid>> {
@@ -323,6 +355,9 @@ impl RoundRobinRouter {
         }
 
         if !account_enabled {
+            if let Ok(mut account_traits) = self.account_traits.write() {
+                account_traits.remove(&account_id);
+            }
             if let Ok(mut health) = self.health.write() {
                 health.remove(&account_id);
             }
@@ -349,6 +384,9 @@ impl RoundRobinRouter {
 
         if let Ok(mut health) = self.health.write() {
             health.remove(&account_id);
+        }
+        if let Ok(mut account_traits) = self.account_traits.write() {
+            account_traits.remove(&account_id);
         }
         if let Ok(mut recent_success) = self.recent_success.write() {
             recent_success.remove(&account_id);
@@ -499,6 +537,37 @@ impl RoundRobinRouter {
             .map(|item| item.0)
     }
 
+    fn preferred_recent_probe_account_id(
+        &self,
+        accounts: &[UpstreamAccount],
+        excluded_account_ids: &HashSet<Uuid>,
+    ) -> Option<Uuid> {
+        let account_traits = self.account_traits.read().unwrap();
+        accounts
+            .iter()
+            .filter(|account| {
+                !excluded_account_ids.contains(&account.id)
+                    && account.enabled
+                    && self.is_healthy(account.id)
+            })
+            .filter_map(|account| {
+                let traits = account_traits.get(&account.id)?;
+                let freshness_rank = routing_health_freshness_rank(traits.health_freshness);
+                (freshness_rank > 0).then_some((
+                    account.id,
+                    freshness_rank,
+                    traits.last_probe_at,
+                ))
+            })
+            .max_by(|left, right| {
+                left.1
+                    .cmp(&right.1)
+                    .then_with(|| left.2.cmp(&right.2))
+                    .then_with(|| left.0.cmp(&right.0))
+            })
+            .map(|item| item.0)
+    }
+
     fn pick_from_ordered_candidates(
         &self,
         candidate_ids: &[Uuid],
@@ -569,6 +638,15 @@ impl RoundRobinRouter {
             drop(recent_success);
         }
 
+        if let Some(account_id) = self.preferred_candidate_probe_account_id(
+            candidate_ids,
+            excluded_account_ids,
+        ) {
+            if let Some(account) = self.pick_specific(account_id) {
+                return Some(account);
+            }
+        }
+
         for account_id in candidate_ids {
             if excluded_account_ids.contains(account_id) {
                 continue;
@@ -578,6 +656,29 @@ impl RoundRobinRouter {
             }
         }
         None
+    }
+
+    fn preferred_candidate_probe_account_id(
+        &self,
+        candidate_ids: &[Uuid],
+        excluded_account_ids: &HashSet<Uuid>,
+    ) -> Option<Uuid> {
+        let account_traits = self.account_traits.read().unwrap();
+        candidate_ids
+            .iter()
+            .filter(|account_id| !excluded_account_ids.contains(account_id))
+            .filter_map(|account_id| {
+                let traits = account_traits.get(account_id)?;
+                let freshness_rank = routing_health_freshness_rank(traits.health_freshness);
+                (freshness_rank > 0).then_some((*account_id, freshness_rank, traits.last_probe_at))
+            })
+            .max_by(|left, right| {
+                left.1
+                    .cmp(&right.1)
+                    .then_with(|| left.2.cmp(&right.2))
+                    .then_with(|| left.0.cmp(&right.0))
+            })
+            .map(|item| item.0)
     }
 
     fn pick_candidate_account_avoiding_conflicts(
@@ -682,6 +783,14 @@ impl RoundRobinRouter {
         };
         prune_expired_sticky_sessions(&mut items, now);
         items.len()
+    }
+}
+
+fn routing_health_freshness_rank(freshness: Option<AccountRoutingHealthFreshness>) -> u8 {
+    match freshness {
+        Some(AccountRoutingHealthFreshness::Fresh) => 2,
+        Some(AccountRoutingHealthFreshness::Stale) => 1,
+        Some(AccountRoutingHealthFreshness::Unknown) | None => 0,
     }
 }
 
