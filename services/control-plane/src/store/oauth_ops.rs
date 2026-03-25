@@ -194,13 +194,20 @@ impl InMemoryStore {
         let accounts = self.accounts.read().unwrap().clone();
         let states = self.account_health_states.read().unwrap().clone();
         let providers = self.account_auth_providers.read().unwrap().clone();
+        let credentials = self.oauth_credentials.read().unwrap().clone();
+        let session_profiles = self.session_profiles.read().unwrap().clone();
         let mut items = accounts
             .into_values()
             .filter(|account| account.enabled)
-            .filter(|account| {
-                providers.get(&account.id) == Some(&UpstreamAuthProvider::OAuthRefreshToken)
-            })
             .filter_map(|account| {
+                let provider = providers.get(&account.id)?;
+                self.build_live_rate_limit_token_source_inner(
+                    &account,
+                    provider,
+                    credentials.get(&account.id),
+                    session_profiles.get(&account.id),
+                    now,
+                )?;
                 let state = states.get(&account.id).cloned().unwrap_or_default();
                 if state.pool_state != AccountPoolState::Active {
                     return None;
@@ -238,21 +245,19 @@ impl InMemoryStore {
         items.into_iter().map(|item| item.0).collect()
     }
 
-    fn build_rate_limit_refresh_target_inner(
+    fn build_live_rate_limit_token_source_inner(
         &self,
         account: &UpstreamAccount,
         provider: &UpstreamAuthProvider,
         credential: Option<&OAuthCredentialRecord>,
         session_profile: Option<&SessionProfileRecord>,
-        cache: Option<&OAuthRateLimitCacheRecord>,
         now: DateTime<Utc>,
-        due_only: bool,
-    ) -> Option<InMemoryRateLimitRefreshTarget> {
+    ) -> Option<InMemoryRateLimitRefreshTokenSource> {
         if !account.enabled {
             return None;
         }
 
-        let token_source = match provider {
+        match provider {
             UpstreamAuthProvider::OAuthRefreshToken => {
                 let credential = credential?;
                 if credential.token_expires_at <= now + Duration::seconds(OAUTH_MIN_VALID_SEC) {
@@ -269,9 +274,9 @@ impl InMemoryStore {
                     return None;
                 }
 
-                InMemoryRateLimitRefreshTokenSource::EncryptedAccessToken(
+                Some(InMemoryRateLimitRefreshTokenSource::EncryptedAccessToken(
                     credential.access_token_enc.clone(),
-                )
+                ))
             }
             UpstreamAuthProvider::LegacyBearer => {
                 let session_profile = session_profile?;
@@ -290,9 +295,30 @@ impl InMemoryStore {
                     return None;
                 }
 
-                InMemoryRateLimitRefreshTokenSource::BearerToken(bearer_token.to_string())
+                Some(InMemoryRateLimitRefreshTokenSource::BearerToken(
+                    bearer_token.to_string(),
+                ))
             }
-        };
+        }
+    }
+
+    fn build_rate_limit_refresh_target_inner(
+        &self,
+        account: &UpstreamAccount,
+        provider: &UpstreamAuthProvider,
+        credential: Option<&OAuthCredentialRecord>,
+        session_profile: Option<&SessionProfileRecord>,
+        cache: Option<&OAuthRateLimitCacheRecord>,
+        now: DateTime<Utc>,
+        due_only: bool,
+    ) -> Option<InMemoryRateLimitRefreshTarget> {
+        let token_source = self.build_live_rate_limit_token_source_inner(
+            account,
+            provider,
+            credential,
+            session_profile,
+            now,
+        )?;
 
         if due_only && cache.is_some_and(|entry| entry.expires_at.is_some_and(|expires_at| expires_at > now)) {
             return None;
@@ -1798,43 +1824,55 @@ impl InMemoryStore {
             return Ok(0);
         }
 
-        let cipher = self.require_credential_cipher()?;
+        let providers = self.account_auth_providers.read().unwrap().clone();
+        let credentials = self.oauth_credentials.read().unwrap().clone();
+        let session_profiles = self.session_profiles.read().unwrap().clone();
         let mut patrolled = 0_u64;
 
         for account_id in candidate_ids {
             let Some(account) = self.accounts.read().unwrap().get(&account_id).cloned() else {
                 continue;
             };
-            let Some(credential) = self
-                .oauth_credentials
-                .read()
-                .unwrap()
-                .get(&account_id)
-                .cloned()
+            let Some(provider) = providers.get(&account_id) else {
+                continue;
+            };
+            let Some(token_source) = self.build_live_rate_limit_token_source_inner(
+                &account,
+                provider,
+                credentials.get(&account_id),
+                session_profiles.get(&account_id),
+                Utc::now(),
+            )
             else {
                 continue;
             };
             let checked_at = Utc::now();
-            let access_token = match cipher.decrypt(&credential.access_token_enc) {
-                Ok(access_token) => access_token,
-                Err(err) => {
-                    self.record_account_probe_result_inner(
-                        account_id,
-                        checked_at,
-                        AccountProbeOutcome::Fatal,
-                    );
-                    self.mark_upstream_account_pending_purge_inner(
-                        account_id,
-                        Some("credential_decrypt_failed".to_string()),
-                    )?;
-                    self.persist_rate_limit_cache_failure_inner(
-                        account_id,
-                        "credential_decrypt_failed",
-                        &truncate_error_message(err.to_string()),
-                    );
-                    patrolled = patrolled.saturating_add(1);
-                    continue;
+            let access_token = match token_source {
+                InMemoryRateLimitRefreshTokenSource::EncryptedAccessToken(access_token_enc) => {
+                    let cipher = self.require_credential_cipher()?;
+                    match cipher.decrypt(&access_token_enc) {
+                        Ok(access_token) => access_token,
+                        Err(err) => {
+                            self.record_account_probe_result_inner(
+                                account_id,
+                                checked_at,
+                                AccountProbeOutcome::Fatal,
+                            );
+                            self.mark_upstream_account_pending_purge_inner(
+                                account_id,
+                                Some("credential_decrypt_failed".to_string()),
+                            )?;
+                            self.persist_rate_limit_cache_failure_inner(
+                                account_id,
+                                "credential_decrypt_failed",
+                                &truncate_error_message(err.to_string()),
+                            );
+                            patrolled = patrolled.saturating_add(1);
+                            continue;
+                        }
+                    }
                 }
+                InMemoryRateLimitRefreshTokenSource::BearerToken(access_token) => access_token,
             };
 
             match self

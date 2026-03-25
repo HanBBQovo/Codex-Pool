@@ -2993,4 +2993,52 @@ mod tests {
         assert_eq!(pool_record.operator_state, crate::contracts::AccountPoolOperatorState::PendingDelete);
         assert_eq!(pool_record.reason_code.as_deref(), Some("account_deactivated"));
     }
+
+    #[tokio::test]
+    async fn in_memory_active_patrol_rechecks_stale_legacy_bearer_codex_accounts() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([28_u8; 32]),
+        )
+        .unwrap();
+        let store =
+            InMemoryStore::new_with_oauth(Arc::new(RateLimitAwareOAuthTokenClient), Some(cipher));
+
+        let account = store
+            .upsert_one_time_session_account(UpsertOneTimeSessionAccountRequest {
+                label: "legacy-bearer-patrol-stale".to_string(),
+                mode: UpstreamMode::CodexOauth,
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                access_token: "legacy-bearer-patrol-token".to_string(),
+                chatgpt_account_id: Some("acct_legacy_patrol".to_string()),
+                enabled: Some(true),
+                priority: Some(100),
+                token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_plan_type: Some("pro".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap()
+            .account;
+
+        {
+            let mut states = store.account_health_states.write().unwrap();
+            let state = states.entry(account.id).or_default();
+            state.last_probe_at = Some(Utc::now() - Duration::minutes(30));
+            state.last_probe_outcome = Some(crate::contracts::AccountProbeOutcome::Ok);
+        }
+
+        let patrolled = store.patrol_active_oauth_accounts().await.unwrap();
+        assert_eq!(patrolled, 1);
+
+        let pool_record = store.account_pool_record(account.id).await.unwrap();
+        assert_eq!(
+            pool_record.operator_state,
+            crate::contracts::AccountPoolOperatorState::Routable
+        );
+        assert_eq!(
+            pool_record.health_freshness,
+            crate::contracts::AccountHealthFreshness::Fresh
+        );
+        assert!(pool_record.last_probe_at.is_some());
+    }
 }
