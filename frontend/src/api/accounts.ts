@@ -225,6 +225,83 @@ export interface OAuthHealthSignalsSummaryResponse {
     quarantine_signals: number
 }
 
+export type AccountPoolRecordScope = 'runtime' | 'inventory'
+
+export type AccountPoolOperatorState =
+    | 'inventory'
+    | 'routable'
+    | 'cooling'
+    | 'pending_delete'
+
+export type AccountPoolReasonClass =
+    | 'healthy'
+    | 'quota'
+    | 'fatal'
+    | 'transient'
+    | 'admin'
+
+export interface AccountPoolRecord {
+    id: string
+    record_scope: AccountPoolRecordScope
+    operator_state: AccountPoolOperatorState
+    reason_class: AccountPoolReasonClass
+    reason_code?: string
+    route_eligible: boolean
+    next_action_at?: string
+    last_signal_at?: string
+    last_signal_source?: 'active' | 'passive'
+    label: string
+    email?: string
+    chatgpt_account_id?: string
+    chatgpt_plan_type?: string
+    source_type?: string
+    mode?: UpstreamAccount['mode']
+    auth_provider?: OAuthAccountStatusResponse['auth_provider']
+    credential_kind?: OAuthAccountStatusResponse['credential_kind']
+    has_refresh_credential: boolean
+    has_access_token_fallback: boolean
+    refresh_credential_state?: OAuthAccountStatusResponse['refresh_credential_state']
+    enabled?: boolean
+    rate_limits: OAuthRateLimitSnapshot[]
+    rate_limits_fetched_at?: string
+    created_at: string
+    updated_at: string
+}
+
+export interface AccountPoolSummaryResponse {
+    total: number
+    inventory: number
+    routable: number
+    cooling: number
+    pending_delete: number
+    healthy: number
+    quota: number
+    fatal: number
+    transient: number
+    admin: number
+}
+
+export type AccountPoolAction = 'reprobe' | 'restore' | 'delete'
+
+export interface AccountPoolActionError {
+    code: string
+    message: string
+}
+
+export interface AccountPoolActionItem {
+    record_id: string
+    ok: boolean
+    error?: AccountPoolActionError
+}
+
+export interface AccountPoolActionResponse {
+    action: AccountPoolAction
+    total: number
+    success_count: number
+    failed_count: number
+    items: AccountPoolActionItem[]
+}
+
 export const accountsApi = {
     listAccounts: () =>
         apiClient.get<UpstreamAccount[]>('/upstream-accounts'),
@@ -314,6 +391,27 @@ export const accountsApi = {
             {
                 action: ACCOUNT_BATCH_ACTION_TO_WIRE[action],
                 account_ids: accountIds,
+            },
+            { timeout: ACCOUNT_BATCH_MUTATION_TIMEOUT_MS },
+        ),
+}
+
+export const accountPoolApi = {
+    getSummary: () =>
+        apiClient.get<AccountPoolSummaryResponse>('/account-pool/summary'),
+
+    listRecords: () =>
+        apiClient.get<AccountPoolRecord[]>('/account-pool/accounts'),
+
+    getRecord: (recordId: string) =>
+        apiClient.get<AccountPoolRecord>(`/account-pool/accounts/${recordId}`),
+
+    runAction: (action: AccountPoolAction, recordIds: string[]) =>
+        apiClient.post<AccountPoolActionResponse>(
+            '/account-pool/actions',
+            {
+                action,
+                record_ids: recordIds,
             },
             { timeout: ACCOUNT_BATCH_MUTATION_TIMEOUT_MS },
         ),

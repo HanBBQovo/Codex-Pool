@@ -615,6 +615,10 @@ export default {
             eyebrow: "Pool overview",
             title: "Inventory and runtime pool",
             description: "Read vault admission and runtime pool counts together so you can spot activation pressure before it shows up as request failures.",
+            inventoryDesc: "Stored in the pool but not yet eligible for routing.",
+            routableDesc: "Currently healthy enough to serve routing traffic.",
+            coolingDesc: "Temporarily out of routing while cooling or waiting for reprobe.",
+            pendingDeleteDesc: "Marked for removal after fatal health decisions.",
             queued: "Vault queued",
             queuedDesc: "Imported and waiting for admission probing.",
             ready: "Vault ready",
@@ -634,6 +638,11 @@ export default {
             eyebrow: "Health signals",
             title: "Recent runtime signals",
             description: "Track live-result success and failure signals so quarantines and purges show up before operators need to dig through logs.",
+            healthyDesc: "Accounts currently classified as healthy.",
+            quotaDesc: "Accounts cooling because of rate limits or quota exhaustion.",
+            fatalDesc: "Accounts marked by fatal auth or account failures.",
+            transientDesc: "Accounts waiting on transient transport or upstream recovery.",
+            adminDesc: "Accounts held by explicit operator action.",
             liveOk: "Live-result OK",
             liveOkDesc: "Recent success signals seen from runtime accounts.",
             liveFailed: "Live-result failed",
@@ -1507,6 +1516,141 @@ export default {
             allApiKeys: "All API keys",
             day: "By day",
             month: "By month"
+        }
+    },
+    accountPool: {
+        eyebrow: "Unified operations view",
+        title: "Account Pool",
+        subtitle: "Watch inventory, routing eligibility, cooling, and pending delete through one operator state model.",
+        loading: "Loading account pool…",
+        empty: "No matching accounts.",
+        searchPlaceholder: "Search by email, label, account ID, or reason…",
+        meta: {
+            total: "Total {{count}} accounts",
+            filtered: "Filtered {{count}}"
+        },
+        filters: {
+            state: "State",
+            scope: "Scope",
+            reasonClass: "Reason class",
+            allStates: "All states",
+            allScopes: "All scopes",
+            allReasons: "All reason classes"
+        },
+        state: {
+            inventory: "Inventory",
+            routable: "Routable",
+            cooling: "Cooling",
+            pendingDelete: "Pending Delete"
+        },
+        scope: {
+            runtime: "Runtime",
+            inventory: "Inventory"
+        },
+        reasonClass: {
+            healthy: "Healthy",
+            quota: "Quota",
+            fatal: "Fatal",
+            transient: "Transient",
+            admin: "Admin"
+        },
+        reasonCode: {
+            none: "No blocking reason",
+            tokenInvalidated: "Token invalidated",
+            accountDeactivated: "Account deactivated",
+            invalidRefreshToken: "Invalid refresh token",
+            refreshTokenRevoked: "Refresh token revoked",
+            refreshTokenReused: "Refresh token reused",
+            rateLimited: "Rate limited",
+            quotaExhausted: "Quota exhausted",
+            upstreamUnavailable: "Upstream unavailable",
+            transportError: "Transport error",
+            overloaded: "Upstream overloaded",
+            operatorRetiredInvalidRefreshToken: "Retired after terminal invalid refresh",
+            unknown: "Unknown reason"
+        },
+        routeEligible: {
+            yes: "Routable",
+            no: "Not routable"
+        },
+        signalSource: {
+            active: "Active check",
+            passive: "Passive signal",
+            unknown: "No signal"
+        },
+        actions: {
+            inspect: "Inspect",
+            reprobe: "Reprobe",
+            restore: "Restore",
+            delete: "Delete",
+            refresh: "Refresh View"
+        },
+        columns: {
+            account: "Account",
+            state: "State",
+            reason: "Reason",
+            credentials: "Credentials",
+            quota: "Quota",
+            nextAction: "Timeline",
+            actions: "Actions"
+        },
+        metrics: {
+            inventory: "Inventory",
+            routable: "Routable",
+            cooling: "Cooling",
+            pendingDelete: "Pending Delete",
+            healthy: "Healthy",
+            quota: "Quota",
+            fatal: "Fatal",
+            transient: "Transient",
+            admin: "Admin",
+            stateDescription: "{{state}} accounts in the current operator view.",
+            reasonDescription: "Accounts currently classified as {{reason}}."
+        },
+        sections: {
+            stateOverview: "Operator state",
+            stateOverviewTitle: "One state model across inventory and runtime",
+            stateOverviewDescription: "Use one set of states to understand which accounts can route now, which are cooling, and which are on the way out.",
+            reasonOverview: "Reason classes",
+            reasonOverviewTitle: "Why accounts are in their current state",
+            reasonOverviewDescription: "Reason classes explain whether the current state comes from quota, fatal auth issues, transient failures, or operator action.",
+            records: "Unified queue",
+            recordsTitle: "Single account pool list",
+            recordsDescription: "Every record is shown with one operator state, one reason class, and one next action.",
+            detail: "Record detail"
+        },
+        detail: {
+            description: "Inspect the latest operator state, reason, credentials, and quota summary for this account."
+        },
+        fields: {
+            currentState: "Current State",
+            routeEligible: "Route Eligibility",
+            nextAction: "Next Action",
+            credentials: "Credentials",
+            timeline: "Timeline",
+            identity: "Identity",
+            email: "Email",
+            chatgptAccountId: "ChatGPT Account ID",
+            plan: "Plan",
+            sourceType: "Source Type",
+            mode: "Mode",
+            authProvider: "Auth Provider",
+            credentialKind: "Credential Kind",
+            refreshState: "Refresh Credential State",
+            lastSignalAt: "Last Signal At",
+            lastSignalSource: "Signal Source",
+            createdAt: "Created At",
+            updatedAt: "Updated At",
+            quota: "Quota Summary"
+        },
+        messages: {
+            confirmDeleteTitle: "Delete {{label}} from the pool?",
+            confirmDeleteDescription: "This removes the record from the pool and cannot be undone.",
+            actionSuccessTitle: "{{action}} completed",
+            actionSuccessDescription: "{{label}} has been updated.",
+            actionPartialTitle: "{{action}} partially failed",
+            actionFailedTitle: "{{action}} failed",
+            actionFailed: "Action failed"
         }
     },
     nav: {

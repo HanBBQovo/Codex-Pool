@@ -625,6 +625,10 @@ export default {
             eyebrow: "プール概要",
             title: "在庫とランタイムプール",
             description: "vault admission と runtime pool を並べて見ることで、アクティベーション圧力を早く把握できます。",
+            inventoryDesc: "プールに格納済みだが、まだルーティング対象ではありません。",
+            routableDesc: "現在十分に健全で、ルーティングに利用できます。",
+            coolingDesc: "クールダウン中または再検査待ちのため、一時的にルーティング外です。",
+            pendingDeleteDesc: "致命的な判定により削除待ちになっています。",
             queued: "Vault queued",
             queuedDesc: "取り込み済みで admission probe 待ちです。",
             ready: "Vault ready",
@@ -644,6 +648,11 @@ export default {
             eyebrow: "ヘルスシグナル",
             title: "最近のランタイムシグナル",
             description: "live-result の成功・失敗シグナルをまとめて確認し、隔離や削除待ちをログを掘る前に把握します。",
+            healthyDesc: "現在 healthy に分類されているアカウントです。",
+            quotaDesc: "rate limit またはクォータ枯渇で cooling 中のアカウントです。",
+            fatalDesc: "致命的な認証またはアカウント障害で分類されたアカウントです。",
+            transientDesc: "一時的な転送・上流障害からの回復待ちアカウントです。",
+            adminDesc: "運用上の明示的な操作で保持または停止されているアカウントです。",
             liveOk: "Live-result 成功",
             liveOkDesc: "最近ランタイムアカウントから届いた成功シグナルです。",
             liveFailed: "Live-result 失敗",
@@ -1507,6 +1516,141 @@ export default {
             allApiKeys: "すべての API キー",
             day: "日次",
             month: "月次"
+        }
+    },
+    accountPool: {
+        eyebrow: "統合オペレーションビュー",
+        title: "アカウントプール",
+        subtitle: "在庫、ルーティング可否、クーリング、削除待ちを 1 つの運用状態モデルで確認します。",
+        loading: "アカウントプールを読み込み中…",
+        empty: "この条件に一致するアカウントはありません。",
+        searchPlaceholder: "メール、ラベル、アカウント ID、理由で検索…",
+        meta: {
+            total: "合計 {{count}} アカウント",
+            filtered: "絞り込み {{count}} 件"
+        },
+        filters: {
+            state: "状態",
+            scope: "範囲",
+            reasonClass: "理由分類",
+            allStates: "すべての状態",
+            allScopes: "すべての範囲",
+            allReasons: "すべての理由分類"
+        },
+        state: {
+            inventory: "在庫",
+            routable: "ルーティング可",
+            cooling: "クーリング中",
+            pendingDelete: "削除待ち"
+        },
+        scope: {
+            runtime: "ランタイム",
+            inventory: "在庫"
+        },
+        reasonClass: {
+            healthy: "正常",
+            quota: "クォータ",
+            fatal: "致命的",
+            transient: "一時的",
+            admin: "運用"
+        },
+        reasonCode: {
+            none: "阻害理由なし",
+            tokenInvalidated: "トークン無効化",
+            accountDeactivated: "アカウント無効化",
+            invalidRefreshToken: "無効なリフレッシュトークン",
+            refreshTokenRevoked: "リフレッシュトークン失効",
+            refreshTokenReused: "リフレッシュトークン再利用",
+            rateLimited: "レート制限",
+            quotaExhausted: "クォータ枯渇",
+            upstreamUnavailable: "上流利用不可",
+            transportError: "転送エラー",
+            overloaded: "上流過負荷",
+            operatorRetiredInvalidRefreshToken: "終端的な無効 refresh により運用停止",
+            unknown: "不明な理由"
+        },
+        routeEligible: {
+            yes: "ルーティング可",
+            no: "ルーティング不可"
+        },
+        signalSource: {
+            active: "アクティブ検査",
+            passive: "パッシブ信号",
+            unknown: "信号なし"
+        },
+        actions: {
+            inspect: "詳細",
+            reprobe: "再検査",
+            restore: "復元",
+            delete: "削除",
+            refresh: "ビューを更新"
+        },
+        columns: {
+            account: "アカウント",
+            state: "状態",
+            reason: "理由",
+            credentials: "資格情報",
+            quota: "クォータ",
+            nextAction: "タイムライン",
+            actions: "操作"
+        },
+        metrics: {
+            inventory: "在庫",
+            routable: "ルーティング可",
+            cooling: "クーリング中",
+            pendingDelete: "削除待ち",
+            healthy: "正常",
+            quota: "クォータ",
+            fatal: "致命的",
+            transient: "一時的",
+            admin: "運用",
+            stateDescription: "現在の運用ビューで「{{state}}」にあるアカウント数。",
+            reasonDescription: "現在「{{reason}}」に分類されているアカウント数。"
+        },
+        sections: {
+            stateOverview: "運用状態",
+            stateOverviewTitle: "在庫とランタイムを 1 つの主状態で把握",
+            stateOverviewDescription: "どのアカウントが今ルーティング可能で、どれがクールダウン中か、どれが削除待ちかを同じ軸で把握します。",
+            reasonOverview: "理由分類",
+            reasonOverviewTitle: "なぜ今の状態にあるのか",
+            reasonOverviewDescription: "理由分類により、クォータ・致命的認証・一時障害・運用操作を区別します。",
+            records: "統合キュー",
+            recordsTitle: "単一アカウントプール一覧",
+            recordsDescription: "各レコードは 1 つの主状態、1 つの理由分類、1 つの次アクションで表示されます。",
+            detail: "レコード詳細"
+        },
+        detail: {
+            description: "このアカウントの最新状態、理由、資格情報、クォータ概要を確認します。"
+        },
+        fields: {
+            currentState: "現在の状態",
+            routeEligible: "ルーティング可否",
+            nextAction: "次のアクション",
+            credentials: "資格情報",
+            timeline: "タイムライン",
+            identity: "識別情報",
+            email: "メール",
+            chatgptAccountId: "ChatGPT アカウント ID",
+            plan: "プラン",
+            sourceType: "ソース種別",
+            mode: "モード",
+            authProvider: "認証プロバイダ",
+            credentialKind: "資格情報種別",
+            refreshState: "Refresh 資格情報状態",
+            lastSignalAt: "最新信号時刻",
+            lastSignalSource: "信号ソース",
+            createdAt: "作成日時",
+            updatedAt: "更新日時",
+            quota: "クォータ概要"
+        },
+        messages: {
+            confirmDeleteTitle: "{{label}} をアカウントプールから削除しますか？",
+            confirmDeleteDescription: "削除するとこのレコードはプールから取り除かれ、元に戻せません。",
+            actionSuccessTitle: "{{action}} を完了しました",
+            actionSuccessDescription: "{{label}} を更新しました。",
+            actionPartialTitle: "{{action}} は一部失敗しました",
+            actionFailedTitle: "{{action}} に失敗しました",
+            actionFailed: "操作に失敗しました"
         }
     },
     nav: {

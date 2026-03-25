@@ -18,7 +18,7 @@ import {
 
 import { adminKeysApi } from '@/api/adminKeys'
 import { adminTenantsApi } from '@/api/adminTenants'
-import { accountsApi } from '@/api/accounts'
+import { accountPoolApi } from '@/api/accounts'
 import { dashboardApi } from '@/api/dashboard'
 import { usageApi } from '@/api/usage'
 import {
@@ -290,23 +290,9 @@ export default function Dashboard() {
     refetchInterval: 30_000,
   })
 
-  const { data: inventorySummary } = useQuery({
-    queryKey: ['dashboardOauthInventorySummary'],
-    queryFn: accountsApi.getOAuthInventorySummary,
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-  })
-
-  const { data: runtimePoolSummary } = useQuery({
-    queryKey: ['dashboardOauthRuntimePoolSummary'],
-    queryFn: accountsApi.getOAuthRuntimePoolSummary,
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-  })
-
-  const { data: healthSignalsSummary } = useQuery({
-    queryKey: ['dashboardOauthHealthSignalsSummary'],
-    queryFn: accountsApi.getOAuthHealthSignalsSummary,
+  const { data: accountPoolSummary } = useQuery({
+    queryKey: ['dashboardAccountPoolSummary'],
+    queryFn: accountPoolApi.getSummary,
     staleTime: 60_000,
     refetchInterval: 60_000,
   })
@@ -342,12 +328,6 @@ export default function Dashboard() {
 
   const isRefreshing = manualRefreshing || isRefetchingSystem || isRefetchingSummary || isRefetchingLeaderboard
   const isLoading = isLoadingSystem || isLoadingSummary
-
-  const runtimePoolCounts = useMemo(() => ({
-    active: runtimePoolSummary?.active ?? 0,
-    quarantine: runtimePoolSummary?.quarantine ?? 0,
-    pendingPurge: runtimePoolSummary?.pending_purge ?? 0,
-  }), [runtimePoolSummary])
 
   const handleRefresh = () => {
     setRangeAnchorMs(Date.now())
@@ -844,66 +824,87 @@ export default function Dashboard() {
 
   const poolOverviewMetrics = [
     {
-      id: 'vault-queued',
-      title: t('dashboard.poolOverview.queued', { defaultValue: 'Vault queued' }),
-      value: inventorySummary?.queued ?? 0,
+      id: 'inventory',
+      title: t('accountPool.state.inventory'),
+      value: accountPoolSummary?.inventory ?? 0,
       icon: Archive,
-      description: t('dashboard.poolOverview.queuedDesc', {
-        defaultValue: 'Imported and waiting for admission probing.',
+      description: t('dashboard.poolOverview.inventoryDesc', {
+        defaultValue: 'Stored in the pool but not yet eligible for routing.',
       }),
     },
     {
-      id: 'vault-ready',
-      title: t('dashboard.poolOverview.ready', { defaultValue: 'Vault ready' }),
-      value: inventorySummary?.ready ?? 0,
+      id: 'routable',
+      title: t('accountPool.state.routable'),
+      value: accountPoolSummary?.routable ?? 0,
       icon: ShieldCheck,
-      description: t('dashboard.poolOverview.readyDesc', {
-        defaultValue: 'Can enter active runtime without refresh.',
+      description: t('dashboard.poolOverview.routableDesc', {
+        defaultValue: 'Currently healthy enough to serve routing traffic.',
       }),
     },
     {
-      id: 'vault-needs-refresh',
-      title: t('dashboard.poolOverview.needsRefresh', { defaultValue: 'Vault needs refresh' }),
-      value: inventorySummary?.needs_refresh ?? 0,
-      icon: RefreshCcw,
-      description: t('dashboard.poolOverview.needsRefreshDesc', {
-        defaultValue: 'Needs one refresh before it can join the active pool.',
-      }),
-    },
-    {
-      id: 'vault-no-quota',
-      title: t('dashboard.poolOverview.noQuota', { defaultValue: 'Vault no quota' }),
-      value: inventorySummary?.no_quota ?? 0,
-      icon: Timer,
-      description: t('dashboard.poolOverview.noQuotaDesc', {
-        defaultValue: 'Probe succeeded but quota is currently exhausted.',
-      }),
-    },
-    {
-      id: 'runtime-active',
-      title: t('dashboard.poolOverview.active', { defaultValue: 'Active' }),
-      value: runtimePoolCounts.active,
-      icon: Zap,
-      description: t('dashboard.poolOverview.activeDesc', {
-        defaultValue: 'Currently routable runtime accounts.',
-      }),
-    },
-    {
-      id: 'runtime-quarantine',
-      title: t('dashboard.poolOverview.quarantine', { defaultValue: 'Quarantine' }),
-      value: runtimePoolCounts.quarantine,
+      id: 'cooling',
+      title: t('accountPool.state.cooling'),
+      value: accountPoolSummary?.cooling ?? 0,
       icon: Gauge,
-      description: t('dashboard.poolOverview.quarantineDesc', {
-        defaultValue: 'Temporarily isolated while retry or reset is pending.',
+      description: t('dashboard.poolOverview.coolingDesc', {
+        defaultValue: 'Temporarily out of routing while cooling or waiting for reprobe.',
       }),
     },
     {
-      id: 'runtime-pending-purge',
-      title: t('dashboard.poolOverview.pendingPurge', { defaultValue: 'Pending purge' }),
-      value: runtimePoolCounts.pendingPurge,
+      id: 'pending-delete',
+      title: t('accountPool.state.pendingDelete'),
+      value: accountPoolSummary?.pending_delete ?? 0,
       icon: TriangleAlert,
-      description: t('dashboard.poolOverview.pendingPurgeDesc', {
-        defaultValue: 'Fatal runtime credentials already removed from routing.',
+      description: t('dashboard.poolOverview.pendingDeleteDesc', {
+        defaultValue: 'Marked for removal after fatal health decisions.',
+      }),
+    },
+  ]
+
+  const poolReasonMetrics = [
+    {
+      id: 'healthy',
+      title: t('accountPool.reasonClass.healthy'),
+      value: accountPoolSummary?.healthy ?? 0,
+      icon: ShieldCheck,
+      description: t('dashboard.healthSignals.healthyDesc', {
+        defaultValue: 'Accounts currently classified as healthy.',
+      }),
+    },
+    {
+      id: 'quota',
+      title: t('accountPool.reasonClass.quota'),
+      value: accountPoolSummary?.quota ?? 0,
+      icon: Timer,
+      description: t('dashboard.healthSignals.quotaDesc', {
+        defaultValue: 'Accounts cooling because of rate limits or quota exhaustion.',
+      }),
+    },
+    {
+      id: 'fatal',
+      title: t('accountPool.reasonClass.fatal'),
+      value: accountPoolSummary?.fatal ?? 0,
+      icon: TriangleAlert,
+      description: t('dashboard.healthSignals.fatalDesc', {
+        defaultValue: 'Accounts marked by fatal auth or account failures.',
+      }),
+    },
+    {
+      id: 'transient',
+      title: t('accountPool.reasonClass.transient'),
+      value: accountPoolSummary?.transient ?? 0,
+      icon: RefreshCcw,
+      description: t('dashboard.healthSignals.transientDesc', {
+        defaultValue: 'Accounts waiting on transient transport or upstream recovery.',
+      }),
+    },
+    {
+      id: 'admin',
+      title: t('accountPool.reasonClass.admin'),
+      value: accountPoolSummary?.admin ?? 0,
+      icon: Archive,
+      description: t('dashboard.healthSignals.adminDesc', {
+        defaultValue: 'Accounts held by explicit operator action.',
       }),
     },
   ]
@@ -1143,49 +1144,23 @@ export default function Dashboard() {
         <PagePanel className="space-y-4">
           <SectionHeader
             eyebrow={t('dashboard.healthSignals.eyebrow', { defaultValue: 'Health signals' })}
-            title={t('dashboard.healthSignals.title', { defaultValue: 'Recent runtime signals' })}
+            title={t('dashboard.healthSignals.title', { defaultValue: 'Reason distribution' })}
             description={t('dashboard.healthSignals.description', {
               defaultValue:
-                'Track live-result success and failure signals so quarantines and purges show up before operators need to dig through logs.',
+                'See why accounts are healthy, cooling, or pending delete without decoding runtime and inventory states separately.',
             })}
           />
-          <DashboardMetricGrid className="xl:grid-cols-4 2xl:grid-cols-4">
-            <DashboardMetricCard
-              title={t('dashboard.healthSignals.liveOk', { defaultValue: 'Live-result OK' })}
-              value={formatDashboardCount(healthSignalsSummary?.live_result_ok ?? 0)}
-              valueTitle={formatExactCount(healthSignalsSummary?.live_result_ok ?? 0)}
-              description={t('dashboard.healthSignals.liveOkDesc', {
-                defaultValue: 'Recent success signals seen from runtime accounts.',
-              })}
-              icon={<ShieldCheck className="h-4 w-4" />}
-            />
-            <DashboardMetricCard
-              title={t('dashboard.healthSignals.liveFailed', { defaultValue: 'Live-result failed' })}
-              value={formatDashboardCount(healthSignalsSummary?.live_result_failed ?? 0)}
-              valueTitle={formatExactCount(healthSignalsSummary?.live_result_failed ?? 0)}
-              description={t('dashboard.healthSignals.liveFailedDesc', {
-                defaultValue: 'Recent failure signals reported from runtime accounts.',
-              })}
-              icon={<TriangleAlert className="h-4 w-4" />}
-            />
-            <DashboardMetricCard
-              title={t('dashboard.healthSignals.quarantine', { defaultValue: 'Quarantine signals' })}
-              value={formatDashboardCount(healthSignalsSummary?.quarantine_signals ?? 0)}
-              valueTitle={formatExactCount(healthSignalsSummary?.quarantine_signals ?? 0)}
-              description={t('dashboard.healthSignals.quarantineDesc', {
-                defaultValue: 'Signals that moved runtime accounts into quarantine.',
-              })}
-              icon={<Gauge className="h-4 w-4" />}
-            />
-            <DashboardMetricCard
-              title={t('dashboard.healthSignals.pendingPurge', { defaultValue: 'Pending purge signals' })}
-              value={formatDashboardCount(healthSignalsSummary?.pending_purge_signals ?? 0)}
-              valueTitle={formatExactCount(healthSignalsSummary?.pending_purge_signals ?? 0)}
-              description={t('dashboard.healthSignals.pendingPurgeDesc', {
-                defaultValue: 'Signals that already pushed runtime accounts out of routing.',
-              })}
-              icon={<Archive className="h-4 w-4" />}
-            />
+          <DashboardMetricGrid className="xl:grid-cols-5 2xl:grid-cols-5">
+            {poolReasonMetrics.map((metric) => (
+              <DashboardMetricCard
+                key={metric.id}
+                title={metric.title}
+                value={formatDashboardCount(metric.value)}
+                valueTitle={formatExactCount(metric.value)}
+                description={metric.description}
+                icon={<metric.icon className="h-4 w-4" />}
+              />
+            ))}
           </DashboardMetricGrid>
         </PagePanel>
 

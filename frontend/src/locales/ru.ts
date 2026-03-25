@@ -625,6 +625,10 @@ export default {
             eyebrow: "Обзор пула",
             title: "Инвентарь и runtime pool",
             description: "Смотрите vault admission и runtime pool вместе, чтобы раньше заметить давление на активацию.",
+            inventoryDesc: "Уже находится в пуле, но пока не может участвовать в маршрутизации.",
+            routableDesc: "Сейчас достаточно здоров для обслуживания трафика.",
+            coolingDesc: "Временно выведен из маршрутизации до окончания охлаждения или повторной проверки.",
+            pendingDeleteDesc: "Помечен на удаление после фатального решения о здоровье.",
             queued: "Vault queued",
             queuedDesc: "Импортировано и ждет admission probe.",
             ready: "Vault ready",
@@ -644,6 +648,11 @@ export default {
             eyebrow: "Health signals",
             title: "Последние runtime-сигналы",
             description: "Отслеживайте успешные и неуспешные live-result сигналы, чтобы карантин и purge были видны до ручного разбора логов.",
+            healthyDesc: "Аккаунты, которые сейчас классифицированы как healthy.",
+            quotaDesc: "Аккаунты в cooling из-за rate limit или исчерпанной квоты.",
+            fatalDesc: "Аккаунты, отмеченные фатальными auth или account-ошибками.",
+            transientDesc: "Аккаунты, ожидающие восстановления после временных transport или upstream-сбоев.",
+            adminDesc: "Аккаунты, удерживаемые явным действием оператора.",
             liveOk: "Live-result OK",
             liveOkDesc: "Недавние успешные сигналы от runtime-аккаунтов.",
             liveFailed: "Live-result failed",
@@ -1507,6 +1516,141 @@ export default {
             allApiKeys: "Все API-ключи",
             day: "По дням",
             month: "По месяцам"
+        }
+    },
+    accountPool: {
+        eyebrow: "Единый операционный вид",
+        title: "Пул аккаунтов",
+        subtitle: "Отслеживайте инвентарь, маршрутизацию, охлаждение и отложенное удаление через одну модель операторского состояния.",
+        loading: "Загрузка пула аккаунтов…",
+        empty: "По текущему фильтру аккаунтов нет.",
+        searchPlaceholder: "Искать по email, метке, ID аккаунта или причине…",
+        meta: {
+            total: "Всего {{count}} аккаунтов",
+            filtered: "Отфильтровано {{count}}"
+        },
+        filters: {
+            state: "Состояние",
+            scope: "Область",
+            reasonClass: "Класс причины",
+            allStates: "Все состояния",
+            allScopes: "Все области",
+            allReasons: "Все классы причин"
+        },
+        state: {
+            inventory: "Инвентарь",
+            routable: "Маршрутизируемый",
+            cooling: "Охлаждение",
+            pendingDelete: "Ожидает удаления"
+        },
+        scope: {
+            runtime: "Runtime",
+            inventory: "Инвентарь"
+        },
+        reasonClass: {
+            healthy: "Здоровый",
+            quota: "Квота",
+            fatal: "Фатальный",
+            transient: "Временный",
+            admin: "Оператор"
+        },
+        reasonCode: {
+            none: "Нет блокирующей причины",
+            tokenInvalidated: "Токен инвалидирован",
+            accountDeactivated: "Аккаунт деактивирован",
+            invalidRefreshToken: "Неверный refresh token",
+            refreshTokenRevoked: "Refresh token отозван",
+            refreshTokenReused: "Refresh token переиспользован",
+            rateLimited: "Сработал rate limit",
+            quotaExhausted: "Квота исчерпана",
+            upstreamUnavailable: "Верхний сервис недоступен",
+            transportError: "Транспортная ошибка",
+            overloaded: "Верхний сервис перегружен",
+            operatorRetiredInvalidRefreshToken: "Выведен оператором после терминального invalid refresh",
+            unknown: "Неизвестная причина"
+        },
+        routeEligible: {
+            yes: "Можно маршрутизировать",
+            no: "Нельзя маршрутизировать"
+        },
+        signalSource: {
+            active: "Активная проверка",
+            passive: "Пассивный сигнал",
+            unknown: "Сигнала нет"
+        },
+        actions: {
+            inspect: "Проверить",
+            reprobe: "Повторно проверить",
+            restore: "Восстановить",
+            delete: "Удалить",
+            refresh: "Обновить вид"
+        },
+        columns: {
+            account: "Аккаунт",
+            state: "Состояние",
+            reason: "Причина",
+            credentials: "Учетные данные",
+            quota: "Квота",
+            nextAction: "Хронология",
+            actions: "Действия"
+        },
+        metrics: {
+            inventory: "Инвентарь",
+            routable: "Маршрутизируемый",
+            cooling: "Охлаждение",
+            pendingDelete: "Ожидает удаления",
+            healthy: "Здоровый",
+            quota: "Квота",
+            fatal: "Фатальный",
+            transient: "Временный",
+            admin: "Оператор",
+            stateDescription: "Количество аккаунтов в состоянии «{{state}}».",
+            reasonDescription: "Количество аккаунтов, классифицированных как «{{reason}}»."
+        },
+        sections: {
+            stateOverview: "Операторское состояние",
+            stateOverviewTitle: "Одна модель состояния для инвентаря и runtime",
+            stateOverviewDescription: "Используйте один набор состояний, чтобы понимать, какие аккаунты можно маршрутизировать сейчас, какие охлаждаются и какие скоро будут удалены.",
+            reasonOverview: "Классы причин",
+            reasonOverviewTitle: "Почему аккаунты находятся в текущем состоянии",
+            reasonOverviewDescription: "Классы причин отделяют квоту, фатальную авторизацию, временные ошибки и ручные действия оператора.",
+            records: "Единая очередь",
+            recordsTitle: "Единый список аккаунтов",
+            recordsDescription: "Каждая запись показывает одно основное состояние, один класс причины и одно следующее действие.",
+            detail: "Детали записи"
+        },
+        detail: {
+            description: "Проверьте актуальное состояние, причину, учетные данные и сводку по квоте для этого аккаунта."
+        },
+        fields: {
+            currentState: "Текущее состояние",
+            routeEligible: "Допуск к маршрутизации",
+            nextAction: "Следующее действие",
+            credentials: "Учетные данные",
+            timeline: "Хронология",
+            identity: "Идентичность",
+            email: "Email",
+            chatgptAccountId: "ChatGPT Account ID",
+            plan: "План",
+            sourceType: "Тип источника",
+            mode: "Режим",
+            authProvider: "Провайдер авторизации",
+            credentialKind: "Тип учетных данных",
+            refreshState: "Состояние refresh-учетных данных",
+            lastSignalAt: "Последний сигнал",
+            lastSignalSource: "Источник сигнала",
+            createdAt: "Создан",
+            updatedAt: "Обновлен",
+            quota: "Сводка по квоте"
+        },
+        messages: {
+            confirmDeleteTitle: "Удалить {{label}} из пула аккаунтов?",
+            confirmDeleteDescription: "Запись будет удалена из пула без возможности восстановления.",
+            actionSuccessTitle: "Действие «{{action}}» выполнено",
+            actionSuccessDescription: "{{label}} обновлен.",
+            actionPartialTitle: "Действие «{{action}}» выполнено частично",
+            actionFailedTitle: "Действие «{{action}}» не удалось",
+            actionFailed: "Не удалось выполнить действие"
         }
     },
     nav: {

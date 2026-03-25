@@ -625,6 +625,10 @@ export default {
             eyebrow: "池子總覽",
             title: "庫存與運行池",
             description: "把 vault 准入與 runtime 池子一起看，可以更早發現激活壓力。",
+            inventoryDesc: "已進入帳號池，但暫時還不能參與路由。",
+            routableDesc: "目前足夠健康，可直接承接路由流量。",
+            coolingDesc: "因冷卻或等待重新探測，暫時退出路由。",
+            pendingDeleteDesc: "因致命健康判定而進入待刪除。",
             queued: "庫存排隊",
             queuedDesc: "已導入，等待准入探測。",
             ready: "庫存就緒",
@@ -644,6 +648,11 @@ export default {
             eyebrow: "健康訊號",
             title: "近期運行時訊號",
             description: "集中查看 live-result 成功與失敗訊號，讓隔離與待清理在翻日誌前就暴露出來。",
+            healthyDesc: "目前被歸類為健康的帳號。",
+            quotaDesc: "因限流或額度耗盡而處於冷卻中的帳號。",
+            fatalDesc: "因致命鑑權或帳號問題被標記的帳號。",
+            transientDesc: "因瞬時網路或上游問題等待恢復的帳號。",
+            adminDesc: "因人工營運動作而被保留或暫停的帳號。",
             liveOk: "Live-result 成功",
             liveOkDesc: "近期從運行帳號收到的成功訊號。",
             liveFailed: "Live-result 失敗",
@@ -1507,6 +1516,141 @@ export default {
             allApiKeys: "全部 API Key",
             day: "按日",
             month: "按月"
+        }
+    },
+    accountPool: {
+        eyebrow: "統一營運視圖",
+        title: "帳號池",
+        subtitle: "用一套營運狀態統一觀察庫存、可路由、冷卻中與待刪除帳號。",
+        loading: "正在載入帳號池…",
+        empty: "目前篩選下沒有帳號。",
+        searchPlaceholder: "搜尋信箱、標籤、帳號 ID 或原因…",
+        meta: {
+            total: "總計 {{count}} 個帳號",
+            filtered: "篩選後 {{count}} 個"
+        },
+        filters: {
+            state: "狀態",
+            scope: "範圍",
+            reasonClass: "原因分類",
+            allStates: "全部狀態",
+            allScopes: "全部範圍",
+            allReasons: "全部原因分類"
+        },
+        state: {
+            inventory: "庫存中",
+            routable: "可路由",
+            cooling: "冷卻中",
+            pendingDelete: "待刪除"
+        },
+        scope: {
+            runtime: "運行池",
+            inventory: "庫存"
+        },
+        reasonClass: {
+            healthy: "健康",
+            quota: "限額",
+            fatal: "致命",
+            transient: "瞬時",
+            admin: "人工"
+        },
+        reasonCode: {
+            none: "暫無阻斷原因",
+            tokenInvalidated: "令牌已失效",
+            accountDeactivated: "帳號已停用",
+            invalidRefreshToken: "刷新令牌無效",
+            refreshTokenRevoked: "刷新令牌已撤銷",
+            refreshTokenReused: "刷新令牌被重複使用",
+            rateLimited: "命中限流",
+            quotaExhausted: "額度耗盡",
+            upstreamUnavailable: "上游暫不可用",
+            transportError: "傳輸錯誤",
+            overloaded: "上游過載",
+            operatorRetiredInvalidRefreshToken: "因終態無效刷新令牌被營運下線",
+            unknown: "未知原因"
+        },
+        routeEligible: {
+            yes: "可參與路由",
+            no: "不可參與路由"
+        },
+        signalSource: {
+            active: "主動巡檢",
+            passive: "被動訊號",
+            unknown: "暫無訊號"
+        },
+        actions: {
+            inspect: "查看",
+            reprobe: "重新探測",
+            restore: "恢復",
+            delete: "刪除",
+            refresh: "重新整理視圖"
+        },
+        columns: {
+            account: "帳號",
+            state: "狀態",
+            reason: "原因",
+            credentials: "憑證",
+            quota: "額度",
+            nextAction: "時間線",
+            actions: "操作"
+        },
+        metrics: {
+            inventory: "庫存中",
+            routable: "可路由",
+            cooling: "冷卻中",
+            pendingDelete: "待刪除",
+            healthy: "健康",
+            quota: "限額",
+            fatal: "致命",
+            transient: "瞬時",
+            admin: "人工",
+            stateDescription: "目前營運視角下屬於「{{state}}」的帳號數。",
+            reasonDescription: "目前被歸類為「{{reason}}」的帳號數。"
+        },
+        sections: {
+            stateOverview: "營運狀態",
+            stateOverviewTitle: "用一套主狀態串起庫存與運行池",
+            stateOverviewDescription: "用同一套狀態理解哪些帳號可路由、哪些在冷卻、哪些即將被清理。",
+            reasonOverview: "原因分類",
+            reasonOverviewTitle: "為什麼帳號會落在目前狀態",
+            reasonOverviewDescription: "原因分類用來區分限額、致命鑑權、瞬時故障或人工操作帶來的狀態變化。",
+            records: "統一佇列",
+            recordsTitle: "單一帳號池列表",
+            recordsDescription: "每條記錄只展示一個主狀態、一個原因分類與一個下一步動作。",
+            detail: "記錄詳情"
+        },
+        detail: {
+            description: "查看此帳號最新的營運狀態、原因、憑證與額度摘要。"
+        },
+        fields: {
+            currentState: "目前狀態",
+            routeEligible: "路由資格",
+            nextAction: "下一步動作",
+            credentials: "憑證",
+            timeline: "時間線",
+            identity: "身分資訊",
+            email: "電子郵件",
+            chatgptAccountId: "ChatGPT 帳號 ID",
+            plan: "方案",
+            sourceType: "來源類型",
+            mode: "模式",
+            authProvider: "認證提供方",
+            credentialKind: "憑證類型",
+            refreshState: "刷新憑證狀態",
+            lastSignalAt: "最近訊號時間",
+            lastSignalSource: "訊號來源",
+            createdAt: "建立時間",
+            updatedAt: "更新時間",
+            quota: "額度摘要"
+        },
+        messages: {
+            confirmDeleteTitle: "確認把 {{label}} 從帳號池刪除？",
+            confirmDeleteDescription: "刪除後該記錄將從帳號池移除，且無法復原。",
+            actionSuccessTitle: "已完成{{action}}",
+            actionSuccessDescription: "{{label}} 已更新。",
+            actionPartialTitle: "{{action}}部分失敗",
+            actionFailedTitle: "{{action}}失敗",
+            actionFailed: "操作失敗"
         }
     },
     nav: {
