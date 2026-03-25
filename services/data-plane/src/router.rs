@@ -34,6 +34,7 @@ pub struct RoundRobinRouter {
     compiled_routing_plan: Arc<RwLock<Option<CompiledRoutingPlan>>>,
     cursor: Arc<AtomicUsize>,
     health: Arc<RwLock<HashMap<Uuid, Instant>>>,
+    recent_success: Arc<RwLock<HashMap<Uuid, Instant>>>,
     sticky_sessions: Arc<RwLock<HashMap<String, StickySessionEntry>>>,
     sticky_session_ttl: Duration,
     sticky_session_max_entries: usize,
@@ -71,6 +72,7 @@ impl RoundRobinRouter {
             compiled_routing_plan: Arc::new(RwLock::new(None)),
             cursor: Arc::new(AtomicUsize::new(0)),
             health: Arc::new(RwLock::new(HashMap::new())),
+            recent_success: Arc::new(RwLock::new(HashMap::new())),
             sticky_sessions: Arc::new(RwLock::new(HashMap::new())),
             sticky_session_ttl: sticky_session_ttl.max(Duration::from_millis(1)),
             sticky_session_max_entries: sticky_session_max_entries.max(1),
@@ -91,6 +93,14 @@ impl RoundRobinRouter {
 
         if accounts.is_empty() {
             return None;
+        }
+
+        if let Some(account_id) =
+            self.preferred_recent_success_account_id(&accounts, excluded_account_ids)
+        {
+            if let Some(account) = accounts.iter().find(|account| account.id == account_id) {
+                return Some(account.clone());
+            }
         }
 
         for _ in 0..accounts.len() {
@@ -250,6 +260,9 @@ impl RoundRobinRouter {
         if let Ok(mut health) = self.health.write() {
             health.retain(|account_id, _| valid_ids.contains(account_id));
         }
+        if let Ok(mut recent_success) = self.recent_success.write() {
+            recent_success.retain(|account_id, _| valid_ids.contains(account_id));
+        }
         if let Ok(mut sticky_sessions) = self.sticky_sessions.write() {
             sticky_sessions.retain(|_, entry| valid_ids.contains(&entry.account_id));
         }
@@ -313,6 +326,9 @@ impl RoundRobinRouter {
             if let Ok(mut health) = self.health.write() {
                 health.remove(&account_id);
             }
+            if let Ok(mut recent_success) = self.recent_success.write() {
+                recent_success.remove(&account_id);
+            }
             if let Ok(mut sticky_sessions) = self.sticky_sessions.write() {
                 sticky_sessions.retain(|_, entry| entry.account_id != account_id);
             }
@@ -333,6 +349,9 @@ impl RoundRobinRouter {
 
         if let Ok(mut health) = self.health.write() {
             health.remove(&account_id);
+        }
+        if let Ok(mut recent_success) = self.recent_success.write() {
+            recent_success.remove(&account_id);
         }
         if let Ok(mut sticky_sessions) = self.sticky_sessions.write() {
             sticky_sessions.retain(|_, entry| entry.account_id != account_id);
@@ -377,6 +396,22 @@ impl RoundRobinRouter {
         let cleared = health.len();
         health.clear();
         cleared
+    }
+
+    pub fn record_success(&self, account_id: Uuid) {
+        let exists = self
+            .accounts
+            .read()
+            .unwrap()
+            .iter()
+            .any(|account| account.id == account_id && account.enabled);
+        if !exists {
+            return;
+        }
+
+        if let Ok(mut recent_success) = self.recent_success.write() {
+            recent_success.insert(account_id, Instant::now());
+        }
     }
 
     pub fn bind_sticky(&self, sticky_key: &str, account_id: Uuid) -> bool {
@@ -441,6 +476,29 @@ impl RoundRobinRouter {
         Some(account.clone())
     }
 
+    fn preferred_recent_success_account_id(
+        &self,
+        accounts: &[UpstreamAccount],
+        excluded_account_ids: &HashSet<Uuid>,
+    ) -> Option<Uuid> {
+        let recent_success = self.recent_success.read().unwrap();
+        accounts
+            .iter()
+            .filter(|account| {
+                !excluded_account_ids.contains(&account.id)
+                    && account.enabled
+                    && self.is_healthy(account.id)
+            })
+            .filter_map(|account| {
+                recent_success
+                    .get(&account.id)
+                    .copied()
+                    .map(|seen_at| (account.id, seen_at))
+            })
+            .max_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)))
+            .map(|item| item.0)
+    }
+
     fn pick_from_ordered_candidates(
         &self,
         candidate_ids: &[Uuid],
@@ -490,6 +548,27 @@ impl RoundRobinRouter {
         candidate_ids: &[Uuid],
         excluded_account_ids: &HashSet<Uuid>,
     ) -> Option<UpstreamAccount> {
+        let recent_success = self.recent_success.read().unwrap();
+        if let Some(account_id) = candidate_ids
+            .iter()
+            .filter(|account_id| !excluded_account_ids.contains(account_id))
+            .filter_map(|account_id| {
+                recent_success
+                    .get(account_id)
+                    .copied()
+                    .map(|seen_at| (*account_id, seen_at))
+            })
+            .max_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)))
+            .map(|item| item.0)
+        {
+            drop(recent_success);
+            if let Some(account) = self.pick_specific(account_id) {
+                return Some(account);
+            }
+        } else {
+            drop(recent_success);
+        }
+
         for account_id in candidate_ids {
             if excluded_account_ids.contains(account_id) {
                 continue;

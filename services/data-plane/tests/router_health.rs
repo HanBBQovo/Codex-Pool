@@ -107,3 +107,18 @@ async fn clear_all_unhealthy_clears_every_penalty_and_returns_count() {
             .temporarily_unhealthy
     );
 }
+
+#[tokio::test]
+async fn prefers_recently_successful_accounts_before_round_robin_fallback() {
+    let a = test_account("a");
+    let b = test_account("b");
+    let router = RoundRobinRouter::new(vec![a.clone(), b.clone()]);
+
+    router.record_success(b.id);
+
+    assert_eq!(router.pick().unwrap().id, b.id);
+
+    router.mark_unhealthy(b.id, Duration::from_secs(30));
+
+    assert_eq!(router.pick().unwrap().id, a.id);
+}

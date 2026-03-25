@@ -2701,6 +2701,7 @@ fn is_outbound_proxy_selection_ws_error(err: &TungsteniteError) -> bool {
 }
 
 fn spawn_seen_ok_reports(state: &Arc<AppState>, account_id: Uuid, model_id: Option<String>) {
+    state.router.record_success(account_id);
     if let Some(seen_ok_reporter) = state.seen_ok_reporter.clone() {
         tokio::spawn(async move {
             seen_ok_reporter
