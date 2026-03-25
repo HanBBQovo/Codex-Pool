@@ -174,14 +174,20 @@ fn maybe_adapt_openai_responses_request_for_codex_profile(
         }
     }
 
+    if object.remove("max_output_tokens").is_some() {
+        changed = true;
+    }
+
     if object.remove("conversation").is_some() {
         changed = true;
     }
 
+    if object.get("store").and_then(Value::as_bool) != Some(false) {
+        object.insert("store".to_string(), Value::Bool(false));
+        changed = true;
+    }
+
     if is_compact {
-        if object.remove("store").is_some() {
-            changed = true;
-        }
         if object.remove("stream").is_some() {
             changed = true;
         }

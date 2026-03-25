@@ -771,9 +771,9 @@ async fn adapts_openai_non_stream_responses_request_for_codex_profile() {
     assert_eq!(requests.len(), 1);
     let forwarded: Value = serde_json::from_slice(&requests[0].body).unwrap();
     assert_eq!(forwarded["instructions"], "");
-    assert!(forwarded.get("store").is_none());
+    assert_eq!(forwarded["store"], false);
     assert_eq!(forwarded["stream"], true);
-    assert_eq!(forwarded["max_output_tokens"], 16);
+    assert!(forwarded.get("max_output_tokens").is_none());
     assert_eq!(
         forwarded["input"],
         json!([{
@@ -841,9 +841,9 @@ async fn adapts_openai_streaming_responses_request_for_codex_profile() {
     assert_eq!(requests.len(), 1);
     let forwarded: Value = serde_json::from_slice(&requests[0].body).unwrap();
     assert_eq!(forwarded["instructions"], "");
-    assert!(forwarded.get("store").is_none());
+    assert_eq!(forwarded["store"], false);
     assert_eq!(forwarded["stream"], true);
-    assert_eq!(forwarded["max_output_tokens"], 16);
+    assert!(forwarded.get("max_output_tokens").is_none());
     assert_eq!(
         forwarded["input"],
         json!([{
@@ -906,9 +906,9 @@ async fn rewrites_v1_responses_compact_to_codex_responses_compact_for_codex_base
     let forwarded: Value = serde_json::from_slice(&requests[0].body).unwrap();
     assert_eq!(forwarded["model"], "gpt-5.4");
     assert_eq!(forwarded["instructions"], "");
-    assert!(forwarded.get("store").is_none());
+    assert_eq!(forwarded["store"], false);
     assert!(forwarded.get("stream").is_none());
-    assert_eq!(forwarded["max_output_tokens"], 16);
+    assert!(forwarded.get("max_output_tokens").is_none());
     assert_eq!(
         forwarded["input"],
         json!([{

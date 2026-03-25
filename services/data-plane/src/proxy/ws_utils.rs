@@ -1378,7 +1378,29 @@ fn maybe_adapt_ws_downstream_message_for_codex_profile(
     if !matches!(extract_ws_event_type(&value), Some("response.create")) {
         return AxumWsMessage::Text(text);
     }
-    if !adapt_codex_service_tier_fields_in_value(&mut value) {
+    let mut changed = adapt_codex_service_tier_fields_in_value(&mut value);
+    if value
+        .as_object_mut()
+        .and_then(|object| object.remove("max_output_tokens"))
+        .is_some()
+    {
+        changed = true;
+    }
+    if value
+        .as_object_mut()
+        .and_then(|object| {
+            let current = object.get("store").and_then(Value::as_bool);
+            if current == Some(false) {
+                None
+            } else {
+                object.insert("store".to_string(), Value::Bool(false))
+            }
+        })
+        .is_some()
+    {
+        changed = true;
+    }
+    if !changed {
         return AxumWsMessage::Text(text);
     }
 
@@ -2387,6 +2409,25 @@ mod tests {
         };
         let value = serde_json::from_str::<Value>(text.as_ref()).unwrap();
         assert_eq!(value["service_tier"], "priority");
+    }
+
+    #[test]
+    fn ws_codex_profile_strips_max_output_tokens_from_response_create() {
+        let adapted = maybe_adapt_ws_downstream_message_for_codex_profile(
+            AxumWsMessage::Text(
+                r#"{"type":"response.create","model":"gpt-5.4","max_output_tokens":128,"input":[]}"#
+                    .into(),
+            ),
+            true,
+            "/v1/responses",
+        );
+
+        let AxumWsMessage::Text(text) = adapted else {
+            panic!("expected text websocket message");
+        };
+        let value = serde_json::from_str::<Value>(text.as_ref()).unwrap();
+        assert!(value.get("max_output_tokens").is_none());
+        assert_eq!(value["store"], false);
     }
 
     #[test]
