@@ -1199,6 +1199,93 @@ export default {
             timestamp: "Временная метка"
         },
         export: "Экспорт журналов",
+        events: {
+            categories: {
+                accountPool: "Пул аккаунтов",
+                adminAction: "Действие администратора",
+                import: "Импорт",
+                infra: "Инфраструктура",
+                patrol: "Проверка",
+                request: "Запрос",
+                unknown: "Неизвестно"
+            },
+            actions: {
+                viewDetail: "Детали"
+            },
+            columns: {
+                account: "Аккаунт",
+                actions: "Действия",
+                category: "Категория",
+                createdAt: "Время",
+                eventType: "Событие",
+                message: "Сообщение",
+                reason: "Причина",
+                requestId: "Request ID",
+                severity: "Уровень"
+            },
+            detail: {
+                description: "{{eventType}} · {{category}}",
+                loading: "Загрузка деталей события…",
+                timelineEmpty: "Связанная временная шкала запроса недоступна.",
+                title: "Детали события",
+                labels: {
+                    accountId: "ID аккаунта",
+                    accountLabel: "Метка аккаунта",
+                    eventId: "ID события",
+                    failoverScope: "Область failover",
+                    jobId: "ID задания",
+                    latency: "Задержка",
+                    method: "Метод",
+                    model: "Модель",
+                    nextActionAt: "Следующее действие",
+                    path: "Путь",
+                    requestId: "Request ID",
+                    routingDecision: "Решение маршрутизации",
+                    secretPreview: "Превью секрета",
+                    selectedAccountId: "Выбранный аккаунт",
+                    selectedProxyId: "Выбранный прокси",
+                    statusCode: "Код статуса",
+                    traceRequestId: "Trace request ID",
+                    upstreamStatusCode: "Код статуса upstream"
+                },
+                sections: {
+                    message: "Сообщение",
+                    payload: "Payload",
+                    timeline: "Хронология запроса"
+                }
+            },
+            description: "Область: единый поток событий запросов, пула аккаунтов, проверок, импорта и инфраструктуры, созданных после включения новой шины событий.",
+            empty: "Пока нет данных единого потока событий. Новый поток показывает только события, созданные после включения.",
+            filters: {
+                accountAriaLabel: "Фильтр по аккаунту",
+                accountPlaceholder: "ID аккаунта",
+                allCategories: "Все категории",
+                allSeverities: "Все уровни",
+                categoryAriaLabel: "Фильтр по категории",
+                jobIdAriaLabel: "Фильтр по job ID",
+                jobIdPlaceholder: "Job ID",
+                keywordAriaLabel: "Фильтр по ключевому слову",
+                keywordPlaceholder: "Ключевое слово (событие / сообщение / запрос / аккаунт)",
+                rangeAriaLabel: "Диапазон времени",
+                reasonCodeAriaLabel: "Фильтр по коду причины",
+                reasonCodePlaceholder: "Код причины",
+                requestIdAriaLabel: "Фильтр по request ID",
+                requestIdPlaceholder: "Request ID",
+                severityAriaLabel: "Фильтр по уровню",
+                tenantAriaLabel: "Фильтр по tenant"
+            },
+            severities: {
+                debug: "Отладка",
+                error: "Ошибка",
+                info: "Инфо",
+                unknown: "Неизвестно",
+                warn: "Предупреждение"
+            },
+            summary: {
+                total: "Всего {{count}}"
+            },
+            title: "Единый поток событий"
+        },
         filters: {
             allTenants: "Все арендаторы"
         },
@@ -1261,6 +1348,7 @@ export default {
         },
         tabs: {
             audit: "Журналы аудита",
+            events: "Поток событий",
             request: "Запрос журналов",
             system: "Системные журналы"
         },

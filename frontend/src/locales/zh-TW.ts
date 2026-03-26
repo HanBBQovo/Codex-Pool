@@ -1199,6 +1199,93 @@ export default {
             timestamp: "時間戳記"
         },
         export: "匯出日誌",
+        events: {
+            categories: {
+                accountPool: "帳號池",
+                adminAction: "管理操作",
+                import: "匯入",
+                infra: "基礎設施",
+                patrol: "巡檢",
+                request: "請求",
+                unknown: "未知"
+            },
+            actions: {
+                viewDetail: "查看詳情"
+            },
+            columns: {
+                account: "帳號",
+                actions: "操作",
+                category: "分類",
+                createdAt: "時間",
+                eventType: "事件",
+                message: "訊息",
+                reason: "原因",
+                requestId: "請求 ID",
+                severity: "嚴重等級"
+            },
+            detail: {
+                description: "{{eventType}} · {{category}}",
+                loading: "正在載入事件詳情…",
+                timelineEmpty: "目前沒有可關聯的請求時間線。",
+                title: "事件詳情",
+                labels: {
+                    accountId: "帳號 ID",
+                    accountLabel: "帳號標籤",
+                    eventId: "事件 ID",
+                    failoverScope: "切換範圍",
+                    jobId: "任務 ID",
+                    latency: "延遲",
+                    method: "方法",
+                    model: "模型",
+                    nextActionAt: "下一次動作時間",
+                    path: "路徑",
+                    requestId: "請求 ID",
+                    routingDecision: "路由決策",
+                    secretPreview: "敏感資訊預覽",
+                    selectedAccountId: "選中帳號",
+                    selectedProxyId: "選中代理",
+                    statusCode: "狀態碼",
+                    traceRequestId: "鏈路請求 ID",
+                    upstreamStatusCode: "上游狀態碼"
+                },
+                sections: {
+                    message: "訊息",
+                    payload: "載荷",
+                    timeline: "請求時間線"
+                }
+            },
+            description: "範圍：統一收錄啟用新事件流後的請求、帳號池、巡檢、匯入與基礎設施事件。",
+            empty: "目前沒有統一事件資料。新事件流只顯示上線後的新事件。",
+            filters: {
+                accountAriaLabel: "帳號篩選",
+                accountPlaceholder: "帳號 ID",
+                allCategories: "全部分類",
+                allSeverities: "全部等級",
+                categoryAriaLabel: "分類篩選",
+                jobIdAriaLabel: "任務 ID 篩選",
+                jobIdPlaceholder: "任務 ID",
+                keywordAriaLabel: "關鍵字篩選",
+                keywordPlaceholder: "關鍵字（事件 / 訊息 / 請求 / 帳號）",
+                rangeAriaLabel: "時間範圍",
+                reasonCodeAriaLabel: "原因碼篩選",
+                reasonCodePlaceholder: "原因碼",
+                requestIdAriaLabel: "請求 ID 篩選",
+                requestIdPlaceholder: "請求 ID",
+                severityAriaLabel: "嚴重等級篩選",
+                tenantAriaLabel: "租戶篩選"
+            },
+            severities: {
+                debug: "除錯",
+                error: "錯誤",
+                info: "資訊",
+                unknown: "未知",
+                warn: "警告"
+            },
+            summary: {
+                total: "總計 {{count}}"
+            },
+            title: "統一事件流"
+        },
         filters: {
             allTenants: "所有租戶"
         },
@@ -1261,6 +1348,7 @@ export default {
         },
         tabs: {
             audit: "審計日誌",
+            events: "統一事件流",
             request: "請求日誌",
             system: "系統日誌"
         },

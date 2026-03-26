@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router-dom'
 import { adminTenantsApi } from '@/api/adminTenants'
 import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
 import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
+import { eventStreamApi, type SystemEventCategory, type SystemEventItem, type SystemEventSeverity } from '@/api/eventStream'
 import { logsApi, type SystemLogEntry } from '@/api/logs'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
 import {
@@ -19,6 +20,13 @@ import {
 } from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { LoadingOverlay } from '@/components/ui/loading-overlay'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import {
@@ -203,6 +211,46 @@ function parseRangePreset(raw: string | null): RangePreset {
   return 1
 }
 
+function localizeSystemEventCategory(
+  category: SystemEventCategory,
+  t: TFunction,
+) {
+  switch (category) {
+    case 'request':
+      return t('logs.events.categories.request', { defaultValue: 'Request' })
+    case 'account_pool':
+      return t('logs.events.categories.accountPool', { defaultValue: 'Account pool' })
+    case 'patrol':
+      return t('logs.events.categories.patrol', { defaultValue: 'Patrol' })
+    case 'import':
+      return t('logs.events.categories.import', { defaultValue: 'Import' })
+    case 'infra':
+      return t('logs.events.categories.infra', { defaultValue: 'Infrastructure' })
+    case 'admin_action':
+      return t('logs.events.categories.adminAction', { defaultValue: 'Admin action' })
+    default:
+      return t('logs.events.categories.unknown', { defaultValue: 'Unknown' })
+  }
+}
+
+function localizeSystemEventSeverity(
+  severity: SystemEventSeverity,
+  t: TFunction,
+) {
+  switch (severity) {
+    case 'debug':
+      return t('logs.events.severities.debug', { defaultValue: 'Debug' })
+    case 'info':
+      return t('logs.events.severities.info', { defaultValue: 'Info' })
+    case 'warn':
+      return t('logs.events.severities.warn', { defaultValue: 'Warning' })
+    case 'error':
+      return t('logs.events.severities.error', { defaultValue: 'Error' })
+    default:
+      return t('logs.events.severities.unknown', { defaultValue: 'Unknown' })
+  }
+}
+
 function localizeAuditActorType(actorType: string | undefined, t: TFunction): string {
   switch (normalizeAuditValue(actorType)) {
     case 'admin_user':
@@ -272,15 +320,22 @@ function localizeAuditAction(action: string | undefined, t: TFunction): string {
   return t('logs.audit.actionValues.unknown', { defaultValue: 'Unknown action' })
 }
 
+function formatEventPayload(value?: Record<string, unknown> | null) {
+  if (!value || Object.keys(value).length === 0) {
+    return null
+  }
+  return JSON.stringify(value, null, 2)
+}
+
 export default function Logs() {
   const { t, i18n } = useTranslation()
   const [searchParams] = useSearchParams()
   const [levelFilter, setLevelFilter] = useState<LogLevelFilter>('all')
-  const [tab, setTab] = useState<'request' | 'system' | 'audit'>(() => {
+  const [tab, setTab] = useState<'events' | 'request' | 'system' | 'audit'>(() => {
     const tabParam = searchParams.get('tab')
-    return tabParam === 'request' || tabParam === 'system' || tabParam === 'audit'
+    return tabParam === 'events' || tabParam === 'request' || tabParam === 'system' || tabParam === 'audit'
       ? tabParam
-      : 'system'
+      : 'events'
   })
   const [rangePreset, setRangePreset] = useState<RangePreset>(() =>
     parseRangePreset(searchParams.get('range')),
@@ -313,6 +368,28 @@ export default function Logs() {
   const [auditKeyword, setAuditKeyword] = useState(
     () => searchParams.get('audit_keyword') || '',
   )
+  const [eventCategory, setEventCategory] = useState<SystemEventCategory | 'all'>(
+    () => (searchParams.get('category') as SystemEventCategory | 'all') || 'all',
+  )
+  const [eventSeverity, setEventSeverity] = useState<SystemEventSeverity | 'all'>(
+    () => (searchParams.get('severity') as SystemEventSeverity | 'all') || 'all',
+  )
+  const [eventAccountId, setEventAccountId] = useState(
+    () => searchParams.get('account_id') || '',
+  )
+  const [eventRequestId, setEventRequestId] = useState(
+    () => searchParams.get('event_request_id') || searchParams.get('request_id') || '',
+  )
+  const [eventJobId, setEventJobId] = useState(
+    () => searchParams.get('job_id') || '',
+  )
+  const [eventReasonCode, setEventReasonCode] = useState(
+    () => searchParams.get('reason_code') || '',
+  )
+  const [eventKeyword, setEventKeyword] = useState(
+    () => searchParams.get('event_keyword') || '',
+  )
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const currentTimeZone = useMemo(() => getUserTimeZone(), [])
   const locale = i18n.resolvedLanguage
 
@@ -338,6 +415,74 @@ export default function Logs() {
       keyword: keyword.trim() || undefined,
     }
   }, [apiKeyId, effectiveTenantId, hasStatusCode, keyword, parsedStatusCode, rangePreset, requestId])
+
+  const eventQueryParams = useMemo(() => {
+    const range = currentRangeByDays(rangePreset)
+    return {
+      ...range,
+      limit: 200,
+      tenant_id: effectiveTenantId,
+      account_id: eventAccountId.trim() || undefined,
+      request_id: eventRequestId.trim() || undefined,
+      job_id: eventJobId.trim() || undefined,
+      category: eventCategory === 'all' ? undefined : eventCategory,
+      severity: eventSeverity === 'all' ? undefined : eventSeverity,
+      reason_code: eventReasonCode.trim() || undefined,
+      keyword: eventKeyword.trim() || undefined,
+    }
+  }, [
+    effectiveTenantId,
+    eventAccountId,
+    eventCategory,
+    eventJobId,
+    eventKeyword,
+    eventReasonCode,
+    eventRequestId,
+    eventSeverity,
+    rangePreset,
+  ])
+
+  const { data: eventLedger } = useQuery({
+    queryKey: ['adminEventStream', eventQueryParams],
+    queryFn: () => eventStreamApi.adminList(eventQueryParams),
+    enabled: tab === 'events',
+    staleTime: 15_000,
+    refetchInterval: tab === 'events' ? 15_000 : false,
+  })
+
+  const { data: eventSummary } = useQuery({
+    queryKey: ['adminEventStreamSummary', eventQueryParams],
+    queryFn: () => eventStreamApi.adminSummary(eventQueryParams),
+    enabled: tab === 'events',
+    staleTime: 15_000,
+    refetchInterval: tab === 'events' ? 15_000 : false,
+  })
+
+  const selectedEventSeed = useMemo(
+    () => (eventLedger?.items ?? []).find((item) => item.id === selectedEventId) ?? null,
+    [eventLedger?.items, selectedEventId],
+  )
+
+  const { data: selectedEventDetail, isLoading: selectedEventDetailLoading } = useQuery({
+    queryKey: ['adminEventStreamDetail', selectedEventId],
+    queryFn: () => eventStreamApi.adminDetail(selectedEventId!),
+    enabled: Boolean(selectedEventId) && tab === 'events',
+    staleTime: 15_000,
+  })
+
+  const selectedEvent = selectedEventDetail?.item ?? selectedEventSeed ?? null
+  const selectedEventRequestId = selectedEvent?.request_id ?? undefined
+
+  const { data: selectedEventCorrelation, isLoading: selectedEventCorrelationLoading } = useQuery({
+    queryKey: ['adminEventStreamCorrelation', selectedEventRequestId, rangePreset],
+    queryFn: () =>
+      eventStreamApi.adminCorrelation(selectedEventRequestId!, {
+        ...currentRangeByDays(rangePreset),
+        limit: 100,
+      }),
+    enabled: Boolean(selectedEventId && selectedEventRequestId) && tab === 'events',
+    staleTime: 15_000,
+  })
 
   const { data: requestLedger } = useQuery({
     queryKey: ['adminRequestLogs', requestQueryParams],
@@ -587,10 +732,136 @@ export default function Logs() {
     [t, locale],
   )
 
+  const eventColumns = useMemo<ColumnDef<SystemEventItem>[]>(
+    () => [
+      {
+        id: 'ts',
+        header: t('logs.events.columns.createdAt', { defaultValue: 'Time' }),
+        accessorFn: (row) => new Date(row.ts).getTime(),
+        cell: ({ row }) => (
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            title={buildLogTimeTooltip(t, locale, row.original.ts)}
+          >
+            {formatLocalLogDateTime(row.original.ts, locale)}
+          </span>
+        ),
+      },
+      {
+        id: 'severity',
+        header: t('logs.events.columns.severity', { defaultValue: 'Severity' }),
+        accessorFn: (row) => row.severity,
+        cell: ({ row }) => (
+          <Badge variant={row.original.severity === 'error' ? 'destructive' : row.original.severity === 'warn' ? 'warning' : 'secondary'}>
+            {localizeSystemEventSeverity(row.original.severity, t)}
+          </Badge>
+        ),
+      },
+      {
+        id: 'category',
+        header: t('logs.events.columns.category', { defaultValue: 'Category' }),
+        accessorFn: (row) => row.category,
+        cell: ({ row }) => (
+          <span className="text-xs">
+            {localizeSystemEventCategory(row.original.category, t)}
+          </span>
+        ),
+      },
+      {
+        id: 'eventType',
+        header: t('logs.events.columns.eventType', { defaultValue: 'Event' }),
+        accessorFn: (row) => row.event_type.toLowerCase(),
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <div className="font-mono text-xs">{row.original.event_type}</div>
+            <div className="text-xs text-muted-foreground">{row.original.source}</div>
+          </div>
+        ),
+      },
+      {
+        id: 'account',
+        header: t('logs.events.columns.account', { defaultValue: 'Account' }),
+        accessorFn: (row) => `${row.account_label ?? ''} ${row.account_id ?? ''}`.toLowerCase(),
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <div className="text-xs">{row.original.account_label ?? '-'}</div>
+            <div className="font-mono text-xs text-muted-foreground">{row.original.account_id ?? '-'}</div>
+          </div>
+        ),
+      },
+      {
+        id: 'requestId',
+        header: t('logs.events.columns.requestId', { defaultValue: 'Request ID' }),
+        accessorFn: (row) => (row.request_id ?? '').toLowerCase(),
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.request_id ?? '-'}</span>
+        ),
+      },
+      {
+        id: 'reason',
+        header: t('logs.events.columns.reason', { defaultValue: 'Reason' }),
+        accessorFn: (row) => `${row.reason_class ?? ''} ${row.reason_code ?? ''}`.toLowerCase(),
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <div className="text-xs">{row.original.reason_class ?? '-'}</div>
+            <div className="font-mono text-xs text-muted-foreground">{row.original.reason_code ?? '-'}</div>
+          </div>
+        ),
+      },
+      {
+        id: 'message',
+        header: t('logs.events.columns.message', { defaultValue: 'Message' }),
+        accessorFn: (row) => `${row.message ?? ''} ${row.preview_text ?? ''}`.toLowerCase(),
+        cell: ({ row }) => (
+          <div className="max-w-[420px] space-y-0.5">
+            <div className="text-sm">{row.original.message ?? '-'}</div>
+            {row.original.preview_text ? (
+              <div className="truncate font-mono text-xs text-muted-foreground">
+                {row.original.preview_text}
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: 'actions',
+        header: t('logs.events.columns.actions', { defaultValue: 'Actions' }),
+        cell: ({ row }) => (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => setSelectedEventId(row.original.id)}
+          >
+            {t('logs.events.actions.viewDetail', { defaultValue: 'Details' })}
+          </Button>
+        ),
+      },
+    ],
+    [locale, t],
+  )
+
   const rangeOptions = [
     { value: '1', label: t('logs.range.last24Hours', { defaultValue: 'Last 24 hours' }) },
     { value: '7', label: t('logs.range.last7Days', { defaultValue: 'Last 7 days' }) },
     { value: '30', label: t('logs.range.last30Days', { defaultValue: 'Last 30 days' }) },
+  ]
+  const eventCategoryOptions = [
+    { value: 'all', label: t('logs.events.filters.allCategories', { defaultValue: 'All categories' }) },
+    { value: 'request', label: localizeSystemEventCategory('request', t) },
+    { value: 'account_pool', label: localizeSystemEventCategory('account_pool', t) },
+    { value: 'patrol', label: localizeSystemEventCategory('patrol', t) },
+    { value: 'import', label: localizeSystemEventCategory('import', t) },
+    { value: 'infra', label: localizeSystemEventCategory('infra', t) },
+    { value: 'admin_action', label: localizeSystemEventCategory('admin_action', t) },
+  ]
+  const eventSeverityOptions = [
+    { value: 'all', label: t('logs.events.filters.allSeverities', { defaultValue: 'All severities' }) },
+    { value: 'debug', label: localizeSystemEventSeverity('debug', t) },
+    { value: 'info', label: localizeSystemEventSeverity('info', t) },
+    { value: 'warn', label: localizeSystemEventSeverity('warn', t) },
+    { value: 'error', label: localizeSystemEventSeverity('error', t) },
   ]
   const logsLayout = describeLogsWorkbenchLayout()
   const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
@@ -608,6 +879,234 @@ export default function Logs() {
       label: `${tenant.name} (${tenant.id})`,
     })),
   ]
+
+  const eventsPanel = (
+    <PagePanel className="space-y-5">
+      <SectionHeader
+        title={t('logs.events.title', { defaultValue: 'Event Stream' })}
+        description={t('logs.events.description', {
+          defaultValue: 'Scope: Unified request, account pool, patrol, import and infrastructure events created after the new event stream was enabled.',
+        })}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary">
+          {t('logs.events.summary.total', {
+            defaultValue: 'Total {{count}}',
+            count: eventSummary?.total ?? 0,
+          })}
+        </Badge>
+        {(eventSummary?.by_category ?? []).slice(0, 4).map((item) => (
+          <Badge key={item.category} variant="outline">
+            {localizeSystemEventCategory(item.category, t)} {item.count}
+          </Badge>
+        ))}
+      </div>
+      <LogsFilterGrid className="md:grid-cols-2 xl:grid-cols-8">
+        <LogsFilterField label={t('logs.events.filters.rangeAriaLabel', { defaultValue: 'Time range' })}>
+          <LogsFilterSelect
+            value={String(rangePreset)}
+            onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
+            ariaLabel={t('logs.events.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
+            options={rangeOptions}
+          />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.events.filters.tenantAriaLabel', { defaultValue: 'Tenant filter' })}>
+          <LogsFilterSelect
+            value={selectedTenantId}
+            onValueChange={setSelectedTenantId}
+            ariaLabel={t('logs.events.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}
+            options={tenantOptions}
+            className="min-w-[280px]"
+          />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.events.filters.categoryAriaLabel', { defaultValue: 'Category filter' })}>
+          <LogsFilterSelect
+            value={eventCategory}
+            onValueChange={(value) => setEventCategory(value as SystemEventCategory | 'all')}
+            ariaLabel={t('logs.events.filters.categoryAriaLabel', { defaultValue: 'Category' })}
+            options={eventCategoryOptions}
+          />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.events.filters.severityAriaLabel', { defaultValue: 'Severity filter' })}>
+          <LogsFilterSelect
+            value={eventSeverity}
+            onValueChange={(value) => setEventSeverity(value as SystemEventSeverity | 'all')}
+            ariaLabel={t('logs.events.filters.severityAriaLabel', { defaultValue: 'Severity' })}
+            options={eventSeverityOptions}
+          />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.events.filters.accountAriaLabel', { defaultValue: 'Account filter' })}>
+          <LogsFilterInput
+            value={eventAccountId}
+            onValueChange={setEventAccountId}
+            aria-label={t('logs.events.filters.accountAriaLabel', { defaultValue: 'Account ID' })}
+            placeholder={t('logs.events.filters.accountPlaceholder', { defaultValue: 'Account ID' })}
+          />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.events.filters.requestIdAriaLabel', { defaultValue: 'Request ID filter' })}>
+          <LogsFilterInput
+            value={eventRequestId}
+            onValueChange={setEventRequestId}
+            aria-label={t('logs.events.filters.requestIdAriaLabel', { defaultValue: 'Request ID' })}
+            placeholder={t('logs.events.filters.requestIdPlaceholder', { defaultValue: 'Request ID' })}
+          />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.events.filters.jobIdAriaLabel', { defaultValue: 'Job ID filter' })}>
+          <LogsFilterInput
+            value={eventJobId}
+            onValueChange={setEventJobId}
+            aria-label={t('logs.events.filters.jobIdAriaLabel', { defaultValue: 'Job ID' })}
+            placeholder={t('logs.events.filters.jobIdPlaceholder', { defaultValue: 'Job ID' })}
+          />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.events.filters.reasonCodeAriaLabel', { defaultValue: 'Reason code filter' })}>
+          <LogsFilterInput
+            value={eventReasonCode}
+            onValueChange={setEventReasonCode}
+            aria-label={t('logs.events.filters.reasonCodeAriaLabel', { defaultValue: 'Reason code' })}
+            placeholder={t('logs.events.filters.reasonCodePlaceholder', { defaultValue: 'Reason code' })}
+          />
+        </LogsFilterField>
+      </LogsFilterGrid>
+      <LogsFilterGrid className="md:grid-cols-1">
+        <LogsFilterField label={t('logs.events.filters.keywordAriaLabel', { defaultValue: 'Keyword filter' })}>
+          <LogsFilterInput
+            value={eventKeyword}
+            onValueChange={setEventKeyword}
+            aria-label={t('logs.events.filters.keywordAriaLabel', { defaultValue: 'Keyword' })}
+            placeholder={t('logs.events.filters.keywordPlaceholder', {
+              defaultValue: 'Keyword (event / message / request / account)',
+            })}
+          />
+        </LogsFilterField>
+      </LogsFilterGrid>
+      <StandardDataTable
+        columns={eventColumns}
+        data={eventLedger?.items ?? []}
+        density="compact"
+        defaultPageSize={20}
+        pageSizeOptions={[20, 50, 100]}
+        className={tableSurfaceClassName}
+        emptyText={t('logs.events.empty', {
+          defaultValue: 'No unified event data available yet. The new stream only shows events created after rollout.',
+        })}
+      />
+      <Dialog
+        open={Boolean(selectedEventId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedEventId(null)
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>
+              {t('logs.events.detail.title', { defaultValue: 'Event detail' })}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedEvent
+                ? t('logs.events.detail.description', {
+                    defaultValue: '{{eventType}} · {{category}}',
+                    eventType: selectedEvent.event_type,
+                    category: localizeSystemEventCategory(selectedEvent.category, t),
+                  })
+                : t('logs.events.detail.loading', { defaultValue: 'Loading event detail…' })}
+            </DialogDescription>
+          </DialogHeader>
+          <LoadingOverlay
+            show={selectedEventDetailLoading || selectedEventCorrelationLoading}
+            title={t('logs.events.detail.title', { defaultValue: 'Event detail' })}
+            description={t('logs.events.detail.loading', { defaultValue: 'Loading event detail…' })}
+            size="compact"
+          />
+          {selectedEvent ? (
+            <div className="space-y-6">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {[
+                  ['eventId', selectedEvent.id],
+                  ['requestId', selectedEvent.request_id],
+                  ['traceRequestId', selectedEvent.trace_request_id],
+                  ['accountId', selectedEvent.account_id],
+                  ['accountLabel', selectedEvent.account_label],
+                  ['jobId', selectedEvent.job_id],
+                  ['path', selectedEvent.path],
+                  ['method', selectedEvent.method],
+                  ['model', selectedEvent.model],
+                  ['statusCode', selectedEvent.status_code != null ? String(selectedEvent.status_code) : undefined],
+                  ['upstreamStatusCode', selectedEvent.upstream_status_code != null ? String(selectedEvent.upstream_status_code) : undefined],
+                  ['latency', selectedEvent.latency_ms != null ? `${selectedEvent.latency_ms} ms` : undefined],
+                  ['selectedAccountId', selectedEvent.selected_account_id],
+                  ['selectedProxyId', selectedEvent.selected_proxy_id],
+                  ['routingDecision', selectedEvent.routing_decision],
+                  ['failoverScope', selectedEvent.failover_scope],
+                  ['nextActionAt', selectedEvent.next_action_at ? formatLocalLogDateTime(selectedEvent.next_action_at, locale) : undefined],
+                  ['secretPreview', selectedEvent.secret_preview],
+                ].map(([labelKey, value]) => (
+                  <div key={labelKey} className="rounded-xl border border-border/70 bg-muted/[0.14] p-3">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {t(`logs.events.detail.labels.${labelKey}`, { defaultValue: labelKey })}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-xs text-foreground/90">
+                      {value || '-'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-2 rounded-xl border border-border/70 bg-background/70 p-4">
+                  <div className="text-sm font-semibold">
+                    {t('logs.events.detail.sections.message', { defaultValue: 'Message' })}
+                  </div>
+                  <div className="text-sm">{selectedEvent.message ?? '-'}</div>
+                  <div className="rounded-lg bg-muted/50 p-3 font-mono text-xs text-muted-foreground">
+                    {selectedEvent.preview_text ?? '-'}
+                  </div>
+                </div>
+                <div className="space-y-2 rounded-xl border border-border/70 bg-background/70 p-4">
+                  <div className="text-sm font-semibold">
+                    {t('logs.events.detail.sections.timeline', { defaultValue: 'Request timeline' })}
+                  </div>
+                  {selectedEventCorrelation?.items?.length ? (
+                    <div className="space-y-2">
+                      {selectedEventCorrelation.items.slice(0, 12).map((item) => (
+                        <div key={item.id} className="rounded-lg border border-border/60 bg-muted/[0.12] p-3">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <Badge variant={item.severity === 'error' ? 'destructive' : item.severity === 'warn' ? 'warning' : 'secondary'}>
+                              {localizeSystemEventSeverity(item.severity, t)}
+                            </Badge>
+                            <span className="font-mono text-muted-foreground">
+                              {formatLocalLogDateTime(item.ts, locale)}
+                            </span>
+                            <span className="font-mono">{item.event_type}</span>
+                          </div>
+                          <div className="mt-2 text-sm">{item.message ?? '-'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      {t('logs.events.detail.timelineEmpty', { defaultValue: 'No correlated request timeline available.' })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-border/70 bg-background/70 p-4">
+                <div className="text-sm font-semibold">
+                  {t('logs.events.detail.sections.payload', { defaultValue: 'Payload' })}
+                </div>
+                <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 font-mono text-xs text-muted-foreground">
+                  {formatEventPayload(selectedEvent.payload_json) ?? '-'}
+                </pre>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </PagePanel>
+  )
 
   const requestLogsPanel = (
     <PagePanel className="space-y-5">
@@ -926,6 +1425,13 @@ export default function Logs() {
           >
             <div className="flex flex-wrap items-center gap-2">
               <Button
+                variant={tab === 'events' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setTab('events')}
+              >
+                {t('logs.tabs.events', { defaultValue: 'Event Stream' })}
+              </Button>
+              <Button
                 variant={tab === 'request' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setTab('request')}
@@ -958,7 +1464,9 @@ export default function Logs() {
           </div>
         </PagePanel>
 
-        {tab === 'request'
+        {tab === 'events'
+          ? eventsPanel
+          : tab === 'request'
           ? requestLogsPanel
           : tab === 'audit'
             ? auditLogsPanel

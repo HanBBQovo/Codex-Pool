@@ -1199,6 +1199,93 @@ export default {
             timestamp: "タイムスタンプ"
         },
         export: "ログをエクスポート",
+        events: {
+            categories: {
+                accountPool: "アカウントプール",
+                adminAction: "管理操作",
+                import: "インポート",
+                infra: "基盤",
+                patrol: "巡回",
+                request: "リクエスト",
+                unknown: "不明"
+            },
+            actions: {
+                viewDetail: "詳細"
+            },
+            columns: {
+                account: "アカウント",
+                actions: "操作",
+                category: "カテゴリ",
+                createdAt: "時刻",
+                eventType: "イベント",
+                message: "メッセージ",
+                reason: "理由",
+                requestId: "リクエスト ID",
+                severity: "重要度"
+            },
+            detail: {
+                description: "{{eventType}} · {{category}}",
+                loading: "イベント詳細を読み込み中…",
+                timelineEmpty: "関連するリクエストのタイムラインはありません。",
+                title: "イベント詳細",
+                labels: {
+                    accountId: "アカウント ID",
+                    accountLabel: "アカウントラベル",
+                    eventId: "イベント ID",
+                    failoverScope: "フェイルオーバー範囲",
+                    jobId: "ジョブ ID",
+                    latency: "遅延",
+                    method: "メソッド",
+                    model: "モデル",
+                    nextActionAt: "次回アクション時刻",
+                    path: "パス",
+                    requestId: "リクエスト ID",
+                    routingDecision: "ルーティング判断",
+                    secretPreview: "機密プレビュー",
+                    selectedAccountId: "選択アカウント",
+                    selectedProxyId: "選択プロキシ",
+                    statusCode: "ステータスコード",
+                    traceRequestId: "トレースリクエスト ID",
+                    upstreamStatusCode: "上流ステータスコード"
+                },
+                sections: {
+                    message: "メッセージ",
+                    payload: "ペイロード",
+                    timeline: "リクエストタイムライン"
+                }
+            },
+            description: "対象: 新しいイベントストリーム有効化後に生成された、リクエスト・アカウントプール・巡回・インポート・基盤イベント。",
+            empty: "統一イベントデータはまだありません。新しいイベントストリームは有効化後の新規イベントのみ表示します。",
+            filters: {
+                accountAriaLabel: "アカウント絞り込み",
+                accountPlaceholder: "アカウント ID",
+                allCategories: "すべてのカテゴリ",
+                allSeverities: "すべての重要度",
+                categoryAriaLabel: "カテゴリ絞り込み",
+                jobIdAriaLabel: "ジョブ ID 絞り込み",
+                jobIdPlaceholder: "ジョブ ID",
+                keywordAriaLabel: "キーワード絞り込み",
+                keywordPlaceholder: "キーワード（イベント / メッセージ / リクエスト / アカウント）",
+                rangeAriaLabel: "時間範囲",
+                reasonCodeAriaLabel: "理由コード絞り込み",
+                reasonCodePlaceholder: "理由コード",
+                requestIdAriaLabel: "リクエスト ID 絞り込み",
+                requestIdPlaceholder: "リクエスト ID",
+                severityAriaLabel: "重要度絞り込み",
+                tenantAriaLabel: "テナント絞り込み"
+            },
+            severities: {
+                debug: "デバッグ",
+                error: "エラー",
+                info: "情報",
+                unknown: "不明",
+                warn: "警告"
+            },
+            summary: {
+                total: "合計 {{count}}"
+            },
+            title: "統一イベントストリーム"
+        },
         filters: {
             allTenants: "すべてのテナント"
         },
@@ -1261,6 +1348,7 @@ export default {
         },
         tabs: {
             audit: "監査ログ",
+            events: "統一イベント",
             request: "リクエストログ",
             system: "システムログ"
         },

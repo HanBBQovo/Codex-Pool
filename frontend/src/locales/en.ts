@@ -1199,6 +1199,93 @@ export default {
             timestamp: "Timestamp"
         },
         export: "Export logs",
+        events: {
+            categories: {
+                accountPool: "Account pool",
+                adminAction: "Admin action",
+                import: "Import",
+                infra: "Infrastructure",
+                patrol: "Patrol",
+                request: "Request",
+                unknown: "Unknown"
+            },
+            actions: {
+                viewDetail: "Details"
+            },
+            columns: {
+                account: "Account",
+                actions: "Actions",
+                category: "Category",
+                createdAt: "Time",
+                eventType: "Event",
+                message: "Message",
+                reason: "Reason",
+                requestId: "Request ID",
+                severity: "Severity"
+            },
+            detail: {
+                description: "{{eventType}} · {{category}}",
+                loading: "Loading event detail…",
+                timelineEmpty: "No correlated request timeline available.",
+                title: "Event detail",
+                labels: {
+                    accountId: "Account ID",
+                    accountLabel: "Account label",
+                    eventId: "Event ID",
+                    failoverScope: "Failover scope",
+                    jobId: "Job ID",
+                    latency: "Latency",
+                    method: "Method",
+                    model: "Model",
+                    nextActionAt: "Next action at",
+                    path: "Path",
+                    requestId: "Request ID",
+                    routingDecision: "Routing decision",
+                    secretPreview: "Secret preview",
+                    selectedAccountId: "Selected account",
+                    selectedProxyId: "Selected proxy",
+                    statusCode: "Status code",
+                    traceRequestId: "Trace request ID",
+                    upstreamStatusCode: "Upstream status code"
+                },
+                sections: {
+                    message: "Message",
+                    payload: "Payload",
+                    timeline: "Request timeline"
+                }
+            },
+            description: "Scope: Unified request, account pool, patrol, import and infrastructure events created after the new event stream was enabled.",
+            empty: "No unified event data available yet. The new stream only shows events created after rollout.",
+            filters: {
+                accountAriaLabel: "Account filter",
+                accountPlaceholder: "Account ID",
+                allCategories: "All categories",
+                allSeverities: "All severities",
+                categoryAriaLabel: "Category filter",
+                jobIdAriaLabel: "Job ID filter",
+                jobIdPlaceholder: "Job ID",
+                keywordAriaLabel: "Keyword filter",
+                keywordPlaceholder: "Keyword (event / message / request / account)",
+                rangeAriaLabel: "Time range",
+                reasonCodeAriaLabel: "Reason code filter",
+                reasonCodePlaceholder: "Reason code",
+                requestIdAriaLabel: "Request ID filter",
+                requestIdPlaceholder: "Request ID",
+                severityAriaLabel: "Severity filter",
+                tenantAriaLabel: "Tenant filter"
+            },
+            severities: {
+                debug: "Debug",
+                error: "Error",
+                info: "Info",
+                unknown: "Unknown",
+                warn: "Warning"
+            },
+            summary: {
+                total: "Total {{count}}"
+            },
+            title: "Event Stream"
+        },
         filters: {
             allTenants: "All tenants"
         },
@@ -1261,6 +1348,7 @@ export default {
         },
         tabs: {
             audit: "Audit Logs",
+            events: "Event Stream",
             request: "Request Logs",
             system: "System Logs"
         },

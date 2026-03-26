@@ -1199,6 +1199,93 @@ export default {
             timestamp: "时间戳"
         },
         export: "导出日志",
+        events: {
+            categories: {
+                accountPool: "账号池",
+                adminAction: "管理操作",
+                import: "导入",
+                infra: "基础设施",
+                patrol: "巡检",
+                request: "请求",
+                unknown: "未知"
+            },
+            actions: {
+                viewDetail: "查看详情"
+            },
+            columns: {
+                account: "账号",
+                actions: "操作",
+                category: "分类",
+                createdAt: "时间",
+                eventType: "事件",
+                message: "消息",
+                reason: "原因",
+                requestId: "请求 ID",
+                severity: "严重级别"
+            },
+            detail: {
+                description: "{{eventType}} · {{category}}",
+                loading: "正在加载事件详情…",
+                timelineEmpty: "暂无可关联的请求时间线。",
+                title: "事件详情",
+                labels: {
+                    accountId: "账号 ID",
+                    accountLabel: "账号标签",
+                    eventId: "事件 ID",
+                    failoverScope: "切换范围",
+                    jobId: "任务 ID",
+                    latency: "延迟",
+                    method: "方法",
+                    model: "模型",
+                    nextActionAt: "下一次动作时间",
+                    path: "路径",
+                    requestId: "请求 ID",
+                    routingDecision: "路由决策",
+                    secretPreview: "敏感信息预览",
+                    selectedAccountId: "选中账号",
+                    selectedProxyId: "选中代理",
+                    statusCode: "状态码",
+                    traceRequestId: "链路请求 ID",
+                    upstreamStatusCode: "上游状态码"
+                },
+                sections: {
+                    message: "消息",
+                    payload: "载荷",
+                    timeline: "请求时间线"
+                }
+            },
+            description: "范围：统一收录启用新事件流后的请求、账号池、巡检、导入与基础设施事件。",
+            empty: "暂无统一事件数据。新事件流仅展示上线后的新事件。",
+            filters: {
+                accountAriaLabel: "账号筛选",
+                accountPlaceholder: "账号 ID",
+                allCategories: "全部分类",
+                allSeverities: "全部级别",
+                categoryAriaLabel: "分类筛选",
+                jobIdAriaLabel: "任务 ID 筛选",
+                jobIdPlaceholder: "任务 ID",
+                keywordAriaLabel: "关键词筛选",
+                keywordPlaceholder: "关键词（事件 / 消息 / 请求 / 账号）",
+                rangeAriaLabel: "时间范围",
+                reasonCodeAriaLabel: "原因码筛选",
+                reasonCodePlaceholder: "原因码",
+                requestIdAriaLabel: "请求 ID 筛选",
+                requestIdPlaceholder: "请求 ID",
+                severityAriaLabel: "严重级别筛选",
+                tenantAriaLabel: "租户筛选"
+            },
+            severities: {
+                debug: "调试",
+                error: "错误",
+                info: "信息",
+                unknown: "未知",
+                warn: "警告"
+            },
+            summary: {
+                total: "总计 {{count}}"
+            },
+            title: "统一事件流"
+        },
         filters: {
             allTenants: "所有租户"
         },
@@ -1261,6 +1348,7 @@ export default {
         },
         tabs: {
             audit: "审计日志",
+            events: "统一事件流",
             request: "请求日志",
             system: "系统日志"
         },
