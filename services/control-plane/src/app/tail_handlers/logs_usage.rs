@@ -238,6 +238,7 @@ async fn internal_ingest_request_log(
     Json(event): Json<codex_pool_core::events::RequestLogEvent>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorEnvelope>)> {
     require_internal_service_token(&state, &headers)?;
+    let system_event = request_log_event_to_system_event(&event);
     let usage_ingest_repo = state
         .usage_ingest_repo
         .as_ref()
@@ -246,7 +247,103 @@ async fn internal_ingest_request_log(
         .ingest_request_log(event)
         .await
         .map_err(internal_error)?;
+    if let Some(system_event_repo) = state.system_event_repo.as_ref() {
+        system_event_repo
+            .insert_event(system_event)
+            .await
+            .map_err(internal_error)?;
+    }
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn request_log_event_to_system_event(
+    event: &codex_pool_core::events::RequestLogEvent,
+) -> codex_pool_core::events::SystemEventWrite {
+    let severity = if event.status_code >= 500 {
+        codex_pool_core::events::SystemEventSeverity::Error
+    } else if event.status_code >= 400 {
+        codex_pool_core::events::SystemEventSeverity::Warn
+    } else {
+        codex_pool_core::events::SystemEventSeverity::Info
+    };
+    let event_type = if event.status_code >= 400 {
+        "request_failed"
+    } else {
+        "request_completed"
+    };
+    codex_pool_core::events::SystemEventWrite {
+        event_id: Some(event.id),
+        ts: Some(event.created_at),
+        category: codex_pool_core::events::SystemEventCategory::Request,
+        event_type: event_type.to_string(),
+        severity,
+        source: "data_plane.request_log".to_string(),
+        tenant_id: event.tenant_id,
+        account_id: Some(event.account_id),
+        request_id: event.request_id.clone(),
+        trace_request_id: event.request_id.clone(),
+        job_id: None,
+        account_label: None,
+        auth_provider: None,
+        operator_state_from: None,
+        operator_state_to: None,
+        reason_class: event
+            .error_code
+            .as_ref()
+            .map(|code| request_log_reason_class_name(code).to_string()),
+        reason_code: event.error_code.clone(),
+        next_action_at: None,
+        path: Some(event.path.clone()),
+        method: Some(event.method.clone()),
+        model: event.model.clone(),
+        selected_account_id: Some(event.account_id),
+        selected_proxy_id: None,
+        routing_decision: Some(if event.is_stream {
+            "stream".to_string()
+        } else {
+            "http".to_string()
+        }),
+        failover_scope: None,
+        status_code: Some(event.status_code),
+        upstream_status_code: Some(event.status_code),
+        latency_ms: Some(event.latency_ms),
+        message: event
+            .error_code
+            .as_ref()
+            .map(|code| format!("request finished with code {code}"))
+            .or_else(|| Some("request completed".to_string())),
+        preview_text: None,
+        payload_json: Some(json!({
+            "is_stream": event.is_stream,
+            "service_tier": event.service_tier,
+            "input_tokens": event.input_tokens,
+            "cached_input_tokens": event.cached_input_tokens,
+            "output_tokens": event.output_tokens,
+            "reasoning_tokens": event.reasoning_tokens,
+            "first_token_latency_ms": event.first_token_latency_ms,
+            "billing_phase": event.billing_phase,
+            "capture_status": event.capture_status,
+        })),
+        secret_preview: None,
+    }
+}
+
+fn request_log_reason_class_name(code: &str) -> &'static str {
+    let normalized = code.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "token_invalidated"
+        | "account_deactivated"
+        | "invalid_refresh_token"
+        | "refresh_token_revoked"
+        | "refresh_token_reused"
+        | "terminal_invalid"
+        | "credential_cipher_missing" => "fatal",
+        "rate_limited" | "quota_exhausted" | "no_quota" => "quota",
+        "upstream_unavailable" | "transport_error" | "overloaded" | "upstream_network_error" => {
+            "transient"
+        }
+        _ => "transient",
+    }
 }
 
 async fn list_admin_audit_logs(

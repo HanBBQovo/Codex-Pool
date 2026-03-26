@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use codex_pool_core::events::{SystemEventCategory, SystemEventSeverity};
 use codex_pool_core::model::{
     AiErrorLearningSettings, ApiKey, BuiltinErrorTemplateRecord, LocalizedErrorTemplates,
     ModelRoutingPolicy, ModelRoutingSettings, ModelRoutingTriggerMode, OutboundProxyPoolSettings,
@@ -457,6 +458,119 @@ pub struct AccountPoolSummaryResponse {
     pub fatal: u64,
     pub transient: u64,
     pub admin: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemEventRecord {
+    pub id: Uuid,
+    pub ts: DateTime<Utc>,
+    pub category: SystemEventCategory,
+    pub event_type: String,
+    pub severity: SystemEventSeverity,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_state_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_state_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_action_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_account_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_proxy_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_decision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failover_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_status_code: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_json: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemEventListResponse {
+    pub items: Vec<SystemEventRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemEventDetailResponse {
+    pub item: SystemEventRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemEventCorrelationResponse {
+    pub request_id: String,
+    pub items: Vec<SystemEventRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemEventSummaryCategoryCount {
+    pub category: SystemEventCategory,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemEventSummaryTypeCount {
+    pub event_type: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemEventSummaryReasonCount {
+    pub reason_code: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemEventSummarySeverityCount {
+    pub severity: SystemEventSeverity,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemEventSummaryResponse {
+    pub total: u64,
+    pub by_category: Vec<SystemEventSummaryCategoryCount>,
+    pub by_event_type: Vec<SystemEventSummaryTypeCount>,
+    pub by_reason_code: Vec<SystemEventSummaryReasonCount>,
+    pub by_severity: Vec<SystemEventSummarySeverityCount>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

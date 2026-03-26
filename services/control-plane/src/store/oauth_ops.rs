@@ -110,6 +110,136 @@ impl InMemoryStore {
         state.last_probe_outcome = Some(outcome);
     }
 
+    fn emit_probe_result_event_inner(
+        &self,
+        account_id: Uuid,
+        checked_at: DateTime<Utc>,
+        outcome: AccountProbeOutcome,
+        reason_code: Option<String>,
+        next_action_at: Option<DateTime<Utc>>,
+        message: Option<String>,
+    ) {
+        let account = self.accounts.read().unwrap().get(&account_id).cloned();
+        let auth_provider = account
+            .as_ref()
+            .map(|_| self.account_auth_provider(account_id))
+            .map(auth_provider_name)
+            .map(str::to_string);
+        let (event_type, severity, reason_class) = match outcome {
+            AccountProbeOutcome::Ok => (
+                "probe_succeeded".to_string(),
+                codex_pool_core::events::SystemEventSeverity::Info,
+                AccountPoolReasonClass::Healthy,
+            ),
+            AccountProbeOutcome::Quota => (
+                "probe_failed".to_string(),
+                codex_pool_core::events::SystemEventSeverity::Warn,
+                AccountPoolReasonClass::Quota,
+            ),
+            AccountProbeOutcome::Fatal => (
+                "probe_failed".to_string(),
+                codex_pool_core::events::SystemEventSeverity::Error,
+                AccountPoolReasonClass::Fatal,
+            ),
+            AccountProbeOutcome::Transient => (
+                "probe_failed".to_string(),
+                codex_pool_core::events::SystemEventSeverity::Warn,
+                AccountPoolReasonClass::Transient,
+            ),
+        };
+        self.emit_system_event_inner(codex_pool_core::events::SystemEventWrite {
+            event_id: None,
+            ts: Some(checked_at),
+            category: codex_pool_core::events::SystemEventCategory::Patrol,
+            event_type,
+            severity,
+            source: "control_plane.active_patrol".to_string(),
+            tenant_id: None,
+            account_id: Some(account_id),
+            request_id: None,
+            trace_request_id: None,
+            job_id: None,
+            account_label: account.as_ref().map(|item| item.label.clone()),
+            auth_provider,
+            operator_state_from: None,
+            operator_state_to: None,
+            reason_class: Some(account_pool_reason_class_name(reason_class).to_string()),
+            reason_code,
+            next_action_at,
+            path: None,
+            method: None,
+            model: None,
+            selected_account_id: None,
+            selected_proxy_id: None,
+            routing_decision: None,
+            failover_scope: None,
+            status_code: None,
+            upstream_status_code: None,
+            latency_ms: None,
+            message,
+            preview_text: None,
+            payload_json: None,
+            secret_preview: None,
+        });
+    }
+
+    fn emit_active_patrol_batch_summary_inner(
+        &self,
+        started_at: DateTime<Utc>,
+        patrolled: u64,
+        ok_count: u64,
+        quota_count: u64,
+        fatal_count: u64,
+        transient_count: u64,
+    ) {
+        self.emit_system_event_inner(codex_pool_core::events::SystemEventWrite {
+            event_id: None,
+            ts: Some(started_at),
+            category: codex_pool_core::events::SystemEventCategory::Patrol,
+            event_type: "active_patrol_batch_completed".to_string(),
+            severity: if fatal_count > 0 {
+                codex_pool_core::events::SystemEventSeverity::Warn
+            } else {
+                codex_pool_core::events::SystemEventSeverity::Info
+            },
+            source: "control_plane.active_patrol".to_string(),
+            tenant_id: None,
+            account_id: None,
+            request_id: None,
+            trace_request_id: None,
+            job_id: None,
+            account_label: None,
+            auth_provider: None,
+            operator_state_from: None,
+            operator_state_to: None,
+            reason_class: None,
+            reason_code: None,
+            next_action_at: None,
+            path: None,
+            method: None,
+            model: None,
+            selected_account_id: None,
+            selected_proxy_id: None,
+            routing_decision: None,
+            failover_scope: None,
+            status_code: None,
+            upstream_status_code: None,
+            latency_ms: None,
+            message: Some(format!(
+                "active patrol scanned {patrolled} accounts ({ok_count} ok / {quota_count} quota / {fatal_count} fatal / {transient_count} transient)"
+            )),
+            preview_text: None,
+            payload_json: Some(serde_json::json!({
+                "patrolled": patrolled,
+                "ok": ok_count,
+                "quota": quota_count,
+                "fatal": fatal_count,
+                "transient": transient_count,
+            })),
+            secret_preview: None,
+        });
+    }
+
     fn classify_runtime_probe_failure(
         &self,
         checked_at: DateTime<Utc>,
@@ -1818,6 +1948,7 @@ impl InMemoryStore {
         self.purge_expired_one_time_accounts_inner();
 
         let now = Utc::now();
+        let batch_started_at = now;
         let candidate_ids =
             self.oauth_active_patrol_candidates_inner(now, active_patrol_batch_size_from_env());
         if candidate_ids.is_empty() {
@@ -1828,6 +1959,10 @@ impl InMemoryStore {
         let credentials = self.oauth_credentials.read().unwrap().clone();
         let session_profiles = self.session_profiles.read().unwrap().clone();
         let mut patrolled = 0_u64;
+        let mut ok_count = 0_u64;
+        let mut quota_count = 0_u64;
+        let mut fatal_count = 0_u64;
+        let mut transient_count = 0_u64;
 
         for account_id in candidate_ids {
             let Some(account) = self.accounts.read().unwrap().get(&account_id).cloned() else {
@@ -1857,6 +1992,15 @@ impl InMemoryStore {
                                 account_id,
                                 checked_at,
                                 AccountProbeOutcome::Fatal,
+                            );
+                            fatal_count = fatal_count.saturating_add(1);
+                            self.emit_probe_result_event_inner(
+                                account_id,
+                                checked_at,
+                                AccountProbeOutcome::Fatal,
+                                Some("credential_decrypt_failed".to_string()),
+                                None,
+                                Some("failed to decrypt oauth access token for patrol".to_string()),
                             );
                             self.mark_upstream_account_pending_purge_inner(
                                 account_id,
@@ -1899,6 +2043,15 @@ impl InMemoryStore {
                             checked_at,
                             AccountProbeOutcome::Quota,
                         );
+                        quota_count = quota_count.saturating_add(1);
+                        self.emit_probe_result_event_inner(
+                            account_id,
+                            checked_at,
+                            AccountProbeOutcome::Quota,
+                            Some(reason_code.clone()),
+                            blocked_until,
+                            Some("active patrol observed a quota block".to_string()),
+                        );
                         self.set_account_pool_state_quarantine_inner(
                             account_id,
                             checked_at,
@@ -1910,6 +2063,15 @@ impl InMemoryStore {
                             account_id,
                             checked_at,
                             AccountProbeOutcome::Ok,
+                        );
+                        ok_count = ok_count.saturating_add(1);
+                        self.emit_probe_result_event_inner(
+                            account_id,
+                            checked_at,
+                            AccountProbeOutcome::Ok,
+                            None,
+                            None,
+                            Some("active patrol probe succeeded".to_string()),
                         );
                         self.set_account_pool_state_active_inner(account_id, checked_at);
                     }
@@ -1928,6 +2090,22 @@ impl InMemoryStore {
                         &error_message,
                     );
                     self.record_account_probe_result_inner(account_id, checked_at, outcome);
+                    match outcome {
+                        AccountProbeOutcome::Ok => ok_count = ok_count.saturating_add(1),
+                        AccountProbeOutcome::Quota => quota_count = quota_count.saturating_add(1),
+                        AccountProbeOutcome::Fatal => fatal_count = fatal_count.saturating_add(1),
+                        AccountProbeOutcome::Transient => {
+                            transient_count = transient_count.saturating_add(1)
+                        }
+                    }
+                    self.emit_probe_result_event_inner(
+                        account_id,
+                        checked_at,
+                        outcome,
+                        Some(reason_code.clone()),
+                        retry_after,
+                        Some(error_message.clone()),
+                    );
                     match outcome {
                         AccountProbeOutcome::Ok => {
                             self.set_account_pool_state_active_inner(account_id, checked_at);
@@ -1952,6 +2130,15 @@ impl InMemoryStore {
 
             patrolled = patrolled.saturating_add(1);
         }
+
+        self.emit_active_patrol_batch_summary_inner(
+            batch_started_at,
+            patrolled,
+            ok_count,
+            quota_count,
+            fatal_count,
+            transient_count,
+        );
 
         Ok(patrolled)
     }

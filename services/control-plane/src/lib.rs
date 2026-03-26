@@ -21,6 +21,7 @@ pub mod runtime_profile;
 pub mod security;
 pub mod single_binary;
 pub mod store;
+pub mod system_events;
 pub mod tenant;
 #[cfg(test)]
 pub(crate) mod test_support;

@@ -38,6 +38,7 @@ impl InMemoryStore {
             upstream_error_template_index: Arc::new(RwLock::new(HashMap::new())),
             builtin_error_template_overrides: Arc::new(RwLock::new(HashMap::new())),
             routing_plan_versions: Arc::new(RwLock::new(Vec::new())),
+            system_event_runtime: Arc::new(RwLock::new(None)),
             revision: Arc::new(AtomicU64::new(1)),
             oauth_client,
             credential_cipher,
@@ -321,10 +322,26 @@ impl InMemoryStore {
 
     fn delete_upstream_account_inner(&self, account_id: Uuid) -> Result<()> {
         let mut accounts = self.accounts.write().unwrap();
-        if accounts.remove(&account_id).is_none() {
+        let deleted = accounts.remove(&account_id);
+        if deleted.is_none() {
             return Err(anyhow!("upstream account not found"));
         }
         drop(accounts);
+
+        let deleted = deleted.expect("checked is_some above");
+        let auth_provider = self
+            .account_auth_providers
+            .read()
+            .unwrap()
+            .get(&account_id)
+            .cloned()
+            .unwrap_or(UpstreamAuthProvider::LegacyBearer);
+        let pending_reason = self
+            .account_health_states
+            .read()
+            .unwrap()
+            .get(&account_id)
+            .and_then(|state| state.pending_purge_reason.clone());
 
         self.account_auth_providers
             .write()
@@ -340,6 +357,14 @@ impl InMemoryStore {
             .write()
             .unwrap()
             .remove(&account_id);
+
+        self.emit_account_deleted_inner(
+            account_id,
+            deleted.label,
+            auth_provider,
+            pending_reason,
+            "control_plane.account_pool",
+        );
 
         self.revision.fetch_add(1, Ordering::Relaxed);
         Ok(())
@@ -479,12 +504,29 @@ impl InMemoryStore {
     fn set_account_pool_state_active_inner(&self, account_id: Uuid, at: DateTime<Utc>) {
         let mut states = self.account_health_states.write().unwrap();
         let state = states.entry(account_id).or_default();
+        let previous_state = state.pool_state;
+        let should_emit = previous_state != AccountPoolState::Active
+            || state.quarantine_reason.is_some()
+            || state.pending_purge_reason.is_some();
         state.pool_state = AccountPoolState::Active;
         state.quarantine_until = None;
         state.quarantine_reason = None;
         state.pending_purge_at = None;
         state.pending_purge_reason = None;
         state.last_pool_transition_at = Some(at);
+        drop(states);
+
+        if should_emit {
+            self.emit_account_pool_state_transition_inner(
+                account_id,
+                previous_state,
+                AccountPoolState::Active,
+                None,
+                None,
+                "control_plane.account_pool",
+                Some("account returned to routable state".to_string()),
+            );
+        }
     }
 
     fn set_account_pool_state_quarantine_inner(
@@ -507,13 +549,29 @@ impl InMemoryStore {
         });
         let mut states = self.account_health_states.write().unwrap();
         let state = states.entry(account_id).or_default();
+        let previous_state = state.pool_state;
+        let should_emit = previous_state != AccountPoolState::Quarantine
+            || state.quarantine_reason != normalized_reason
+            || state.quarantine_until != until;
         state.pool_state = AccountPoolState::Quarantine;
         state.quarantine_until = until;
-        state.quarantine_reason = normalized_reason;
+        state.quarantine_reason = normalized_reason.clone();
         state.pending_purge_at = None;
         state.pending_purge_reason = None;
         state.last_pool_transition_at = Some(at);
         drop(states);
+
+        if should_emit {
+            self.emit_account_pool_state_transition_inner(
+                account_id,
+                previous_state,
+                AccountPoolState::Quarantine,
+                normalized_reason.clone(),
+                until,
+                "control_plane.account_pool",
+                Some("account entered cooling state".to_string()),
+            );
+        }
 
         self.revision.fetch_add(1, Ordering::Relaxed);
         Ok(())
@@ -662,17 +720,34 @@ impl InMemoryStore {
 
         let mut states = self.account_health_states.write().unwrap();
         let state = states.entry(account_id).or_default();
+        let previous_state = state.pool_state;
         let scheduled_at = state
             .pending_purge_at
             .filter(|existing| *existing > now)
             .unwrap_or(pending_purge_at);
+        let should_emit = previous_state != AccountPoolState::PendingPurge
+            || state.pending_purge_reason != normalized_reason
+            || state.pending_purge_at != Some(scheduled_at);
         state.pool_state = AccountPoolState::PendingPurge;
         state.quarantine_until = None;
         state.quarantine_reason = None;
         state.pending_purge_at = Some(scheduled_at);
-        state.pending_purge_reason = normalized_reason.or_else(|| state.pending_purge_reason.clone());
+        state.pending_purge_reason =
+            normalized_reason.clone().or_else(|| state.pending_purge_reason.clone());
         state.last_pool_transition_at = Some(now);
         drop(states);
+
+        if should_emit {
+            self.emit_account_pool_state_transition_inner(
+                account_id,
+                previous_state,
+                AccountPoolState::PendingPurge,
+                normalized_reason.clone(),
+                Some(scheduled_at),
+                "control_plane.account_pool",
+                Some("account scheduled for deletion".to_string()),
+            );
+        }
 
         self.revision.fetch_add(1, Ordering::Relaxed);
         Ok(updated)
@@ -705,13 +780,52 @@ impl InMemoryStore {
     }
 
     fn purge_pending_upstream_accounts_inner(&self) -> Result<u64> {
+        let started_at = Utc::now();
         let candidates =
-            self.pending_purge_due_account_ids_inner(Utc::now(), pending_purge_batch_size_from_env());
+            self.pending_purge_due_account_ids_inner(started_at, pending_purge_batch_size_from_env());
         let mut purged = 0_u64;
         for account_id in candidates {
             if self.delete_upstream_account_inner(account_id).is_ok() {
                 purged = purged.saturating_add(1);
             }
+        }
+        if purged > 0 {
+            self.emit_system_event_inner(codex_pool_core::events::SystemEventWrite {
+                event_id: None,
+                ts: Some(started_at),
+                category: codex_pool_core::events::SystemEventCategory::AccountPool,
+                event_type: "pending_delete_batch_completed".to_string(),
+                severity: codex_pool_core::events::SystemEventSeverity::Info,
+                source: "control_plane.pending_delete".to_string(),
+                tenant_id: None,
+                account_id: None,
+                request_id: None,
+                trace_request_id: None,
+                job_id: None,
+                account_label: None,
+                auth_provider: None,
+                operator_state_from: None,
+                operator_state_to: None,
+                reason_class: Some("cleanup".to_string()),
+                reason_code: Some("pending_delete_batch_completed".to_string()),
+                next_action_at: None,
+                path: None,
+                method: None,
+                model: None,
+                selected_account_id: None,
+                selected_proxy_id: None,
+                routing_decision: None,
+                failover_scope: None,
+                status_code: None,
+                upstream_status_code: None,
+                latency_ms: None,
+                message: Some(format!("pending delete loop removed {purged} accounts")),
+                preview_text: None,
+                payload_json: Some(serde_json::json!({
+                    "purged": purged,
+                })),
+                secret_preview: None,
+            });
         }
         Ok(purged)
     }
@@ -746,6 +860,131 @@ impl InMemoryStore {
             .get(&account_id)
             .cloned()
             .unwrap_or(UpstreamAuthProvider::LegacyBearer)
+    }
+
+    fn system_event_runtime_inner(
+        &self,
+    ) -> Option<Arc<crate::system_events::SystemEventLogRuntime>> {
+        self.system_event_runtime.read().unwrap().clone()
+    }
+
+    fn emit_system_event_inner(&self, event: codex_pool_core::events::SystemEventWrite) {
+        if let Some(runtime) = self.system_event_runtime_inner() {
+            runtime.emit_best_effort(event);
+        }
+    }
+
+    fn emit_account_pool_state_transition_inner(
+        &self,
+        account_id: Uuid,
+        from: AccountPoolState,
+        to: AccountPoolState,
+        reason_code: Option<String>,
+        next_action_at: Option<DateTime<Utc>>,
+        source: &str,
+        message: Option<String>,
+    ) {
+        let account = self.accounts.read().unwrap().get(&account_id).cloned();
+        let auth_provider = account
+            .as_ref()
+            .map(|_| self.account_auth_provider(account_id));
+        let fallback_reason_class = if matches!(to, AccountPoolState::Active) {
+            AccountPoolReasonClass::Healthy
+        } else if matches!(to, AccountPoolState::PendingPurge) {
+            AccountPoolReasonClass::Fatal
+        } else {
+            AccountPoolReasonClass::Transient
+        };
+        let reason_class =
+            account_pool_reason_class_from_code(reason_code.as_deref(), fallback_reason_class);
+        self.emit_system_event_inner(codex_pool_core::events::SystemEventWrite {
+            event_id: None,
+            ts: Some(Utc::now()),
+            category: codex_pool_core::events::SystemEventCategory::AccountPool,
+            event_type: "account_pool_state_transition".to_string(),
+            severity: match reason_class {
+                AccountPoolReasonClass::Healthy => codex_pool_core::events::SystemEventSeverity::Info,
+                AccountPoolReasonClass::Quota | AccountPoolReasonClass::Transient => {
+                    codex_pool_core::events::SystemEventSeverity::Warn
+                }
+                AccountPoolReasonClass::Fatal | AccountPoolReasonClass::Admin => {
+                    codex_pool_core::events::SystemEventSeverity::Error
+                }
+            },
+            source: source.to_string(),
+            tenant_id: None,
+            account_id: Some(account_id),
+            request_id: None,
+            trace_request_id: None,
+            job_id: None,
+            account_label: account.as_ref().map(|item| item.label.clone()),
+            auth_provider: auth_provider.map(|value| auth_provider_name(value).to_string()),
+            operator_state_from: Some(account_pool_state_event_name(from).to_string()),
+            operator_state_to: Some(account_pool_state_event_name(to).to_string()),
+            reason_class: Some(account_pool_reason_class_name(reason_class).to_string()),
+            reason_code,
+            next_action_at,
+            path: None,
+            method: None,
+            model: None,
+            selected_account_id: None,
+            selected_proxy_id: None,
+            routing_decision: None,
+            failover_scope: None,
+            status_code: None,
+            upstream_status_code: None,
+            latency_ms: None,
+            message,
+            preview_text: None,
+            payload_json: None,
+            secret_preview: None,
+        });
+    }
+
+    fn emit_account_deleted_inner(
+        &self,
+        account_id: Uuid,
+        account_label: String,
+        auth_provider: UpstreamAuthProvider,
+        reason_code: Option<String>,
+        source: &str,
+    ) {
+        let reason_class =
+            account_pool_reason_class_from_code(reason_code.as_deref(), AccountPoolReasonClass::Fatal);
+        self.emit_system_event_inner(codex_pool_core::events::SystemEventWrite {
+            event_id: None,
+            ts: Some(Utc::now()),
+            category: codex_pool_core::events::SystemEventCategory::AccountPool,
+            event_type: "account_deleted".to_string(),
+            severity: codex_pool_core::events::SystemEventSeverity::Error,
+            source: source.to_string(),
+            tenant_id: None,
+            account_id: Some(account_id),
+            request_id: None,
+            trace_request_id: None,
+            job_id: None,
+            account_label: Some(account_label),
+            auth_provider: Some(auth_provider_name(auth_provider).to_string()),
+            operator_state_from: Some("pending_delete".to_string()),
+            operator_state_to: None,
+            reason_class: Some(account_pool_reason_class_name(reason_class).to_string()),
+            reason_code,
+            next_action_at: None,
+            path: None,
+            method: None,
+            model: None,
+            selected_account_id: None,
+            selected_proxy_id: None,
+            routing_decision: None,
+            failover_scope: None,
+            status_code: None,
+            upstream_status_code: None,
+            latency_ms: None,
+            message: Some("account deleted from pool".to_string()),
+            preview_text: None,
+            payload_json: None,
+            secret_preview: None,
+        });
     }
 
     fn upsert_oauth_credential(&self, account_id: Uuid, credential: OAuthCredentialRecord) {

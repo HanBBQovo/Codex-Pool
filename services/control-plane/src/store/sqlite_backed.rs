@@ -158,6 +158,7 @@ impl InMemoryStore {
                 builtin_error_template_overrides,
             )),
             routing_plan_versions: Arc::new(RwLock::new(state.routing_plan_versions)),
+            system_event_runtime: Arc::new(RwLock::new(None)),
             revision: Arc::new(AtomicU64::new(state.revision.max(1))),
             oauth_client,
             credential_cipher,
@@ -358,6 +359,13 @@ pub fn build_sqlite_store_ports(store: Arc<SqliteBackedStore>) -> RuntimeStorePo
 
 #[async_trait]
 impl ControlPlaneStore for SqliteBackedStore {
+    async fn configure_system_event_runtime(
+        &self,
+        runtime: Option<Arc<crate::system_events::SystemEventLogRuntime>>,
+    ) -> Result<()> {
+        self.inner.configure_system_event_runtime(runtime).await
+    }
+
     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant> {
         let tenant = ControlPlaneStore::create_tenant(&self.inner, req).await?;
         self.persist_state_after_write().await?;

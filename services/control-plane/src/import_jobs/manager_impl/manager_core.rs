@@ -2,6 +2,7 @@
 pub struct OAuthImportJobManager {
     data_store: Arc<dyn ControlPlaneStore>,
     job_store: Arc<dyn OAuthImportJobStore>,
+    system_event_repo: Option<Arc<dyn crate::system_events::SystemEventRepository>>,
     concurrency: usize,
     claim_batch_size: usize,
 }
@@ -59,12 +60,14 @@ impl OAuthImportJobManager {
     pub fn new(
         data_store: Arc<dyn ControlPlaneStore>,
         job_store: Arc<dyn OAuthImportJobStore>,
+        system_event_repo: Option<Arc<dyn crate::system_events::SystemEventRepository>>,
         concurrency: usize,
         claim_batch_size: usize,
     ) -> Self {
         Self {
             data_store,
             job_store,
+            system_event_repo,
             concurrency: concurrency.max(1),
             claim_batch_size: claim_batch_size.max(1),
         }
@@ -112,6 +115,13 @@ impl OAuthImportJobManager {
         refresh_summary_counts(&mut summary, &items, false);
 
         self.job_store.create_job(summary.clone(), items).await?;
+        self.emit_import_job_event(
+            "import_job_created",
+            codex_pool_core::events::SystemEventSeverity::Info,
+            &summary,
+            Some("created oauth import job"),
+        )
+        .await;
         self.spawn_job(summary.job_id);
         self.job_store.get_job_summary(summary.job_id).await
     }
@@ -171,6 +181,13 @@ impl OAuthImportJobManager {
         refresh_summary_counts(&mut summary, &[persisted.clone()], false);
 
         self.job_store.create_job(summary.clone(), vec![persisted]).await?;
+        self.emit_import_job_event(
+            "import_job_created",
+            codex_pool_core::events::SystemEventSeverity::Info,
+            &summary,
+            Some("created manual refresh import job"),
+        )
+        .await;
         self.spawn_job(summary.job_id);
         self.job_store.get_job_summary(summary.job_id).await
     }
@@ -238,6 +255,82 @@ impl OAuthImportJobManager {
         });
     }
 
+    async fn emit_import_job_event(
+        &self,
+        event_type: &str,
+        severity: codex_pool_core::events::SystemEventSeverity,
+        summary: &OAuthImportJobSummary,
+        message: Option<&str>,
+    ) {
+        let Some(repo) = self.system_event_repo.as_ref() else {
+            return;
+        };
+
+        let reason_code = match summary.status {
+            OAuthImportJobStatus::Queued => "queued",
+            OAuthImportJobStatus::Running => "running",
+            OAuthImportJobStatus::Paused => "paused",
+            OAuthImportJobStatus::Completed => "completed",
+            OAuthImportJobStatus::Failed => "failed",
+            OAuthImportJobStatus::Cancelled => "cancelled",
+        };
+
+        let event = codex_pool_core::events::SystemEventWrite {
+            event_id: None,
+            ts: None,
+            category: codex_pool_core::events::SystemEventCategory::Import,
+            event_type: event_type.to_string(),
+            severity,
+            source: "control-plane".to_string(),
+            tenant_id: None,
+            account_id: None,
+            request_id: None,
+            trace_request_id: None,
+            job_id: Some(summary.job_id),
+            account_label: None,
+            auth_provider: None,
+            operator_state_from: None,
+            operator_state_to: None,
+            reason_class: Some("job".to_string()),
+            reason_code: Some(reason_code.to_string()),
+            next_action_at: None,
+            path: None,
+            method: None,
+            model: None,
+            selected_account_id: None,
+            selected_proxy_id: None,
+            routing_decision: None,
+            failover_scope: None,
+            status_code: None,
+            upstream_status_code: None,
+            latency_ms: None,
+            message: message.map(ToString::to_string),
+            preview_text: None,
+            payload_json: Some(serde_json::json!({
+                "status": reason_code,
+                "total": summary.total,
+                "processed": summary.processed,
+                "created_count": summary.created_count,
+                "updated_count": summary.updated_count,
+                "failed_count": summary.failed_count,
+                "skipped_count": summary.skipped_count,
+                "started_at": summary.started_at,
+                "finished_at": summary.finished_at,
+                "admission_counts": summary.admission_counts,
+            })),
+            secret_preview: None,
+        };
+
+        if let Err(error) = repo.insert_event(event).await {
+            tracing::warn!(
+                error = %error,
+                job_id = %summary.job_id,
+                event_type,
+                "failed to persist oauth import job system event"
+            );
+        }
+    }
+
     async fn run_job(&self, job_id: Uuid) -> Result<()> {
         loop {
             let tasks = self
@@ -291,7 +384,135 @@ impl OAuthImportJobManager {
                 .await;
         }
 
-        let _ = self.job_store.finish_job(job_id).await?;
+        let summary = self.job_store.finish_job(job_id).await?;
+        let (event_type, severity, message) = match summary.status {
+            OAuthImportJobStatus::Completed => (
+                "import_job_completed",
+                codex_pool_core::events::SystemEventSeverity::Info,
+                "oauth import job completed",
+            ),
+            OAuthImportJobStatus::Failed => (
+                "import_job_failed",
+                codex_pool_core::events::SystemEventSeverity::Error,
+                "oauth import job failed",
+            ),
+            OAuthImportJobStatus::Cancelled => (
+                "import_job_cancelled",
+                codex_pool_core::events::SystemEventSeverity::Warn,
+                "oauth import job cancelled",
+            ),
+            OAuthImportJobStatus::Paused => (
+                "import_job_paused",
+                codex_pool_core::events::SystemEventSeverity::Warn,
+                "oauth import job paused",
+            ),
+            OAuthImportJobStatus::Running | OAuthImportJobStatus::Queued => (
+                "import_job_finished",
+                codex_pool_core::events::SystemEventSeverity::Info,
+                "oauth import job finished",
+            ),
+        };
+        self.emit_import_job_event(event_type, severity, &summary, Some(message))
+            .await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod manager_core_tests {
+    use super::*;
+    use bytes::Bytes;
+    use codex_pool_core::events::SystemEventCategory;
+    use codex_pool_core::model::UpstreamMode;
+    use sqlx_sqlite::SqlitePool;
+    use tokio::time::{sleep, Duration};
+
+    use crate::import_jobs::{CreateOAuthImportJobOptions, ImportCredentialMode, ImportUploadFile, InMemoryOAuthImportJobStore};
+    use crate::store::InMemoryStore;
+    use crate::system_events::{
+        sqlite_repo::SqliteSystemEventRepo, SystemEventLogRuntime, SystemEventQuery,
+        SystemEventRepository,
+    };
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn create_job_emits_import_created_and_completed_events() {
+        let event_pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("create sqlite event repo pool");
+        let event_repo = Arc::new(
+            SqliteSystemEventRepo::new(event_pool)
+                .await
+                .expect("create sqlite event repo"),
+        );
+        let store = Arc::new(InMemoryStore::default());
+        store
+            .configure_system_event_runtime(Some(Arc::new(SystemEventLogRuntime::new(
+                event_repo.clone(),
+            ))))
+            .await
+            .expect("configure system event runtime");
+
+        let manager = OAuthImportJobManager::new(
+            store,
+            Arc::new(InMemoryOAuthImportJobStore::default()),
+            Some(event_repo.clone()),
+            1,
+            10,
+        );
+
+        let summary = manager
+            .create_job(
+                vec![ImportUploadFile {
+                    file_name: "ak-only.jsonl".to_string(),
+                    content: Bytes::from(
+                        r#"{"type":"codex","email":"event-test@example.com","access_token":"ak_test_event","account_id":"acct_event_test"}"#,
+                    ),
+                }],
+                CreateOAuthImportJobOptions {
+                    default_mode: UpstreamMode::CodexOauth,
+                    credential_mode: ImportCredentialMode::AccessToken,
+                    ..CreateOAuthImportJobOptions::default()
+                },
+            )
+            .await
+            .expect("create import job");
+
+        let mut final_summary = summary.clone();
+        for _ in 0..20 {
+            final_summary = manager
+                .job_summary(summary.job_id)
+                .await
+                .expect("read import job summary");
+            if matches!(
+                final_summary.status,
+                OAuthImportJobStatus::Completed | OAuthImportJobStatus::Failed | OAuthImportJobStatus::Cancelled
+            ) {
+                break;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+        assert_eq!(final_summary.status, OAuthImportJobStatus::Completed);
+
+        let events = event_repo
+            .list_events(SystemEventQuery {
+                job_id: Some(summary.job_id),
+                category: Some(SystemEventCategory::Import),
+                ..Default::default()
+            })
+            .await
+            .expect("list import system events");
+        let event_types = events
+            .items
+            .iter()
+            .map(|item| item.event_type.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            event_types.contains(&"import_job_created"),
+            "import_job_created event should be present"
+        );
+        assert!(
+            event_types.contains(&"import_job_completed"),
+            "import_job_completed event should be present"
+        );
     }
 }

@@ -1,5 +1,13 @@
 #[async_trait]
 impl ControlPlaneStore for InMemoryStore {
+    async fn configure_system_event_runtime(
+        &self,
+        runtime: Option<Arc<crate::system_events::SystemEventLogRuntime>>,
+    ) -> Result<()> {
+        *self.system_event_runtime.write().unwrap() = runtime;
+        Ok(())
+    }
+
     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant> {
         Ok(self.create_tenant_inner(req))
     }
@@ -927,6 +935,10 @@ mod tests {
     };
     use crate::crypto::CredentialCipher;
     use crate::oauth::{OAuthTokenClient, OAuthTokenInfo};
+    use crate::system_events::{
+        sqlite_repo::SqliteSystemEventRepo, SystemEventLogRuntime, SystemEventQuery,
+        SystemEventRepository,
+    };
     use async_trait::async_trait;
     use base64::Engine;
     use chrono::{DateTime, Duration, Utc};
@@ -945,6 +957,35 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+    use tokio::time::{sleep, Duration as TokioDuration};
+    use sqlx_sqlite::SqlitePool;
+
+    async fn wait_for_system_events(
+        repo: &Arc<SqliteSystemEventRepo>,
+        expected_min: usize,
+    ) -> Vec<crate::contracts::SystemEventRecord> {
+        for _ in 0..20 {
+            let items = repo
+                .list_events(SystemEventQuery {
+                    limit: Some(500),
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .items;
+            if items.len() >= expected_min {
+                return items;
+            }
+            sleep(TokioDuration::from_millis(25)).await;
+        }
+        repo.list_events(SystemEventQuery {
+            limit: Some(500),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .items
+    }
 
     #[tokio::test]
     async fn in_memory_store_validates_plaintext_api_key() {
@@ -1826,6 +1867,137 @@ mod tests {
         assert!(
             snapshot.accounts.iter().all(|item| item.id != account.id),
             "pending purge account should be excluded from runtime snapshot"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn in_memory_pending_delete_and_delete_emit_account_pool_events() {
+        let store = InMemoryStore::default();
+        let event_repo = Arc::new(
+            SqliteSystemEventRepo::new(SqlitePool::connect("sqlite::memory:").await.unwrap())
+                .await
+                .unwrap(),
+        );
+        store
+            .configure_system_event_runtime(Some(Arc::new(SystemEventLogRuntime::new(
+                event_repo.clone(),
+            ))))
+            .await
+            .unwrap();
+
+        let account = store
+            .create_upstream_account(CreateUpstreamAccountRequest {
+                label: "event-account@example.com".to_string(),
+                mode: UpstreamMode::CodexOauth,
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                bearer_token: "ak-event".to_string(),
+                chatgpt_account_id: None,
+                auth_provider: Some(UpstreamAuthProvider::LegacyBearer),
+                enabled: Some(true),
+                priority: Some(100),
+            })
+            .await
+            .unwrap();
+
+        store
+            .mark_upstream_account_pending_purge(account.id, Some("account_deactivated".to_string()))
+            .await
+            .unwrap();
+        store.delete_upstream_account(account.id).await.unwrap();
+
+        let items = wait_for_system_events(&event_repo, 2).await;
+        assert!(
+            items.iter().any(|item| {
+                item.event_type == "account_pool_state_transition"
+                    && item.account_id == Some(account.id)
+                    && item.operator_state_to.as_deref() == Some("pending_delete")
+                    && item.reason_code.as_deref() == Some("account_deactivated")
+            }),
+            "pending delete transition event should be present"
+        );
+        assert!(
+            items.iter().any(|item| {
+                item.event_type == "account_deleted"
+                    && item.account_id == Some(account.id)
+                    && item.account_label.as_deref() == Some("event-account@example.com")
+            }),
+            "account_deleted event should be present"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn in_memory_active_patrol_emits_probe_and_batch_events() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([17_u8; 32]),
+        )
+        .unwrap();
+        let store =
+            InMemoryStore::new_with_oauth(Arc::new(RateLimitAwareOAuthTokenClient), Some(cipher));
+        let event_repo = Arc::new(
+            SqliteSystemEventRepo::new(SqlitePool::connect("sqlite::memory:").await.unwrap())
+                .await
+                .unwrap(),
+        );
+        store
+            .configure_system_event_runtime(Some(Arc::new(SystemEventLogRuntime::new(
+                event_repo.clone(),
+            ))))
+            .await
+            .unwrap();
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-patrol-events".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-patrol-events".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        store
+            .record_upstream_account_live_result(
+                account.id,
+                Utc::now(),
+                OAuthLiveResultStatus::Failed,
+                OAuthLiveResultSource::Passive,
+                Some(502),
+                Some("transport_error".to_string()),
+                Some("stale".to_string()),
+            )
+            .await
+            .unwrap();
+
+        let patrolled = store.patrol_active_oauth_accounts().await.unwrap();
+        assert_eq!(patrolled, 1);
+
+        let items = wait_for_system_events(&event_repo, 2).await;
+        assert!(
+            items.iter().any(|item| {
+                item.category == codex_pool_core::events::SystemEventCategory::Patrol
+                    && item.event_type == "probe_succeeded"
+                    && item.account_id == Some(account.id)
+            }),
+            "probe_succeeded event should be present"
+        );
+        assert!(
+            items.iter().any(|item| {
+                item.category == codex_pool_core::events::SystemEventCategory::Patrol
+                    && item.event_type == "active_patrol_batch_completed"
+                    && item.payload_json
+                        .as_ref()
+                        .and_then(|value| value.get("patrolled"))
+                        .and_then(|value| value.as_u64())
+                        == Some(1)
+            }),
+            "active_patrol_batch_completed summary should be present"
         );
     }
 

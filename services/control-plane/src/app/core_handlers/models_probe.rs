@@ -1366,6 +1366,7 @@ mod models_probe_tests {
             store: store.clone(),
             usage_repo: Some(std::sync::Arc::new(TestUsageRepo { rows })),
             usage_ingest_repo: None,
+            system_event_repo: None,
             tenant_auth_service: None,
             sqlite_usage_repo: None,
             auth_validate_cache_ttl_sec: DEFAULT_AUTH_VALIDATE_CACHE_TTL_SEC,
@@ -1375,6 +1376,7 @@ mod models_probe_tests {
             import_job_manager: crate::import_jobs::OAuthImportJobManager::new(
                 store,
                 std::sync::Arc::new(crate::import_jobs::InMemoryOAuthImportJobStore::default()),
+                None,
                 1,
                 1,
             ),

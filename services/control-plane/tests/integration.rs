@@ -17,6 +17,8 @@ mod i18n_error_locale;
 mod internal_metrics_api;
 #[path = "liveness_api.rs"]
 mod liveness_api;
+#[path = "system_event_stream_api.rs"]
+mod system_event_stream_api;
 #[path = "outbound_proxy_runtime.rs"]
 mod outbound_proxy_runtime;
 #[path = "policies.rs"]

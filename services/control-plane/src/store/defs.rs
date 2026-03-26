@@ -921,6 +921,12 @@ pub trait ControlPlaneStore: Send + Sync {
         let upserted = self.upsert_oauth_refresh_token(req).await?;
         Ok(upserted.created)
     }
+    async fn configure_system_event_runtime(
+        &self,
+        _runtime: Option<Arc<crate::system_events::SystemEventLogRuntime>>,
+    ) -> Result<()> {
+        Ok(())
+    }
     async fn dedupe_oauth_accounts_by_identity(&self) -> Result<u64> {
         Ok(0)
     }
@@ -1687,6 +1693,31 @@ fn account_pool_reason_class_from_code(
     }
 }
 
+fn account_pool_reason_class_name(reason_class: AccountPoolReasonClass) -> &'static str {
+    match reason_class {
+        AccountPoolReasonClass::Healthy => "healthy",
+        AccountPoolReasonClass::Quota => "quota",
+        AccountPoolReasonClass::Fatal => "fatal",
+        AccountPoolReasonClass::Transient => "transient",
+        AccountPoolReasonClass::Admin => "admin",
+    }
+}
+
+fn account_pool_state_event_name(state: AccountPoolState) -> &'static str {
+    match state {
+        AccountPoolState::Active => "routable",
+        AccountPoolState::Quarantine => "cooling",
+        AccountPoolState::PendingPurge => "pending_delete",
+    }
+}
+
+fn auth_provider_name(provider: UpstreamAuthProvider) -> &'static str {
+    match provider {
+        UpstreamAuthProvider::OAuthRefreshToken => "oauth_refresh_token",
+        UpstreamAuthProvider::LegacyBearer => "legacy_bearer",
+    }
+}
+
 fn account_health_freshness_from_signals(
     now: DateTime<Utc>,
     last_seen_ok_at: Option<DateTime<Utc>>,
@@ -2297,6 +2328,7 @@ pub struct InMemoryStore {
     builtin_error_template_overrides:
         Arc<RwLock<HashMap<(BuiltinErrorTemplateKind, String), BuiltinErrorTemplateOverrideRecord>>>,
     routing_plan_versions: Arc<RwLock<Vec<RoutingPlanVersion>>>,
+    system_event_runtime: Arc<RwLock<Option<Arc<crate::system_events::SystemEventLogRuntime>>>>,
     revision: Arc<AtomicU64>,
     oauth_client: Arc<dyn OAuthTokenClient>,
     credential_cipher: Option<CredentialCipher>,

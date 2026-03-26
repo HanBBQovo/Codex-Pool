@@ -29,6 +29,11 @@ use control_plane::store::postgres::PostgresStore;
 use control_plane::store::{
     normalize_sqlite_database_url, ControlPlaneStore, InMemoryStore, SqliteBackedStore,
 };
+#[cfg(feature = "postgres-backend")]
+use control_plane::system_events::postgres_repo::PostgresSystemEventRepo;
+use control_plane::system_events::{
+    sqlite_repo::SqliteSystemEventRepo, SystemEventLogRuntime, SystemEventRepository,
+};
 #[cfg(feature = "clickhouse-backend")]
 use control_plane::tenant::BillingReconcileFactRequest;
 #[cfg(feature = "clickhouse-backend")]
@@ -122,6 +127,29 @@ struct RuntimeUsageBundle {
     usage_repo: Option<Arc<dyn UsageQueryRepository>>,
     usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
     personal_sqlite_usage_repo: Option<Arc<SqliteUsageRepo>>,
+}
+
+async fn build_system_event_repo(
+    profile: BackendProfile,
+    personal_runtime_store: Option<&Arc<SqliteBackedStore>>,
+    #[cfg(feature = "postgres-backend")] _postgres_store: Option<&Arc<PostgresStore>>,
+) -> anyhow::Result<Option<Arc<dyn SystemEventRepository>>> {
+    match profile.store_backend {
+        StoreBackendFamily::Sqlite => match personal_runtime_store {
+            Some(store) => Ok(Some(Arc::new(
+                SqliteSystemEventRepo::new(store.clone_pool()).await?,
+            ))),
+            None => Ok(None),
+        },
+        #[cfg(feature = "postgres-backend")]
+        StoreBackendFamily::Postgres => match _postgres_store {
+            Some(store) => Ok(Some(Arc::new(
+                PostgresSystemEventRepo::new(store.clone_pool()).await?,
+            ))),
+            None => Ok(None),
+        },
+        StoreBackendFamily::InMemory => Ok(None),
+    }
 }
 
 async fn build_store_bundle(
@@ -631,6 +659,21 @@ async fn main() -> anyhow::Result<()> {
 
     outbound_proxy_runtime.attach_store(store.clone());
 
+    let system_event_repo = build_system_event_repo(
+        backend_profile,
+        personal_runtime_store.as_ref(),
+        #[cfg(feature = "postgres-backend")]
+        postgres_store.as_ref(),
+    )
+    .await?;
+    store
+        .configure_system_event_runtime(
+            system_event_repo
+                .clone()
+                .map(|repo| Arc::new(SystemEventLogRuntime::new(repo))),
+        )
+        .await?;
+
     match store.recover_oauth_rate_limit_refresh_jobs().await {
         Ok(recovered) if recovered > 0 => {
             tracing::warn!(
@@ -1022,6 +1065,7 @@ async fn main() -> anyhow::Result<()> {
             auth_validate_cache_ttl_sec: config.auth_validate_cache_ttl_sec,
             usage_repo,
             usage_ingest_repo,
+            system_event_repo,
             import_job_store,
             admin_auth,
             system_capabilities: backend_profile.system_capabilities(),

@@ -64,6 +64,7 @@ use crate::import_jobs::{
     OAuthImportJobManager, OAuthImportJobStore,
 };
 use crate::store::{ControlPlaneStore, InMemoryStore};
+use crate::system_events::SystemEventRepository;
 use crate::tenant::TenantAuthService;
 use crate::usage::{
     clickhouse_repo::UsageQueryRepository, sqlite_repo::SqliteUsageRepo, UsageIngestRepository,
@@ -603,6 +604,7 @@ pub struct AppState {
     pub store: Arc<dyn ControlPlaneStore>,
     pub usage_repo: Option<Arc<dyn UsageQueryRepository>>,
     pub usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
+    pub system_event_repo: Option<Arc<dyn SystemEventRepository>>,
     pub tenant_auth_service: Option<Arc<TenantAuthService>>,
     pub sqlite_usage_repo: Option<Arc<SqliteUsageRepo>>,
     pub auth_validate_cache_ttl_sec: u64,
@@ -2021,6 +2023,7 @@ pub fn build_app_with_store_ttl_usage_repos_import_store_admin_auth_and_sqlite_r
             auth_validate_cache_ttl_sec,
             usage_repo,
             usage_ingest_repo,
+            system_event_repo: None,
             import_job_store,
             admin_auth,
             system_capabilities: system_capabilities_from_env(),
@@ -2035,6 +2038,7 @@ pub struct AppBuildServices {
     pub auth_validate_cache_ttl_sec: u64,
     pub usage_repo: Option<Arc<dyn UsageQueryRepository>>,
     pub usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
+    pub system_event_repo: Option<Arc<dyn SystemEventRepository>>,
     pub import_job_store: Arc<dyn OAuthImportJobStore>,
     pub admin_auth: AdminAuthService,
     pub system_capabilities: SystemCapabilitiesResponse,
@@ -2051,6 +2055,7 @@ pub fn build_app_with_store_and_services(
         auth_validate_cache_ttl_sec,
         usage_repo,
         usage_ingest_repo,
+        system_event_repo,
         import_job_store,
         admin_auth,
         system_capabilities: edition_capabilities,
@@ -2061,6 +2066,7 @@ pub fn build_app_with_store_and_services(
     let import_job_manager = OAuthImportJobManager::new(
         store.clone(),
         import_job_store,
+        system_event_repo.clone(),
         import_job_concurrency_from_env(),
         import_job_claim_batch_size_from_env(),
     );
@@ -2076,6 +2082,7 @@ pub fn build_app_with_store_and_services(
         store,
         usage_repo,
         usage_ingest_repo,
+        system_event_repo,
         tenant_auth_service,
         sqlite_usage_repo,
         auth_validate_cache_ttl_sec,
@@ -2285,6 +2292,19 @@ pub fn build_app_with_store_and_services(
             get(get_admin_usage_hourly_trends),
         )
         .route("/api/v1/admin/request-logs", get(list_admin_request_logs))
+        .route("/api/v1/admin/event-stream", get(list_admin_system_events))
+        .route(
+            "/api/v1/admin/event-stream/summary",
+            get(summarize_admin_system_events),
+        )
+        .route(
+            "/api/v1/admin/event-stream/correlation/{request_id}",
+            get(correlate_admin_system_events),
+        )
+        .route(
+            "/api/v1/admin/event-stream/{event_id}",
+            get(get_admin_system_event),
+        )
         .route(
             "/api/v1/admin/request-correlation/{request_id}",
             get(get_admin_request_correlation),
@@ -2445,6 +2465,10 @@ pub fn build_app_with_store_and_services(
         .route(
             "/internal/v1/usage/request-logs",
             post(internal_ingest_request_log),
+        )
+        .route(
+            "/internal/v1/system-events",
+            post(internal_ingest_system_event),
         )
         .route("/api/v1/data-plane/snapshot", get(data_plane_snapshot))
         .route(

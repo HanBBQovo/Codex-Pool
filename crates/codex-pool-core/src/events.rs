@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +49,90 @@ pub struct HealthEvent {
     pub healthy: bool,
     pub reason: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemEventCategory {
+    Request,
+    AccountPool,
+    Patrol,
+    Import,
+    Infra,
+    AdminAction,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemEventSeverity {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemEventWrite {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ts: Option<DateTime<Utc>>,
+    pub category: SystemEventCategory,
+    pub event_type: String,
+    pub severity: SystemEventSeverity,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_state_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_state_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_action_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_account_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_proxy_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_decision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failover_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_status_code: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_json: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_preview: Option<String>,
 }
 
 fn default_request_log_event_version() -> u16 {
