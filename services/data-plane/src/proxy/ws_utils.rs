@@ -201,6 +201,7 @@ struct WsLogicalResponseSeed {
 struct WsTrackedResponse {
     seed: WsLogicalResponseSeed,
     continuation_cursor_key: Option<String>,
+    continuation_cursor_persisted: bool,
     billing_session: Option<BillingSession>,
     replay_request_texts: Vec<String>,
     response_started: bool,
@@ -257,11 +258,39 @@ impl WsLogicalResponseTracker {
         let tracked = WsTrackedResponse {
             seed,
             continuation_cursor_key,
+            continuation_cursor_persisted: false,
             billing_session,
             replay_request_texts,
             response_started: false,
         };
         self.register_tracked_request(tracked);
+    }
+
+    fn enqueue_continuation_cursor_persist(
+        &mut self,
+        tracked: &mut WsTrackedResponse,
+        context: &WsLogicalUsageConnectionContext,
+    ) {
+        if tracked.continuation_cursor_persisted {
+            return;
+        }
+        let (Some(continuation_cursor_key), Some(response_id)) = (
+            tracked.continuation_cursor_key.clone(),
+            tracked.seed.response_id.clone(),
+        ) else {
+            return;
+        };
+        self.pending_actions
+            .push_back(WsPendingAction::PersistContinuationCursor {
+                owner_key: response_owner_key(context.principal.as_ref()),
+                continuation_cursor_key,
+                response_id,
+                request_id: tracked.seed.request_id.clone(),
+                model: tracked.seed.model.clone(),
+                account_id: context.account_id,
+                request_path: context.request_path.clone(),
+            });
+        tracked.continuation_cursor_persisted = true;
     }
 
     #[cfg(test)]
@@ -296,7 +325,7 @@ impl WsLogicalResponseTracker {
         };
 
         if is_ws_response_created_event(&value) {
-            self.register_response_created(&value);
+            self.register_response_created(&value, context);
         }
 
         if is_ws_response_incomplete_event(&value) {
@@ -323,7 +352,11 @@ impl WsLogicalResponseTracker {
         Vec::new()
     }
 
-    fn register_response_created(&mut self, value: &Value) {
+    fn register_response_created(
+        &mut self,
+        value: &Value,
+        context: &WsLogicalUsageConnectionContext,
+    ) {
         let Some(response_id) = extract_ws_response_id(value) else {
             return;
         };
@@ -344,6 +377,7 @@ impl WsLogicalResponseTracker {
                     started_at: Instant::now(),
                 },
                 continuation_cursor_key: None,
+                continuation_cursor_persisted: false,
                 billing_session: None,
                 replay_request_texts: Vec::new(),
                 response_started: false,
@@ -359,6 +393,7 @@ impl WsLogicalResponseTracker {
         if tracked.seed.model.is_none() {
             tracked.seed.model = extract_ws_model(value);
         }
+        self.enqueue_continuation_cursor_persist(&mut tracked, context);
         tracked.response_started = true;
 
         self.active_by_response_id.insert(response_id, tracked);
@@ -389,6 +424,7 @@ impl WsLogicalResponseTracker {
                     started_at: Instant::now(),
                 },
                 continuation_cursor_key: None,
+                continuation_cursor_persisted: false,
                 billing_session: None,
                 replay_request_texts: Vec::new(),
                 response_started: false,
@@ -419,6 +455,8 @@ impl WsLogicalResponseTracker {
             self.completed_response_ids.insert(response_id.clone());
         }
 
+        self.enqueue_continuation_cursor_persist(&mut tracked, context);
+
         let had_billing_session = tracked.billing_session.is_some();
         if let Some(mut billing_session) = tracked.billing_session {
             if billing_session.effective_service_tier.is_none() {
@@ -428,22 +466,6 @@ impl WsLogicalResponseTracker {
                 .push_back(WsPendingAction::Capture {
                     billing_session,
                     usage,
-                });
-        }
-
-        if let (Some(continuation_cursor_key), Some(response_id)) = (
-            tracked.continuation_cursor_key.clone(),
-            tracked.seed.response_id.clone(),
-        ) {
-            self.pending_actions
-                .push_back(WsPendingAction::PersistContinuationCursor {
-                    owner_key: response_owner_key(context.principal.as_ref()),
-                    continuation_cursor_key,
-                    response_id,
-                    request_id: tracked.seed.request_id.clone(),
-                    model: tracked.seed.model.clone(),
-                    account_id: context.account_id,
-                    request_path: context.request_path.clone(),
                 });
         }
 
@@ -499,6 +521,7 @@ impl WsLogicalResponseTracker {
                     started_at: Instant::now(),
                 },
                 continuation_cursor_key: None,
+                continuation_cursor_persisted: false,
                 billing_session: None,
                 replay_request_texts: Vec::new(),
                 response_started: false,
@@ -2443,6 +2466,52 @@ mod tests {
                 assert_eq!(continuation_cursor_key, "conv-1");
                 assert_eq!(response_id, "resp-1");
                 assert_eq!(request_id.as_deref(), Some("req-1"));
+                assert_eq!(model.as_deref(), Some("gpt-5.4"));
+                assert_eq!(request_path, "/v1/responses");
+            }
+            other => panic!("unexpected pending action: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ws_logical_usage_persists_continuation_cursor_as_soon_as_response_id_is_seen() {
+        let mut tracker = WsLogicalResponseTracker::default();
+        tracker.register_logical_request(
+            WsLogicalResponseSeed {
+                request_id: Some("req-early".to_string()),
+                response_id: None,
+                model: Some("gpt-5.4".to_string()),
+                requested_service_tier: None,
+                started_at: Instant::now(),
+            },
+            Some("conv-early".to_string()),
+            None,
+            Vec::new(),
+        );
+
+        assert!(tracker
+            .observe_upstream_text(
+                r#"{"type":"response.created","response":{"id":"resp-early","model":"gpt-5.4"}}"#,
+                &ws_usage_test_context(),
+            )
+            .is_empty());
+
+        let actions = tracker.drain_pending_actions();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            WsPendingAction::PersistContinuationCursor {
+                owner_key,
+                continuation_cursor_key,
+                response_id,
+                request_id,
+                model,
+                request_path,
+                ..
+            } => {
+                assert_eq!(owner_key, "anonymous");
+                assert_eq!(continuation_cursor_key, "conv-early");
+                assert_eq!(response_id, "resp-early");
+                assert_eq!(request_id.as_deref(), Some("req-early"));
                 assert_eq!(model.as_deref(), Some("gpt-5.4"));
                 assert_eq!(request_path, "/v1/responses");
             }
