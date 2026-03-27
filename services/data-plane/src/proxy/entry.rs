@@ -114,7 +114,6 @@ struct ParsedRequestPolicyContext {
     request_id: Option<String>,
     detected_locale: String,
     estimated_input_tokens: Option<i64>,
-    continuation_cursor_key: Option<String>,
     continuation_key_hint: Option<String>,
     sticky_key_hint: Option<String>,
     session_key_hint: Option<String>,
@@ -402,16 +401,16 @@ pub async fn proxy_handler(
         if let Some(mut request_value) = parse_request_json_body(&parts.headers, &body_bytes) {
             let owner_key = response_owner_key(principal.as_ref());
             let prior_conversation_response_id = parsed_policy_context
-                .continuation_cursor_key
+                .conversation_id
                 .as_deref()
-                .map(|continuation_key| continuation_key.to_string());
+                .map(|conversation_id| conversation_id.to_string());
             let prior_conversation_response_id = match prior_conversation_response_id {
-                Some(continuation_key) => {
+                Some(conversation_id) => {
                     let restored = state
                         .background_responses
-                        .current_continuation_response_id(
+                        .current_conversation_response_id(
                             owner_key.as_str(),
-                            continuation_key.as_str(),
+                            conversation_id.as_str(),
                         )
                         .await;
                     if let Some(response_id) = restored.as_deref() {
@@ -424,7 +423,7 @@ pub async fn proxy_handler(
                             parsed_policy_context.model.as_deref(),
                             Some(path.as_str()),
                             Some(method.as_str()),
-                            continuation_key.as_str(),
+                            conversation_id.as_str(),
                             Some(response_id),
                             Some(owner_key.as_str()),
                             Some("restored continuation cursor for follow-up responses request"),
@@ -437,7 +436,7 @@ pub async fn proxy_handler(
                             parsed_policy_context.model.as_deref(),
                             Some(path.as_str()),
                             Some(method.as_str()),
-                            continuation_key.as_str(),
+                            conversation_id.as_str(),
                             Some(response_id),
                             Some(owner_key.as_str()),
                             true,
@@ -453,7 +452,7 @@ pub async fn proxy_handler(
                             parsed_policy_context.model.as_deref(),
                             Some(path.as_str()),
                             Some(method.as_str()),
-                            continuation_key.as_str(),
+                            conversation_id.as_str(),
                             None,
                             Some(owner_key.as_str()),
                             Some("continuation cursor was not found for follow-up responses request"),
@@ -466,7 +465,7 @@ pub async fn proxy_handler(
                             parsed_policy_context.model.as_deref(),
                             Some(path.as_str()),
                             Some(method.as_str()),
-                            continuation_key.as_str(),
+                            conversation_id.as_str(),
                             None,
                             Some(owner_key.as_str()),
                             false,
