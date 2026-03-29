@@ -17,8 +17,6 @@ mod i18n_error_locale;
 mod internal_metrics_api;
 #[path = "liveness_api.rs"]
 mod liveness_api;
-#[path = "system_event_stream_api.rs"]
-mod system_event_stream_api;
 #[path = "outbound_proxy_runtime.rs"]
 mod outbound_proxy_runtime;
 #[path = "policies.rs"]
@@ -31,6 +29,8 @@ mod readiness_api;
 #[path = "request_logs_api.rs"]
 #[cfg(feature = "postgres-backend")]
 mod request_logs_api;
+#[path = "system_event_stream_api.rs"]
+mod system_event_stream_api;
 #[path = "usage_account_leaderboard_api.rs"]
 mod usage_account_leaderboard_api;
 #[path = "usage_api.rs"]

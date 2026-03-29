@@ -19,9 +19,7 @@ use tokio_tungstenite::tungstenite::handshake::client::{
     Request as TungsteniteRequest, Response as TungsteniteResponse,
 };
 use tokio_tungstenite::tungstenite::Error as TungsteniteError;
-use tokio_tungstenite::{
-    client_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{client_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream};
 use url::Url;
 use uuid::Uuid;
 
@@ -82,7 +80,12 @@ impl OutboundProxyRuntime {
     pub fn new() -> Self {
         let allow_system_proxy = std::env::var(ALLOW_SYSTEM_PROXY_ENV)
             .ok()
-            .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
             .unwrap_or(false);
         Self {
             settings: Arc::new(RwLock::new(OutboundProxyPoolSettings::default())),
@@ -694,9 +697,7 @@ fn build_root_store_with_fallback(context: &'static str) -> RootCertStore {
     build_root_store_from_native_certs(certs)
 }
 
-fn build_root_store_from_native_certs(
-    certs: Vec<CertificateDer<'static>>,
-) -> RootCertStore {
+fn build_root_store_from_native_certs(certs: Vec<CertificateDer<'static>>) -> RootCertStore {
     let mut roots = RootCertStore::empty();
     let (native_added, native_ignored) = roots.add_parsable_certificates(certs);
     let webpki_added = webpki_roots::TLS_SERVER_ROOTS.len();

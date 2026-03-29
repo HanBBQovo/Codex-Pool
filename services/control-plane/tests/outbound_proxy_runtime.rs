@@ -187,7 +187,10 @@ async fn direct_client_can_use_ambient_http_proxy_when_enabled() {
         restore_env("ALL_PROXY", previous_all_proxy_upper);
         restore_env("no_proxy", previous_no_proxy);
         restore_env("NO_PROXY", previous_no_proxy_upper);
-        restore_env("CONTROL_PLANE_ALLOW_SYSTEM_PROXY", previous_allow_system_proxy);
+        restore_env(
+            "CONTROL_PLANE_ALLOW_SYSTEM_PROXY",
+            previous_allow_system_proxy,
+        );
     }
 
     assert_eq!(status, reqwest::StatusCode::SERVICE_UNAVAILABLE);

@@ -73,7 +73,8 @@ pub trait SystemEventRepository: Send + Sync {
     async fn insert_event(&self, event: SystemEventWrite) -> Result<SystemEventRecord>;
     async fn list_events(&self, query: SystemEventQuery) -> Result<SystemEventListResponse>;
     async fn get_event(&self, event_id: Uuid) -> Result<Option<SystemEventRecord>>;
-    async fn summarize_events(&self, query: SystemEventQuery) -> Result<SystemEventSummaryResponse>;
+    async fn summarize_events(&self, query: SystemEventQuery)
+        -> Result<SystemEventSummaryResponse>;
     async fn correlate_request(
         &self,
         request_id: &str,
@@ -153,7 +154,13 @@ fn signal_heatmap_window_bounds(
     let bucket_count = (window_ms / bucket_ms) as usize;
     let window_start = DateTime::<Utc>::from_timestamp_millis(start_epoch_ms)
         .ok_or_else(|| anyhow!("failed to build signal heatmap window start"))?;
-    Ok((window_start, start_epoch_ms, end_epoch_ms, bucket_ms, bucket_count))
+    Ok((
+        window_start,
+        start_epoch_ms,
+        end_epoch_ms,
+        bucket_ms,
+        bucket_count,
+    ))
 }
 
 fn signal_intensity_level(signal_count: u32) -> u8 {
@@ -273,21 +280,24 @@ fn build_account_signal_heatmap_details(
                 .into_iter()
                 .enumerate()
                 .map(
-                    |(index, (signal_count, active_count, passive_count, success_count, error_count))| {
-                    let start_at = DateTime::<Utc>::from_timestamp_millis(
-                        start_epoch_ms + (index as i64 * bucket_ms),
-                    )
-                    .expect("bucket start should be representable");
-                    AccountSignalHeatmapBucket {
-                        start_at,
-                        signal_count,
-                        intensity: signal_intensity_level(signal_count),
-                        active_count,
-                        passive_count,
-                        success_count,
-                        error_count,
-                    }
-                },
+                    |(
+                        index,
+                        (signal_count, active_count, passive_count, success_count, error_count),
+                    )| {
+                        let start_at = DateTime::<Utc>::from_timestamp_millis(
+                            start_epoch_ms + (index as i64 * bucket_ms),
+                        )
+                        .expect("bucket start should be representable");
+                        AccountSignalHeatmapBucket {
+                            start_at,
+                            signal_count,
+                            intensity: signal_intensity_level(signal_count),
+                            active_count,
+                            passive_count,
+                            success_count,
+                            error_count,
+                        }
+                    },
                 )
                 .collect::<Vec<_>>();
             (
@@ -318,7 +328,11 @@ fn summarize_account_signal_heatmap_details(
                     bucket_minutes: detail.bucket_minutes,
                     window_minutes: detail.window_minutes,
                     window_start: detail.window_start,
-                    intensity_levels: detail.buckets.iter().map(|bucket| bucket.intensity).collect(),
+                    intensity_levels: detail
+                        .buckets
+                        .iter()
+                        .map(|bucket| bucket.intensity)
+                        .collect(),
                     success_counts: detail
                         .buckets
                         .iter()
@@ -440,7 +454,11 @@ pub mod sqlite_repo {
                 builder.push(" AND account_id = ");
                 builder.push_bind(account_id.to_string());
             }
-            if let Some(request_id) = query.request_id.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(request_id) = query
+                .request_id
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 builder.push(" AND request_id = ");
                 builder.push_bind(request_id.trim().to_string());
             }
@@ -456,7 +474,11 @@ pub mod sqlite_repo {
                 builder.push(" AND category = ");
                 builder.push_bind(category_to_db(category));
             }
-            if let Some(event_type) = query.event_type.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(event_type) = query
+                .event_type
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 builder.push(" AND event_type = ");
                 builder.push_bind(event_type.trim().to_string());
             }
@@ -464,14 +486,33 @@ pub mod sqlite_repo {
                 builder.push(" AND severity = ");
                 builder.push_bind(severity_to_db(severity));
             }
-            if let Some(reason_code) = query.reason_code.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(reason_code) = query
+                .reason_code
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 builder.push(" AND reason_code = ");
                 builder.push_bind(reason_code.trim().to_string());
             }
-            if let Some(keyword) = query.keyword.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(keyword) = query
+                .keyword
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 let pattern = format!("%{}%", keyword.trim());
                 builder.push(" AND (");
-                for (idx, field) in ["message", "preview_text", "event_type", "source", "account_label", "request_id", "reason_code"].iter().enumerate() {
+                for (idx, field) in [
+                    "message",
+                    "preview_text",
+                    "event_type",
+                    "source",
+                    "account_label",
+                    "request_id",
+                    "reason_code",
+                ]
+                .iter()
+                .enumerate()
+                {
                     if idx > 0 {
                         builder.push(" OR ");
                     }
@@ -603,10 +644,7 @@ pub mod sqlite_repo {
                 return Ok(Vec::new());
             }
 
-            let account_ids = account_ids
-                .iter()
-                .map(Uuid::to_string)
-                .collect::<Vec<_>>();
+            let account_ids = account_ids.iter().map(Uuid::to_string).collect::<Vec<_>>();
             let mut builder = QueryBuilder::<Sqlite>::new(
                 "SELECT ts_epoch_ms, category, event_type, severity, status_code, account_id, selected_account_id \
                  FROM system_event_logs WHERE ts_epoch_ms >= ",
@@ -749,9 +787,13 @@ pub mod sqlite_repo {
             row.map(map_sqlite_system_event_row).transpose()
         }
 
-        async fn summarize_events(&self, query: SystemEventQuery) -> Result<SystemEventSummaryResponse> {
-            let mut total_builder =
-                QueryBuilder::<Sqlite>::new("SELECT COUNT(*) AS count FROM system_event_logs WHERE 1=1");
+        async fn summarize_events(
+            &self,
+            query: SystemEventQuery,
+        ) -> Result<SystemEventSummaryResponse> {
+            let mut total_builder = QueryBuilder::<Sqlite>::new(
+                "SELECT COUNT(*) AS count FROM system_event_logs WHERE 1=1",
+            );
             Self::apply_query_filters(&mut total_builder, &query)?;
             let total = total_builder
                 .build()
@@ -954,7 +996,11 @@ pub mod postgres_repo {
                 builder.push(" AND account_id = ");
                 builder.push_bind(account_id.to_string());
             }
-            if let Some(request_id) = query.request_id.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(request_id) = query
+                .request_id
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 builder.push(" AND request_id = ");
                 builder.push_bind(request_id.trim().to_string());
             }
@@ -970,7 +1016,11 @@ pub mod postgres_repo {
                 builder.push(" AND category = ");
                 builder.push_bind(category_to_db(category));
             }
-            if let Some(event_type) = query.event_type.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(event_type) = query
+                .event_type
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 builder.push(" AND event_type = ");
                 builder.push_bind(event_type.trim().to_string());
             }
@@ -978,14 +1028,33 @@ pub mod postgres_repo {
                 builder.push(" AND severity = ");
                 builder.push_bind(severity_to_db(severity));
             }
-            if let Some(reason_code) = query.reason_code.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(reason_code) = query
+                .reason_code
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 builder.push(" AND reason_code = ");
                 builder.push_bind(reason_code.trim().to_string());
             }
-            if let Some(keyword) = query.keyword.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(keyword) = query
+                .keyword
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 let pattern = format!("%{}%", keyword.trim());
                 builder.push(" AND (");
-                for (idx, field) in ["message", "preview_text", "event_type", "source", "account_label", "request_id", "reason_code"].iter().enumerate() {
+                for (idx, field) in [
+                    "message",
+                    "preview_text",
+                    "event_type",
+                    "source",
+                    "account_label",
+                    "request_id",
+                    "reason_code",
+                ]
+                .iter()
+                .enumerate()
+                {
                     if idx > 0 {
                         builder.push(" OR ");
                     }
@@ -1117,10 +1186,7 @@ pub mod postgres_repo {
                 return Ok(Vec::new());
             }
 
-            let account_ids = account_ids
-                .iter()
-                .map(Uuid::to_string)
-                .collect::<Vec<_>>();
+            let account_ids = account_ids.iter().map(Uuid::to_string).collect::<Vec<_>>();
             let mut builder = QueryBuilder::<Postgres>::new(
                 "SELECT ts_epoch_ms, category, event_type, severity, status_code, account_id, selected_account_id \
                  FROM system_event_logs WHERE ts_epoch_ms >= ",
@@ -1368,8 +1434,7 @@ pub mod postgres_repo {
 
 fn map_sqlite_system_event_row(row: SqliteRow) -> Result<SystemEventRecord> {
     Ok(SystemEventRecord {
-        id: Uuid::parse_str(&row.try_get::<String, _>("id")?)
-            .context("invalid system event id")?,
+        id: Uuid::parse_str(&row.try_get::<String, _>("id")?).context("invalid system event id")?,
         ts: row.try_get("ts")?,
         category: parse_category(row.try_get::<String, _>("category")?.as_str())?,
         event_type: row.try_get("event_type")?,
@@ -1425,8 +1490,7 @@ fn map_sqlite_system_event_row(row: SqliteRow) -> Result<SystemEventRecord> {
 #[cfg(feature = "postgres-backend")]
 fn map_postgres_system_event_row(row: PgRow) -> Result<SystemEventRecord> {
     Ok(SystemEventRecord {
-        id: Uuid::parse_str(&row.try_get::<String, _>("id")?)
-            .context("invalid system event id")?,
+        id: Uuid::parse_str(&row.try_get::<String, _>("id")?).context("invalid system event id")?,
         ts: row.try_get("ts")?,
         category: parse_category(row.try_get::<String, _>("category")?.as_str())?,
         event_type: row.try_get("event_type")?,
@@ -1470,8 +1534,7 @@ fn map_postgres_system_event_row(row: PgRow) -> Result<SystemEventRecord> {
             .map(|value| value.max(0) as u64),
         message: row.try_get("message")?,
         preview_text: row.try_get("preview_text")?,
-        payload_json: row
-            .try_get::<Option<Value>, _>("payload_json")?,
+        payload_json: row.try_get::<Option<Value>, _>("payload_json")?,
         secret_preview: row.try_get("secret_preview")?,
     })
 }
@@ -1481,7 +1544,7 @@ fn parse_optional_uuid(raw: Option<String>, field: &'static str) -> Result<Optio
         Uuid::parse_str(&value)
             .with_context(|| format!("invalid uuid stored in system_event_logs.{field}"))
     })
-        .transpose()
+    .transpose()
 }
 
 fn category_to_db(category: SystemEventCategory) -> &'static str {
@@ -1610,7 +1673,9 @@ fn sanitize_payload_json(value: Value) -> Value {
 
 fn redact_value(value: Value) -> Value {
     match value {
-        Value::String(raw) => Value::String(secret_preview(&raw).unwrap_or_else(|| REDACTED_TEXT.to_string())),
+        Value::String(raw) => {
+            Value::String(secret_preview(&raw).unwrap_or_else(|| REDACTED_TEXT.to_string()))
+        }
         Value::Null => Value::Null,
         _ => Value::String(REDACTED_TEXT.to_string()),
     }
@@ -1656,9 +1721,17 @@ fn truncate_chars(raw: &str, max_chars: usize) -> String {
 }
 
 fn is_sensitive_field_name(raw: &str) -> bool {
-    ["token", "secret", "authorization", "api_key", "bearer", "cookie", "password"]
-        .iter()
-        .any(|needle| raw.contains(needle))
+    [
+        "token",
+        "secret",
+        "authorization",
+        "api_key",
+        "bearer",
+        "cookie",
+        "password",
+    ]
+    .iter()
+    .any(|needle| raw.contains(needle))
 }
 
 fn looks_like_secret(raw: &str) -> bool {
@@ -1700,11 +1773,15 @@ fn secret_preview(raw: &str) -> Option<String> {
 fn derive_secret_preview(payload_json: Option<&Value>) -> Option<String> {
     let payload = payload_json?;
     match payload {
-        Value::Object(map) => map.values().find_map(|value| derive_secret_preview(Some(value))),
+        Value::Object(map) => map
+            .values()
+            .find_map(|value| derive_secret_preview(Some(value))),
         Value::Array(items) => items
             .iter()
             .find_map(|value| derive_secret_preview(Some(value))),
-        Value::String(raw) => looks_like_secret(raw).then(|| secret_preview(raw)).flatten(),
+        Value::String(raw) => looks_like_secret(raw)
+            .then(|| secret_preview(raw))
+            .flatten(),
         _ => None,
     }
 }
@@ -1826,7 +1903,9 @@ mod tests {
             .summarize_account_signal_heatmaps(&[tracked_account_id], now, 120, 10)
             .await
             .unwrap();
-        let summary = summaries.get(&tracked_account_id).expect("summary should exist");
+        let summary = summaries
+            .get(&tracked_account_id)
+            .expect("summary should exist");
 
         assert_eq!(summary.intensity_levels.len(), 12);
         assert_eq!(summary.success_counts.len(), 12);

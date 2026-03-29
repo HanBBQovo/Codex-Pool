@@ -207,7 +207,10 @@ async fn admin_event_stream_lists_details_summary_and_correlation() {
     let usage_repo = Arc::new(SqliteUsageRepo::new(pool.clone()).await.unwrap());
     let event_repo = Arc::new(SqliteSystemEventRepo::new(pool).await.unwrap());
     let request_id = "req-event-stream-1";
-    let inserted = event_repo.insert_event(sample_event(request_id)).await.unwrap();
+    let inserted = event_repo
+        .insert_event(sample_event(request_id))
+        .await
+        .unwrap();
 
     let app = build_app_with_event_repo(
         Arc::new(InMemoryStore::default()),
@@ -231,7 +234,9 @@ async fn admin_event_stream_lists_details_summary_and_correlation() {
         .await
         .unwrap();
     assert_eq!(list_response.status(), StatusCode::OK);
-    let list_body = to_bytes(list_response.into_body(), usize::MAX).await.unwrap();
+    let list_body = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let list_json: SystemEventListResponse = serde_json::from_slice(&list_body).unwrap();
     assert_eq!(list_json.items.len(), 1);
     assert_eq!(list_json.items[0].id, inserted.id);
@@ -255,7 +260,10 @@ async fn admin_event_stream_lists_details_summary_and_correlation() {
         .unwrap();
     let detail_json: SystemEventDetailResponse = serde_json::from_slice(&detail_body).unwrap();
     assert_eq!(detail_json.item.id, inserted.id);
-    assert_eq!(detail_json.item.secret_preview.as_deref(), Some("cp_sup...eak"));
+    assert_eq!(
+        detail_json.item.secret_preview.as_deref(),
+        Some("cp_sup...eak")
+    );
 
     let summary_response = app
         .clone()
@@ -274,12 +282,10 @@ async fn admin_event_stream_lists_details_summary_and_correlation() {
         .await
         .unwrap();
     let summary_json: SystemEventSummaryResponse = serde_json::from_slice(&summary_body).unwrap();
-    assert!(
-        summary_json
-            .by_category
-            .iter()
-            .any(|item| item.category == SystemEventCategory::Request && item.count >= 1)
-    );
+    assert!(summary_json
+        .by_category
+        .iter()
+        .any(|item| item.category == SystemEventCategory::Request && item.count >= 1));
 
     let correlation_response = app
         .clone()
@@ -296,8 +302,9 @@ async fn admin_event_stream_lists_details_summary_and_correlation() {
         .await
         .unwrap();
     assert_eq!(correlation_response.status(), StatusCode::OK);
-    let correlation_body =
-        to_bytes(correlation_response.into_body(), usize::MAX).await.unwrap();
+    let correlation_body = to_bytes(correlation_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let correlation_json: SystemEventCorrelationResponse =
         serde_json::from_slice(&correlation_body).unwrap();
     assert_eq!(correlation_json.request_id, request_id);
@@ -439,7 +446,10 @@ async fn admin_event_stream_works_with_postgres_repository() {
             .unwrap();
         let event_repo = Arc::new(PostgresSystemEventRepo::new(event_pool).await.unwrap());
         let request_id = "req-event-stream-pg-1";
-        let inserted = event_repo.insert_event(sample_event(request_id)).await.unwrap();
+        let inserted = event_repo
+            .insert_event(sample_event(request_id))
+            .await
+            .unwrap();
 
         let app = build_app_with_event_repo(
             Arc::new(InMemoryStore::default()),

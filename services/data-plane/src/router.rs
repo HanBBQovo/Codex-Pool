@@ -553,11 +553,7 @@ impl RoundRobinRouter {
             .filter_map(|account| {
                 let traits = account_traits.get(&account.id)?;
                 let freshness_rank = routing_health_freshness_rank(traits.health_freshness);
-                (freshness_rank > 0).then_some((
-                    account.id,
-                    freshness_rank,
-                    traits.last_probe_at,
-                ))
+                (freshness_rank > 0).then_some((account.id, freshness_rank, traits.last_probe_at))
             })
             .max_by(|left, right| {
                 left.1
@@ -638,10 +634,9 @@ impl RoundRobinRouter {
             drop(recent_success);
         }
 
-        if let Some(account_id) = self.preferred_candidate_probe_account_id(
-            candidate_ids,
-            excluded_account_ids,
-        ) {
+        if let Some(account_id) =
+            self.preferred_candidate_probe_account_id(candidate_ids, excluded_account_ids)
+        {
             if let Some(account) = self.pick_specific(account_id) {
                 return Some(account);
             }

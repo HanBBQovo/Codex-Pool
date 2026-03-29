@@ -18,12 +18,11 @@ pub struct ControlPlaneHttpEventSink {
 
 impl ControlPlaneHttpEventSink {
     pub fn new(control_plane_base_url: impl AsRef<str>, internal_auth_token: Arc<str>) -> Self {
-        let base_url = control_plane_base_url.as_ref().trim_end_matches('/').to_string();
-        let endpoint_url = format!(
-            "{}{}",
-            base_url,
-            REQUEST_LOGS_PATH
-        );
+        let base_url = control_plane_base_url
+            .as_ref()
+            .trim_end_matches('/')
+            .to_string();
+        let endpoint_url = format!("{}{}", base_url, REQUEST_LOGS_PATH);
         Self {
             client: reqwest::Client::new(),
             base_url,
