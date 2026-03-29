@@ -1344,6 +1344,79 @@ async fn internal_oauth_refresh_route_returns_status_for_legacy_bearer_account()
 }
 
 #[tokio::test]
+async fn account_pool_reprobe_supports_runtime_legacy_bearer_account() {
+    let store = Arc::new(InMemoryStore::default());
+    store
+        .upsert_one_time_session_account(UpsertOneTimeSessionAccountRequest {
+            label: "legacy-bearer-account-pool-reprobe".to_string(),
+            mode: codex_pool_core::model::UpstreamMode::CodexOauth,
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            access_token: "legacy-bearer-account-pool-reprobe-token".to_string(),
+            chatgpt_account_id: Some("acct_legacy_account_pool_reprobe".to_string()),
+            enabled: Some(true),
+            priority: Some(100),
+            token_expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(2)),
+            chatgpt_plan_type: Some("free".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .expect("create legacy bearer account");
+
+    let app = build_app_with_store(store);
+    let admin_token = login_admin_token(&app).await;
+
+    let records_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/account-pool/accounts")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(records_response.status(), StatusCode::OK);
+    let records_body = to_bytes(records_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let records: Vec<Value> = serde_json::from_slice(&records_body).unwrap();
+    let record_id = records
+        .iter()
+        .find(|item| item["label"] == "legacy-bearer-account-pool-reprobe")
+        .and_then(|item| item["id"].as_str())
+        .expect("legacy bearer account pool record")
+        .to_string();
+
+    let reprobe_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/account-pool/actions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "reprobe",
+                        "record_ids": [record_id]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reprobe_response.status(), StatusCode::OK);
+    let reprobe_body = to_bytes(reprobe_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let reprobe_json: Value = serde_json::from_slice(&reprobe_body).unwrap();
+    assert_eq!(reprobe_json["success_count"], 1);
+    assert_eq!(reprobe_json["failed_count"], 0);
+}
+
+#[tokio::test]
 async fn oauth_family_disable_and_enable_routes_work() {
     let cipher_key = base64::engine::general_purpose::STANDARD.encode([9_u8; 32]);
     let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();

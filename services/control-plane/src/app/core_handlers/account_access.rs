@@ -1349,7 +1349,10 @@ async fn operate_account_pool_records(
             AccountPoolActionKind::Reprobe => match record.record_scope {
                 AccountPoolRecordScope::Inventory => store.reprobe_oauth_inventory_record(record_id).await,
                 AccountPoolRecordScope::Runtime => match record.auth_provider {
-                    Some(UpstreamAuthProvider::OAuthRefreshToken) => {
+                    Some(
+                        UpstreamAuthProvider::OAuthRefreshToken
+                        | UpstreamAuthProvider::LegacyBearer,
+                    ) => {
                         store.refresh_oauth_account(record_id).await.map(|_| ())
                     }
                     _ => Err(anyhow!("unsupported account pool action")),
