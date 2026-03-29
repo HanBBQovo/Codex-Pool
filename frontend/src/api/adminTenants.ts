@@ -99,27 +99,59 @@ export interface AdminImpersonateResponse {
 }
 
 export const adminTenantsApi = {
-  listTenants: () => apiClient.get<AdminTenantItem[]>('/admin/tenants'),
-  ensureDefaultTenant: () => apiClient.post<AdminTenantItem>('/admin/tenants/ensure-default'),
-  createTenant: (payload: AdminTenantCreateRequest) =>
-    apiClient.post<AdminTenantItem>('/admin/tenants', payload),
-  patchTenant: (tenantId: string, payload: AdminTenantPatchRequest) =>
-    apiClient.patch<AdminTenantItem>(`/admin/tenants/${tenantId}`, payload),
-  rechargeTenant: (tenantId: string, payload: AdminRechargeRequest) =>
-    apiClient.post<AdminRechargeResponse>(`/admin/tenants/${tenantId}/credits/recharge`, payload),
-  getTenantCreditBalance: (tenantId: string) =>
-    apiClient.get<AdminTenantCreditBalanceResponse>(`/admin/tenants/${tenantId}/credits/balance`),
-  getTenantCreditSummary: (tenantId: string) =>
-    apiClient.get<AdminTenantCreditSummaryResponse>(`/admin/tenants/${tenantId}/credits/summary`),
-  getTenantCreditLedger: (tenantId: string, limit = 200) =>
-    apiClient.get<AdminTenantCreditLedgerResponse>(`/admin/tenants/${tenantId}/credits/ledger`, {
+  listTenants: async () => {
+    const response = await apiClient.get<AdminTenantItem[]>('/admin/tenants')
+    return response.data
+  },
+  ensureDefaultTenant: async () => {
+    const response = await apiClient.post<AdminTenantItem>('/admin/tenants/ensure-default')
+    return response.data
+  },
+  createTenant: async (payload: AdminTenantCreateRequest) => {
+    const response = await apiClient.post<AdminTenantItem>('/admin/tenants', payload)
+    return response.data
+  },
+  patchTenant: async (tenantId: string, payload: AdminTenantPatchRequest) => {
+    const response = await apiClient.patch<AdminTenantItem>(`/admin/tenants/${tenantId}`, payload)
+    return response.data
+  },
+  rechargeTenant: async (tenantId: string, payload: AdminRechargeRequest) => {
+    const response = await apiClient.post<AdminRechargeResponse>(
+      `/admin/tenants/${tenantId}/credits/recharge`,
+      payload,
+    )
+    return response.data
+  },
+  getTenantCreditBalance: async (tenantId: string) => {
+    const response = await apiClient.get<AdminTenantCreditBalanceResponse>(
+      `/admin/tenants/${tenantId}/credits/balance`,
+    )
+    return response.data
+  },
+  getTenantCreditSummary: async (tenantId: string) => {
+    const response = await apiClient.get<AdminTenantCreditSummaryResponse>(
+      `/admin/tenants/${tenantId}/credits/summary`,
+    )
+    return response.data
+  },
+  getTenantCreditLedger: async (tenantId: string, limit = 200) => {
+    const response = await apiClient.get<AdminTenantCreditLedgerResponse>(`/admin/tenants/${tenantId}/credits/ledger`, {
       params: { limit },
-    }),
-  listModelPricing: () => apiClient.get<ModelPricingItem[]>('/admin/model-pricing'),
-  upsertModelPricing: (payload: ModelPricingUpsertRequest) =>
-    apiClient.post<ModelPricingItem>('/admin/model-pricing', payload),
-  createImpersonation: (payload: AdminImpersonateRequest) =>
-    apiClient.post<AdminImpersonateResponse>('/admin/impersonations', payload),
+    })
+    return response.data
+  },
+  listModelPricing: async () => {
+    const response = await apiClient.get<ModelPricingItem[]>('/admin/model-pricing')
+    return response.data
+  },
+  upsertModelPricing: async (payload: ModelPricingUpsertRequest) => {
+    const response = await apiClient.post<ModelPricingItem>('/admin/model-pricing', payload)
+    return response.data
+  },
+  createImpersonation: async (payload: AdminImpersonateRequest) => {
+    const response = await apiClient.post<AdminImpersonateResponse>('/admin/impersonations', payload)
+    return response.data
+  },
   deleteImpersonation: (sessionId: string) =>
     apiClient.delete<void>(`/admin/impersonations/${sessionId}`),
 }

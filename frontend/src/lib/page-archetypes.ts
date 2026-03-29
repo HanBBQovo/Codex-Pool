@@ -85,13 +85,6 @@ export interface ConfigSettingsLayout {
   sectionFlow: 'stacked-panels'
 }
 
-export interface AdminApiKeysSettingsLayout {
-  introArchetype: 'settings'
-  sectionFlow: 'stacked-panels'
-  createdKeyPlacement: 'within-create-panel'
-  listDensity: 'compact'
-}
-
 const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   auth: {
     name: 'auth',
@@ -203,7 +196,19 @@ export function describePageRegions(name: PageArchetype | string | undefined): P
         stageEmphasis: 'low',
       }
     case 'detail':
+      return {
+        introAlignment: 'start',
+        contentLayout: 'stack',
+        secondaryPlacement: 'after',
+        stageEmphasis: 'low',
+      }
     case 'settings':
+      return {
+        introAlignment: 'between',
+        contentLayout: 'stack',
+        secondaryPlacement: 'after',
+        stageEmphasis: 'low',
+      }
     default:
       return {
         introAlignment: 'start',
@@ -294,14 +299,5 @@ export function describeConfigSettingsLayout(): ConfigSettingsLayout {
     actionPlacement: 'after-sections',
     warningPlacement: 'after-intro',
     sectionFlow: 'stacked-panels',
-  }
-}
-
-export function describeAdminApiKeysSettingsLayout(): AdminApiKeysSettingsLayout {
-  return {
-    introArchetype: 'settings',
-    sectionFlow: 'stacked-panels',
-    createdKeyPlacement: 'within-create-panel',
-    listDensity: 'compact',
   }
 }

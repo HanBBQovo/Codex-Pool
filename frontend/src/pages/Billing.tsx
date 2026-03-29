@@ -1,1271 +1,757 @@
-import { useMemo, useState } from 'react'
-import { type ColumnDef } from '@tanstack/react-table'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Coins, Download, Info } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
-
+import { useMemo, useState } from "react";
 import {
-  adminTenantsApi,
-  type AdminTenantCreditLedgerItem,
-} from '@/api/adminTenants'
-import { localizeApiErrorDisplay, localizeHttpStatusDisplay } from '@/api/errorI18n'
-import { systemApi, DEFAULT_SYSTEM_CAPABILITIES } from '@/api/system'
-import {
-  PageIntro,
-  PagePanel,
-  ReportMetricCard,
-  ReportMetricGrid,
-  ReportShell,
-  SectionHeader,
-} from '@/components/layout/page-archetypes'
-import {
-  getServiceTierBadgeTone,
-  getServiceTierDefaultLabel,
-  normalizeServiceTierForDisplay,
-  shouldHighlightServiceTier,
-} from '@/features/billing/service-tier'
-import {
-  formatDateTime as formatI18nDateTime,
-  formatNumber,
-} from '@/lib/i18n-format'
-import { notify } from '@/lib/notification'
-import { describeBillingReportLayout } from '@/lib/page-archetypes'
-import { formatTokenCount } from '@/lib/token-format'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Chip,
+  Input,
+  Pagination,
   Select,
-  SelectContent,
   SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
-import { TrendChart } from '@/components/ui/trend-chart'
-import { AdminCostReportPage } from '@/features/billing/admin-cost-report'
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+  type Selection,
+} from "@heroui/react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Building2,
+  CreditCard,
+  RefreshCcw,
+  Search,
+  Wallet,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-type BillingGranularity = 'day' | 'month'
+import { billingApi } from "@/api/billing";
+import { DEFAULT_SYSTEM_CAPABILITIES, systemApi } from "@/api/system";
+import { tenantsApi } from "@/api/tenants";
+import {
+  DockedPageIntro,
+  PageContent,
+} from "@/components/layout/page-archetypes";
+import { useChartTheme } from "@/lib/chart-theme";
+import { AdminCostReportPage } from "@/features/billing/admin-cost-report";
+import {
+  buildBillingTrendPoints,
+  microcreditsToCredits,
+  resolveActiveTenantId,
+  shouldUseCostReportBilling,
+} from "@/features/billing/contracts";
 
-interface BillingSeriesItem {
-  timestamp: string
-  consumed: number
-  [key: string]: string | number
+const TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50];
+
+function normalizeSelection(selection: Selection) {
+  if (selection === "all") {
+    return "";
+  }
+
+  const [first] = Array.from(selection);
+  return first === undefined ? "" : String(first);
 }
 
-interface BillingSnapshotRow {
-  period: string
-  consumed_microcredits: number
-  event_count: number
-}
-
-function formatMicrocredits(value: number | undefined, locale?: string) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return '-'
-  return formatNumber(value / 1_000_000, {
-    locale,
+function formatCredits(microcredits: number | undefined): string {
+  return microcreditsToCredits(microcredits).toLocaleString(undefined, {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    useGrouping: false,
-  })
+    maximumFractionDigits: 4,
+  });
 }
 
-function formatMicrocreditsSummary(value: number | undefined, locale?: string) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return '-'
-  return formatNumber(value / 1_000_000, {
-    locale,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
-function formatMicrocreditsPrecise(value: number | undefined, locale?: string) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return '-'
-  const credits = Math.abs(value) / 1_000_000
-  if (credits === 0) {
-    return formatNumber(credits, {
-      locale,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-      useGrouping: false,
-    })
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "-";
   }
-  if (credits < 0.0001) return '<0.0001'
-  if (credits < 1) {
-    return formatNumber(credits, {
-      locale,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 6,
-      useGrouping: false,
-    })
-  }
-  return formatNumber(credits, {
-    locale,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    useGrouping: false,
-  })
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "-" : parsed.toLocaleString();
 }
 
-interface LedgerBillingMeta {
-  authorization_id?: string
-  phase?: string
-  is_stream?: boolean
-  service_tier?: string
-  pricing_source?: string
-  input_price_microcredits?: number
-  cached_input_price_microcredits?: number
-  output_price_microcredits?: number
-  billable_input_tokens?: number
-  cached_input_tokens?: number
-  billable_output_tokens?: number
-  charged_microcredits?: number
-  extra_charge_microcredits?: number
-  delta_microcredits?: number
-  release_reason?: string
-  upstream_status_code?: number
-  upstream_error_code?: string
-  failover_action?: string
-  failover_reason_class?: string
-  recovery_action?: string
-  recovery_outcome?: string
-  cross_account_failover_attempted?: boolean
-}
-
-type TokenSegmentKind = 'input' | 'cached' | 'output'
-
-interface TokenPriceSegment {
-  kind: TokenSegmentKind
-  label: string
-  tokens: number
-  priceMicrocredits?: number
-}
-
-const DEFAULT_BILLING_RECHARGE_REASON_CODE = 'admin_recharge'
-
-function tokenSegmentTone(kind: TokenSegmentKind): string {
-  switch (kind) {
-    case 'input':
-      return 'border-info/30 bg-info-muted text-info-foreground'
-    case 'cached':
-      return 'border-warning/30 bg-warning-muted text-warning-foreground'
-    case 'output':
-      return 'border-primary/30 bg-primary/10 text-primary'
+function mapLedgerEventType(
+  t: ReturnType<typeof useTranslation>["t"],
+  eventType: string,
+): string {
+  switch (eventType) {
+    case "usage":
+      return t("billing.antigravity.eventType.usage");
+    case "admin_recharge":
+      return t("billing.antigravity.eventType.adminRecharge");
     default:
-      return 'border-muted bg-muted text-foreground'
+      return t("billing.antigravity.eventType.unknown");
   }
 }
 
-function asNumber(value: unknown): number | undefined {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return undefined
-  }
-  return value
-}
-
-function asString(value: unknown): string | undefined {
-  if (typeof value !== 'string' || !value.trim()) {
-    return undefined
-  }
-  return value.trim()
-}
-
-function asBoolean(value: unknown): boolean | undefined {
-  if (typeof value !== 'boolean') {
-    return undefined
-  }
-  return value
-}
-
-function mapCodeToLabel(code: string | undefined, t: TFunction): string | undefined {
-  if (!code) return undefined
-  const normalized = code.trim()
-  if (!normalized) return undefined
-  switch (normalized.toLowerCase()) {
-    case 'token_invalidated':
-      return t('billing.ledger.codeLabels.tokenInvalidated', { defaultValue: 'Token invalidated' })
-    case 'account_deactivated':
-      return t('billing.ledger.codeLabels.accountDeactivated', { defaultValue: 'Account deactivated' })
-    case 'transport_error':
-      return t('billing.ledger.codeLabels.transportError', { defaultValue: 'Upstream network error' })
-    case 'stream_prelude_error':
-      return t('billing.ledger.codeLabels.streamPreludeError', { defaultValue: 'Stream prelude error' })
-    case 'billing_usage_missing':
-      return t('billing.ledger.codeLabels.billingUsageMissing', {
-        defaultValue: 'Missing usage settlement fields',
-      })
-    case 'upstream_request_failed':
-      return t('billing.ledger.codeLabels.upstreamRequestFailed', { defaultValue: 'Upstream request failed' })
-    case 'no_upstream_account':
-      return t('billing.ledger.codeLabels.noUpstreamAccount', { defaultValue: 'No upstream account available' })
-    case 'failover_exhausted':
-      return t('billing.ledger.codeLabels.failoverExhausted', { defaultValue: 'Retry/failover exhausted' })
-    default:
-      return t('billing.ledger.codeLabels.unknown', {
-        defaultValue: 'Unknown',
-      })
-  }
-}
-
-function mapReleaseReasonLabel(reason: string | undefined, t: TFunction): string | undefined {
-  if (!reason) return undefined
-  const normalized = reason.trim()
-  if (!normalized) return undefined
-  switch (normalized.toLowerCase()) {
-    case 'failover_exhausted':
-      return t('billing.ledger.releaseReasons.failoverExhausted', {
-        defaultValue: 'Retry/failover exhausted',
-      })
-    case 'no_upstream_account':
-      return t('billing.ledger.releaseReasons.noUpstreamAccount', {
-        defaultValue: 'No upstream account available',
-      })
-    case 'invalid_upstream_url':
-      return t('billing.ledger.releaseReasons.invalidUpstreamUrl', {
-        defaultValue: 'Invalid upstream URL configuration',
-      })
-    case 'transport_error':
-      return t('billing.ledger.releaseReasons.transportError', { defaultValue: 'Upstream network error' })
-    case 'stream_prelude_error':
-      return t('billing.ledger.releaseReasons.streamPreludeError', { defaultValue: 'Stream prelude error' })
-    case 'billing_settle_failed':
-      return t('billing.ledger.releaseReasons.billingSettleFailed', { defaultValue: 'Billing settlement failed' })
-    case 'upstream_request_failed':
-      return t('billing.ledger.releaseReasons.upstreamRequestFailed', { defaultValue: 'Upstream request failed' })
-    case 'stream_usage_missing':
-      return t('billing.ledger.releaseReasons.streamUsageMissing', { defaultValue: 'Stream usage missing' })
-    default:
-      return t('billing.ledger.releaseReasons.unknown', {
-        defaultValue: 'Unknown',
-      })
-  }
-}
-
-function mapFailoverActionLabel(action: string | undefined, t: TFunction): string | undefined {
-  if (!action) return undefined
-  const normalized = action.trim()
-  if (!normalized) return undefined
-  switch (normalized.toLowerCase()) {
-    case 'cross_account_failover':
-      return t('billing.ledger.failoverActions.crossAccountFailover', {
-        defaultValue: 'Cross-account failover',
-      })
-    case 'return_failure':
-      return t('billing.ledger.failoverActions.returnFailure', { defaultValue: 'Return failure' })
-    case 'retry_same_account':
-      return t('billing.ledger.failoverActions.retrySameAccount', { defaultValue: 'Retry same account' })
-    default:
-      return t('billing.ledger.failoverActions.unknown', {
-        defaultValue: 'Unknown',
-      })
-  }
-}
-
-function localizeAdminBillingServiceTierLabel(value: string | undefined, t: TFunction): string {
-  const defaultLabel = getServiceTierDefaultLabel(value)
-  switch (normalizeServiceTierForDisplay(value)) {
-    case 'priority':
-      return t('serviceTier.priority', { defaultValue: defaultLabel })
-    case 'flex':
-      return t('serviceTier.flex', { defaultValue: defaultLabel })
-    default:
-      return t('serviceTier.default', { defaultValue: defaultLabel })
-  }
-}
-
-function parseLedgerBillingMeta(item: AdminTenantCreditLedgerItem): LedgerBillingMeta | undefined {
-  const payload = item.meta_json
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return undefined
-  }
-  const map = payload as Record<string, unknown>
-  return {
-    authorization_id: asString(map.authorization_id),
-    phase: asString(map.phase),
-    is_stream: asBoolean(map.is_stream),
-    service_tier: asString(map.service_tier),
-    pricing_source: asString(map.pricing_source),
-    input_price_microcredits: asNumber(map.input_price_microcredits),
-    cached_input_price_microcredits: asNumber(map.cached_input_price_microcredits),
-    output_price_microcredits: asNumber(map.output_price_microcredits),
-    billable_input_tokens: asNumber(map.billable_input_tokens),
-    cached_input_tokens: asNumber(map.cached_input_tokens),
-    billable_output_tokens: asNumber(map.billable_output_tokens),
-    charged_microcredits: asNumber(map.charged_microcredits),
-    extra_charge_microcredits: asNumber(map.extra_charge_microcredits),
-    delta_microcredits: asNumber(map.delta_microcredits),
-    release_reason: asString(map.release_reason),
-    upstream_status_code: asNumber(map.upstream_status_code),
-    upstream_error_code: asString(map.upstream_error_code),
-    failover_action: asString(map.failover_action),
-    failover_reason_class: asString(map.failover_reason_class),
-    recovery_action: asString(map.recovery_action),
-    recovery_outcome: asString(map.recovery_outcome),
-    cross_account_failover_attempted: asBoolean(map.cross_account_failover_attempted),
-  }
-}
-
-function buildLedgerFailureTooltip(meta: LedgerBillingMeta | undefined): string | undefined {
-  if (!meta) return undefined
-  const parts: string[] = []
-  if (meta.release_reason) parts.push(`release_reason=${meta.release_reason}`)
-  if (typeof meta.upstream_status_code === 'number') parts.push(`upstream_status_code=${meta.upstream_status_code}`)
-  if (meta.upstream_error_code) parts.push(`upstream_error_code=${meta.upstream_error_code}`)
-  if (meta.failover_action) parts.push(`failover_action=${meta.failover_action}`)
-  if (meta.failover_reason_class) parts.push(`failover_reason_class=${meta.failover_reason_class}`)
-  if (meta.recovery_action) parts.push(`recovery_action=${meta.recovery_action}`)
-  if (meta.recovery_outcome) parts.push(`recovery_outcome=${meta.recovery_outcome}`)
-  return parts.length ? parts.join(' | ') : undefined
-}
-
-function detectLedgerStreamFlag(meta: LedgerBillingMeta | undefined): boolean | undefined {
-  if (!meta) return undefined
-  if (typeof meta.is_stream === 'boolean') return meta.is_stream
-  const streamHintValues = [meta.release_reason, meta.upstream_error_code, meta.failover_reason_class]
-  const hasStreamHint = streamHintValues.some((value) =>
-    typeof value === 'string' ? value.trim().toLowerCase().startsWith('stream_') : false,
-  )
-  if (hasStreamHint) return true
-  return undefined
-}
-
-function ledgerStreamTypeLabel(item: AdminTenantCreditLedgerItem, t: TFunction): string {
-  const streamFlag = detectLedgerStreamFlag(parseLedgerBillingMeta(item))
-  if (streamFlag === true) {
-    return t('billing.ledger.requestTypes.stream', { defaultValue: 'Stream' })
-  }
-  if (streamFlag === false) {
-    return t('billing.ledger.requestTypes.nonStream', { defaultValue: 'Non-stream' })
-  }
-  return t('billing.ledger.requestTypes.unknown', { defaultValue: '-' })
-}
-
-function buildTokenPriceSegments(
-  meta: LedgerBillingMeta | undefined,
-  item: AdminTenantCreditLedgerItem,
-  t: TFunction,
-): TokenPriceSegment[] {
-  if (!meta) return []
-  const segments: TokenPriceSegment[] = []
-
-  const inputTokens = meta.billable_input_tokens ?? item.input_tokens
-  if (typeof inputTokens === 'number' || typeof meta.input_price_microcredits === 'number') {
-    segments.push({
-      kind: 'input',
-      label: t('billing.ledger.tokenSegments.input', { defaultValue: 'Input' }),
-      tokens: typeof inputTokens === 'number' ? inputTokens : 0,
-      priceMicrocredits: meta.input_price_microcredits,
-    })
-  }
-
-  if (typeof meta.cached_input_tokens === 'number' || typeof meta.cached_input_price_microcredits === 'number') {
-    segments.push({
-      kind: 'cached',
-      label: t('billing.ledger.tokenSegments.cached', { defaultValue: 'Cached' }),
-      tokens: typeof meta.cached_input_tokens === 'number' ? meta.cached_input_tokens : 0,
-      priceMicrocredits: meta.cached_input_price_microcredits,
-    })
-  }
-
-  const outputTokens = meta.billable_output_tokens ?? item.output_tokens
-  if (typeof outputTokens === 'number' || typeof meta.output_price_microcredits === 'number') {
-    segments.push({
-      kind: 'output',
-      label: t('billing.ledger.tokenSegments.output', { defaultValue: 'Output' }),
-      tokens: typeof outputTokens === 'number' ? outputTokens : 0,
-      priceMicrocredits: meta.output_price_microcredits,
-    })
-  }
-
-  return segments
-}
-
-function buildLedgerBillingDetailLines(
-  item: AdminTenantCreditLedgerItem,
-  showRawEvents: boolean,
-  locale?: string,
-  t?: TFunction,
-): string[] {
-  const meta = parseLedgerBillingMeta(item)
-  if (!meta) {
-    return ['-']
-  }
-  if (!t) {
-    return ['-']
-  }
-
-  const tokenLineParts: string[] = []
-  const billableInputTokens = meta.billable_input_tokens ?? item.input_tokens
-  const cachedInputTokens = meta.cached_input_tokens
-  const billableOutputTokens = meta.billable_output_tokens ?? item.output_tokens
-  if (
-    typeof billableInputTokens === 'number' ||
-    typeof cachedInputTokens === 'number' ||
-    typeof billableOutputTokens === 'number'
-  ) {
-    tokenLineParts.push(
-      t('billing.ledger.details.tokenSettlement', {
-        defaultValue: 'Token settlement: input {{input}} + cached {{cached}} + output {{output}}',
-        input: formatTokenCount(billableInputTokens ?? 0),
-        cached: formatTokenCount(cachedInputTokens ?? 0),
-        output: formatTokenCount(billableOutputTokens ?? 0),
-      }),
-    )
-  }
-
-  const priceParts: string[] = []
-  if (typeof meta.input_price_microcredits === 'number') {
-    priceParts.push(
-      t('billing.ledger.tokenSegments.input', { defaultValue: 'Input' })
-      + ` ${formatMicrocredits(meta.input_price_microcredits, locale)}`,
-    )
-  }
-  if (typeof meta.cached_input_price_microcredits === 'number') {
-    priceParts.push(
-      t('billing.ledger.tokenSegments.cached', { defaultValue: 'Cached' })
-      + ` ${formatMicrocredits(meta.cached_input_price_microcredits, locale)}`,
-    )
-  }
-  if (typeof meta.output_price_microcredits === 'number') {
-    priceParts.push(
-      t('billing.ledger.tokenSegments.output', { defaultValue: 'Output' })
-      + ` ${formatMicrocredits(meta.output_price_microcredits, locale)}`,
-    )
-  }
-  if (priceParts.length > 0) {
-    tokenLineParts.push(
-      t('billing.ledger.details.unitPrice', {
-        defaultValue: 'Unit price: {{prices}} credits/1M tokens',
-        prices: priceParts.join(' / '),
-      }),
-    )
-  }
-  if (showRawEvents && meta.pricing_source && meta.pricing_source !== 'exact') {
-    tokenLineParts.push(
-      t('billing.ledger.details.source', {
-        defaultValue: 'Source: {{source}}',
-        source: meta.pricing_source,
-      }),
-    )
-  }
-
-  const settleLineParts: string[] = []
-  const charged =
-    typeof meta.charged_microcredits === 'number'
-      ? meta.charged_microcredits
-      : item.delta_microcredits < 0
-        ? Math.abs(item.delta_microcredits)
-        : 0
-  const extra =
-    typeof meta.extra_charge_microcredits === 'number'
-      ? meta.extra_charge_microcredits
-      : 0
-  settleLineParts.push(
-    t('billing.ledger.details.accrued', {
-      defaultValue: 'Accrued: {{value}} credits',
-      value: formatMicrocreditsPrecise(charged, locale),
-    }),
-  )
-  settleLineParts.push(
-    t('billing.ledger.details.extraCharge', {
-      defaultValue: 'Extra charge: {{value}} credits',
-      value: formatMicrocreditsPrecise(extra, locale),
-    }),
-  )
-  if (meta.phase === 'reconcile_adjust' && typeof meta.delta_microcredits === 'number') {
-    const symbol = meta.delta_microcredits >= 0 ? '+' : '-'
-    settleLineParts.push(
-      t('billing.ledger.details.adjustment', {
-        defaultValue: 'Adjustment: {{value}}',
-        value: `${symbol}${formatMicrocreditsPrecise(Math.abs(meta.delta_microcredits), locale)}`,
-      }),
-    )
-  }
-
-  const releaseReasonLabel = mapReleaseReasonLabel(meta.release_reason, t)
-  const upstreamErrorLabel = mapCodeToLabel(meta.upstream_error_code, t)
-  let failureSummary: string | undefined
-  if (releaseReasonLabel) {
-    failureSummary = releaseReasonLabel
-  }
-  if (typeof meta.upstream_status_code === 'number' || upstreamErrorLabel) {
-    const statusPart =
-      typeof meta.upstream_status_code === 'number'
-        ? t('billing.ledger.details.upstreamStatus', {
-            defaultValue: 'Upstream {{status}}',
-            status: localizeHttpStatusDisplay(
-              t,
-              meta.upstream_status_code,
-              t('errors.common.failed'),
-            ).label,
-          })
-        : ''
-    const errorPart = upstreamErrorLabel ?? ''
-    const reasonPart = [statusPart, errorPart].filter(Boolean).join(' ')
-    failureSummary = failureSummary ? `${failureSummary}（${reasonPart}）` : reasonPart
-  }
-  if (failureSummary) {
-    settleLineParts.push(
-      t('billing.ledger.details.failure', {
-        defaultValue: 'Failure: {{summary}}',
-        summary: failureSummary,
-      }),
-    )
-  } else if (meta.cross_account_failover_attempted) {
-    const failoverActionLabel = mapFailoverActionLabel(meta.failover_action, t)
-    if (failoverActionLabel) {
-      settleLineParts.push(
-        t('billing.ledger.details.failoverAction', {
-          defaultValue: 'Action: {{action}}',
-          action: failoverActionLabel,
-        }),
-      )
-    }
-  }
-
-  const tokenLine = tokenLineParts.join(' | ')
-  const settleLine = settleLineParts.join(' | ')
-  if (!tokenLine && !settleLine) {
-    return ['-']
-  }
-  if (!settleLine) {
-    return [tokenLine]
-  }
-  if (!tokenLine) {
-    return [settleLine]
-  }
-  return [tokenLine, settleLine]
-}
-
-function filterLedgerRowsForDisplay(
-  items: AdminTenantCreditLedgerItem[],
-  showRawEvents: boolean,
-): AdminTenantCreditLedgerItem[] {
-  if (showRawEvents) {
-    return items
-  }
-  return items.filter((item) => {
-    const eventType = item.event_type.toLowerCase()
-    if (eventType === 'authorize_hold' || eventType === 'release') {
-      return false
-    }
-    return true
-  })
-}
-
-function consumedMicrocreditsForLedgerItem(item: AdminTenantCreditLedgerItem): number {
-  const eventType = item.event_type.toLowerCase()
-  if (eventType === 'capture') {
-    const charged = parseLedgerBillingMeta(item)?.charged_microcredits
-    if (typeof charged === 'number' && charged > 0) {
-      return charged
-    }
-    return item.delta_microcredits < 0 ? Math.abs(item.delta_microcredits) : 0
-  }
-  if (eventType === 'adjust' || eventType === 'consume') {
-    return item.delta_microcredits < 0 ? Math.abs(item.delta_microcredits) : 0
-  }
-  return 0
-}
-
-function displayDeltaMicrocreditsForLedgerItem(
-  item: AdminTenantCreditLedgerItem,
-  showRawEvents: boolean,
-): number {
-  if (showRawEvents) {
-    return item.delta_microcredits
-  }
-  const eventType = item.event_type.toLowerCase()
-  if (eventType === 'capture') {
-    const charged = parseLedgerBillingMeta(item)?.charged_microcredits
-    if (typeof charged === 'number' && charged > 0) {
-      return -charged
-    }
-  }
-  return item.delta_microcredits
-}
-
-function formatMicrocreditsAdaptive(value: number | undefined, locale?: string) {
-  return formatMicrocreditsPrecise(value, locale)
-}
-
-function bucketKey(date: Date, granularity: BillingGranularity) {
-  if (granularity === 'day') {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-      date.getDate(),
-    ).padStart(2, '0')}`
-  }
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-}
-
-function parseGranularity(raw: string | null): BillingGranularity {
-  return raw === 'month' ? 'month' : 'day'
-}
-
-function escapeCsvField(value: string) {
-  if (value.includes('"') || value.includes(',') || value.includes('\n')) {
-    return `"${value.replaceAll('"', '""')}"`
-  }
-  return value
+function matchLedgerSearch(
+  keyword: string,
+  row: {
+    event_type: string;
+    request_id?: string;
+    api_key_id?: string;
+    model?: string;
+  },
+) {
+  return [row.event_type, row.request_id, row.api_key_id, row.model]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(keyword);
 }
 
 export default function Billing() {
   const { data: capabilities = DEFAULT_SYSTEM_CAPABILITIES } = useQuery({
-    queryKey: ['systemCapabilities'],
+    queryKey: ["systemCapabilities"],
     queryFn: () => systemApi.getCapabilities(),
     staleTime: 5 * 60_000,
-  })
+  });
 
-  if (!capabilities.features.credit_billing && capabilities.features.cost_reports) {
-    return <AdminCostReportPage capabilities={capabilities} />
+  if (shouldUseCostReportBilling(capabilities)) {
+    return <AdminCostReportPage capabilities={capabilities} />;
   }
 
-  return <BusinessBillingPage />
+  return <CreditBillingPage />;
 }
 
-function BusinessBillingPage() {
-  const { i18n, t } = useTranslation()
-  const queryClient = useQueryClient()
-  const locale = i18n.resolvedLanguage ?? i18n.language
-  const [searchParams] = useSearchParams()
-  const [granularity, setGranularity] = useState<BillingGranularity>(() =>
-    parseGranularity(searchParams.get('granularity')),
-  )
-  const [selectedTenantId, setSelectedTenantId] = useState(
-    () => searchParams.get('tenant_id') || '',
-  )
-  const [showRawLedgerEvents, setShowRawLedgerEvents] = useState(false)
-  const [rechargeAmount, setRechargeAmount] = useState('100000000')
-  const [rechargeReason, setRechargeReason] = useState(DEFAULT_BILLING_RECHARGE_REASON_CODE)
+function CreditBillingPage() {
+  const { t } = useTranslation();
+  const { textColor: chartTextColor, gridColor: chartGridColor, tooltipStyle: chartTooltipStyle } = useChartTheme();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchValue, setSearchValue] = useState("");
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: tenants = [] } = useQuery({
-    queryKey: ['adminTenants', 'billing'],
-    queryFn: () => adminTenantsApi.listTenants(),
-    staleTime: 60_000,
-  })
+  const {
+    data: tenants = [],
+    isLoading: isTenantsLoading,
+    isFetching: isFetchingTenants,
+    refetch: refetchTenants,
+  } = useQuery({
+    queryKey: ["billing-tenants"],
+    queryFn: tenantsApi.list,
+  });
 
-  const effectiveTenantId = useMemo(
-    () => selectedTenantId || tenants[0]?.id || '',
-    [selectedTenantId, tenants],
-  )
+  const activeTenantId = useMemo(
+    () => resolveActiveTenantId(tenants, searchParams.get("tenant")),
+    [tenants, searchParams],
+  );
 
-  const { data: balance } = useQuery({
-    queryKey: ['adminTenantBalance', effectiveTenantId],
-    queryFn: () => adminTenantsApi.getTenantCreditBalance(effectiveTenantId),
-    enabled: Boolean(effectiveTenantId),
-    staleTime: 60_000,
-  })
+  const {
+    data: summary,
+    isLoading: isSummaryLoading,
+    isFetching: isFetchingSummary,
+    refetch: refetchSummary,
+  } = useQuery({
+    queryKey: ["billing-summary", activeTenantId],
+    queryFn: () => billingApi.getTenantSummary(activeTenantId!),
+    enabled: activeTenantId !== null,
+  });
 
-  const { data: ledgerResponse } = useQuery({
-    queryKey: ['adminTenantLedger', effectiveTenantId],
-    queryFn: () => adminTenantsApi.getTenantCreditLedger(effectiveTenantId, 200),
-    enabled: Boolean(effectiveTenantId),
-    staleTime: 60_000,
-  })
+  const {
+    data: ledgerData,
+    isLoading: isLedgerLoading,
+    isFetching: isFetchingLedger,
+    refetch: refetchLedger,
+  } = useQuery({
+    queryKey: ["billing-ledger", activeTenantId],
+    queryFn: () => billingApi.getTenantLedger(activeTenantId!),
+    enabled: activeTenantId !== null,
+  });
 
-  const { data: summary } = useQuery({
-    queryKey: ['adminTenantSummary', effectiveTenantId],
-    queryFn: () => adminTenantsApi.getTenantCreditSummary(effectiveTenantId),
-    enabled: Boolean(effectiveTenantId),
-    staleTime: 60_000,
-  })
+  const tenantOptions = useMemo(
+    () => tenants.map((tenant) => ({ key: tenant.id, label: tenant.name })),
+    [tenants],
+  );
 
-  const rechargeMutation = useMutation({
-    mutationFn: () =>
-      adminTenantsApi.rechargeTenant(effectiveTenantId, {
-        amount_microcredits: Number(rechargeAmount),
-        reason: rechargeReason || undefined,
-      }),
-    onSuccess: (response) => {
-      notify({
-        variant: 'success',
-        title: t('billing.messages.rechargeSuccessTitle', { defaultValue: 'Recharge successful' }),
-        description: t('billing.messages.rechargeSuccessDetail', {
-          defaultValue: '+{{amount}}, balance {{balance}}',
-          amount: formatMicrocredits(response.amount_microcredits, locale),
-          balance: formatMicrocredits(response.balance_microcredits, locale),
+  const ledger = useMemo(() => ledgerData?.items ?? [], [ledgerData?.items]);
+  const trendData = useMemo(
+    () =>
+      buildBillingTrendPoints(ledger).map((point) => ({
+        ...point,
+        time: new Date(point.created_at).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
         }),
-      })
-      queryClient.invalidateQueries({ queryKey: ['adminTenantBalance', effectiveTenantId] })
-      queryClient.invalidateQueries({ queryKey: ['adminTenantSummary', effectiveTenantId] })
-      queryClient.invalidateQueries({ queryKey: ['adminTenantLedger', effectiveTenantId] })
-    },
-    onError: (error) => {
-      notify({
-        variant: 'error',
-        title: t('billing.messages.rechargeFailedTitle', { defaultValue: 'Recharge failed' }),
-        description: localizeApiErrorDisplay(
-          t,
-          error,
-          t('billing.messages.retryLater', { defaultValue: 'Please try again later' }),
-        ).label,
-      })
-    },
-  })
+        consumed: microcreditsToCredits(point.consumed_microcredits),
+      })),
+    [ledger],
+  );
 
-  const allRows = useMemo(() => ledgerResponse?.items ?? [], [ledgerResponse?.items])
-  const rows = useMemo(
-    () => filterLedgerRowsForDisplay(allRows, showRawLedgerEvents),
-    [allRows, showRawLedgerEvents],
-  )
-
-  const fallbackTodayConsumed = useMemo(() => {
-    const today = bucketKey(new Date(), 'day')
-    return rows.reduce((sum, item) => {
-      if (bucketKey(new Date(item.created_at), 'day') !== today) return sum
-      return sum + consumedMicrocreditsForLedgerItem(item)
-    }, 0)
-  }, [rows])
-
-  const fallbackMonthConsumed = useMemo(() => {
-    const currentMonth = bucketKey(new Date(), 'month')
-    return rows.reduce((sum, item) => {
-      if (bucketKey(new Date(item.created_at), 'month') !== currentMonth) return sum
-      return sum + consumedMicrocreditsForLedgerItem(item)
-    }, 0)
-  }, [rows])
-
-  const todayConsumed = summary?.today_consumed_microcredits ?? fallbackTodayConsumed
-  const monthConsumed = summary?.month_consumed_microcredits ?? fallbackMonthConsumed
-
-  const chartData = useMemo<BillingSeriesItem[]>(() => {
-    const buckets = new Map<string, number>()
-    rows.forEach((item) => {
-      const consumed = consumedMicrocreditsForLedgerItem(item)
-      if (consumed <= 0) return
-      const key = bucketKey(new Date(item.created_at), granularity)
-      buckets.set(key, (buckets.get(key) ?? 0) + consumed)
-    })
-    return Array.from(buckets.entries())
-      .map(([label, consumed]) => ({ timestamp: label, consumed }))
-      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-  }, [granularity, rows])
-
-  const snapshotRows = useMemo<BillingSnapshotRow[]>(() => {
-    const buckets = new Map<string, BillingSnapshotRow>()
-    for (const item of rows) {
-      const consumed = consumedMicrocreditsForLedgerItem(item)
-      if (consumed <= 0) continue
-      const key = bucketKey(new Date(item.created_at), granularity)
-      const current = buckets.get(key) ?? {
-        period: key,
-        consumed_microcredits: 0,
-        event_count: 0,
-      }
-      current.consumed_microcredits += consumed
-      current.event_count += 1
-      buckets.set(key, current)
+  const filteredLedger = useMemo(() => {
+    const keyword = searchValue.trim().toLowerCase();
+    if (!keyword) {
+      return ledger;
     }
-    return Array.from(buckets.values()).sort((left, right) => left.period.localeCompare(right.period))
-  }, [granularity, rows])
+    return ledger.filter((entry) => matchLedgerSearch(keyword, entry));
+  }, [ledger, searchValue]);
 
-  const columns = useMemo<ColumnDef<AdminTenantCreditLedgerItem>[]>(() => {
-    const resolvedColumns: ColumnDef<AdminTenantCreditLedgerItem>[] = [
-      {
-        id: 'createdAt',
-        header: t('billing.columns.timestamp', { defaultValue: 'Time' }),
-        accessorFn: (row) => new Date(row.created_at).getTime(),
-        cell: ({ row }) => (
-          <span className="font-mono text-xs">
-            {formatI18nDateTime(row.original.created_at, { locale, preset: 'datetime', fallback: '-' })}
-          </span>
-        ),
-      },
-    ]
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredLedger.length / rowsPerPage),
+  );
+  const resolvedPage = Math.min(currentPage, totalPages);
+  const paginatedLedger = useMemo(() => {
+    const start = (resolvedPage - 1) * rowsPerPage;
+    return filteredLedger.slice(start, start + rowsPerPage);
+  }, [filteredLedger, resolvedPage, rowsPerPage]);
+  const visibleRangeStart =
+    filteredLedger.length === 0 ? 0 : (resolvedPage - 1) * rowsPerPage + 1;
+  const visibleRangeEnd =
+    filteredLedger.length === 0
+      ? 0
+      : Math.min(filteredLedger.length, resolvedPage * rowsPerPage);
 
-    if (showRawLedgerEvents) {
-      resolvedColumns.push({
-        id: 'eventType',
-        header: t('billing.columns.eventType', { defaultValue: 'Event' }),
-        accessorFn: (row) => row.event_type.toLowerCase(),
-        cell: ({ row }) => row.original.event_type,
-      })
-    }
+  const positiveEntries = ledger.filter(
+    (entry) => entry.delta_microcredits > 0,
+  ).length;
+  const negativeEntries = ledger.filter(
+    (entry) => entry.delta_microcredits < 0,
+  ).length;
+  const isLoading =
+    isTenantsLoading ||
+    (activeTenantId !== null && (isSummaryLoading || isLedgerLoading));
+  const isRefreshing =
+    isFetchingTenants || isFetchingSummary || isFetchingLedger;
+  const selectedTenantName = activeTenantId
+    ? (tenants.find((tenant) => tenant.id === activeTenantId)?.name ??
+      activeTenantId)
+    : null;
+  const hasLedgerActivity = ledger.length > 0;
 
-    resolvedColumns.push({
-      id: 'requestType',
-      header: t('billing.columns.requestType', { defaultValue: 'Request Type' }),
-      accessorFn: (row) => ledgerStreamTypeLabel(row, t).toLowerCase(),
-      cell: ({ row }) => {
-        const streamFlag = detectLedgerStreamFlag(parseLedgerBillingMeta(row.original))
-        if (streamFlag === true) {
-          return (
-            <Badge variant="info" className="px-2 py-0.5 font-medium">
-              {ledgerStreamTypeLabel(row.original, t)}
-            </Badge>
-          )
-        }
-        if (streamFlag === false) {
-          return (
-            <Badge variant="secondary" className="px-2 py-0.5 font-medium">
-              {ledgerStreamTypeLabel(row.original, t)}
-            </Badge>
-          )
-        }
-        return <span className="text-xs text-muted-foreground">{ledgerStreamTypeLabel(row.original, t)}</span>
-      },
-    })
-
-    resolvedColumns.push(
-      {
-        id: 'delta',
-        header: t('billing.columns.delta', { defaultValue: 'Delta Credits' }),
-        accessorFn: (row) => displayDeltaMicrocreditsForLedgerItem(row, showRawLedgerEvents),
-        cell: ({ row }) => {
-          const value = displayDeltaMicrocreditsForLedgerItem(row.original, showRawLedgerEvents)
-          return (
-            <span
-              className={`inline-block min-w-[106px] text-right font-mono tabular-nums ${
-                value < 0 ? 'text-destructive' : 'text-success-foreground'
-              }`}
-            >
-              {value < 0 ? '-' : '+'}
-              {formatMicrocreditsAdaptive(value, locale)}
-            </span>
-          )
-        },
-      },
-      {
-        id: 'balanceAfter',
-        header: t('billing.columns.balanceAfter', { defaultValue: 'Balance After Change' }),
-        accessorFn: (row) => row.balance_after_microcredits,
-        cell: ({ row }) => <span className="font-mono">{formatMicrocredits(row.original.balance_after_microcredits, locale)}</span>,
-      },
-      {
-        id: 'model',
-        header: t('billing.columns.model', { defaultValue: 'Model' }),
-        accessorFn: (row) => (row.model ?? '').toLowerCase(),
-        cell: ({ row }) => row.original.model ?? '-',
-      },
-      {
-        id: 'billingDetail',
-        header: t('billing.columns.billingDetail', { defaultValue: 'Billing Details' }),
-        accessorFn: (row) => {
-          const meta = parseLedgerBillingMeta(row)
-          const serviceTier = meta?.service_tier ? normalizeServiceTierForDisplay(meta.service_tier) : ''
-          return [serviceTier, ...buildLedgerBillingDetailLines(row, showRawLedgerEvents, locale, t)]
-            .join(' | ')
-            .toLowerCase()
-        },
-        cell: ({ row }) => {
-          const meta = parseLedgerBillingMeta(row.original)
-          const segments = buildTokenPriceSegments(meta, row.original, t)
-          const lines = buildLedgerBillingDetailLines(row.original, showRawLedgerEvents, locale, t)
-          const showServiceTierBadge = shouldHighlightServiceTier(meta?.service_tier)
-          const serviceTierLabel = localizeAdminBillingServiceTierLabel(meta?.service_tier, t)
-          const serviceTierLine = showServiceTierBadge
-            ? t('billing.ledger.details.serviceTier', {
-                defaultValue: 'Service Tier: {{tier}}',
-                tier: serviceTierLabel,
-              })
-            : undefined
-          if (lines.length === 1 && lines[0] === '-') {
-            if (!showServiceTierBadge) {
-              return <span className="text-xs text-muted-foreground">-</span>
-            }
-          }
-          const primaryLine = lines[0]
-          const secondaryLine = lines[1]
-          const showPrimaryLine = !(lines.length === 1 && lines[0] === '-')
-          const failurePrefix = t('billing.ledger.details.failurePrefix', { defaultValue: 'Failure:' })
-          const failureTooltip = buildLedgerFailureTooltip(meta)
-          const secondaryTone = secondaryLine?.includes(failurePrefix)
-            ? 'text-warning-foreground'
-            : 'text-muted-foreground'
-          const showSource =
-            showRawLedgerEvents &&
-            meta?.pricing_source &&
-            meta.pricing_source.trim() &&
-            meta.pricing_source !== 'exact'
-          return (
-            <div className="max-w-[620px] space-y-1 text-xs leading-relaxed">
-              <div className="space-y-1">
-                {showServiceTierBadge ? (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge
-                      variant={getServiceTierBadgeTone(meta?.service_tier)}
-                      className="px-2 py-0.5 font-medium"
-                    >
-                      {serviceTierLabel}
-                    </Badge>
-                    {segments.map((segment) => (
-                      <span
-                        key={`${row.original.id}-${segment.kind}`}
-                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${tokenSegmentTone(segment.kind)}`}
-                      >
-                        <span>{segment.label}</span>
-                        <span className="font-mono tabular-nums">{formatTokenCount(segment.tokens)}</span>
-                        {typeof segment.priceMicrocredits === 'number' ? (
-                          <span className="font-mono tabular-nums opacity-80">
-                            @{formatMicrocredits(segment.priceMicrocredits, locale)}/1M
-                          </span>
-                        ) : null}
-                      </span>
-                    ))}
-                  </div>
-                ) : segments.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {segments.map((segment) => (
-                      <span
-                        key={`${row.original.id}-${segment.kind}`}
-                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${tokenSegmentTone(segment.kind)}`}
-                      >
-                        <span>{segment.label}</span>
-                        <span className="font-mono tabular-nums">{formatTokenCount(segment.tokens)}</span>
-                        {typeof segment.priceMicrocredits === 'number' ? (
-                          <span className="font-mono tabular-nums opacity-80">
-                            @{formatMicrocredits(segment.priceMicrocredits, locale)}/1M
-                          </span>
-                        ) : null}
-                      </span>
-                    ))}
-                  </div>
-                ) : showPrimaryLine ? (
-                  <div className="flex items-start gap-1.5 text-muted-foreground">
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{primaryLine}</span>
-                  </div>
-                ) : null}
-                {serviceTierLine ? (
-                  <div className="flex items-start gap-1.5 text-muted-foreground">
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{serviceTierLine}</span>
-                  </div>
-                ) : null}
-                {showSource ? (
-                  <div className="flex items-start gap-1.5 text-muted-foreground">
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      {t('billing.columns.source', { defaultValue: 'Source' })}: {meta?.pricing_source}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-              {secondaryLine ? (
-                <div className={`flex items-start gap-1.5 ${secondaryTone}`}>
-                  <Coins className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success-foreground" />
-                  <span title={failureTooltip}>{secondaryLine}</span>
-                </div>
-              ) : null}
-            </div>
-          )
-        },
-      },
-    )
-
-    return resolvedColumns
-  }, [locale, showRawLedgerEvents, t])
-
-  const snapshotColumns = useMemo<ColumnDef<BillingSnapshotRow>[]>(
-    () => [
-      {
-        id: 'period',
-        header:
-          granularity === 'day'
-            ? t('billing.columns.periodDay', { defaultValue: 'Date' })
-            : t('billing.columns.periodMonth', { defaultValue: 'Month' }),
-        accessorKey: 'period',
-      },
-      {
-        id: 'consumed',
-        header: t('billing.columns.deductedCredits', { defaultValue: 'Deducted Credits' }),
-        accessorFn: (row) => row.consumed_microcredits,
-        cell: ({ row }) => (
-          <span className="font-mono text-destructive">
-            -{formatMicrocredits(row.original.consumed_microcredits, locale)}
-          </span>
-        ),
-      },
-      {
-        id: 'eventCount',
-        header: t('billing.columns.deductionEvents', { defaultValue: 'Deduction Events' }),
-        accessorFn: (row) => row.event_count,
-        cell: ({ row }) => <span className="font-mono">{row.original.event_count}</span>,
-      },
-    ],
-    [granularity, locale, t],
-  )
-
-  const handleExportLedgerCsv = () => {
-    const lines = [
-      [
-        'created_at',
-        'event_type',
-        'request_type',
-        'service_tier',
-        'delta_microcredits',
-        'balance_after_microcredits',
-        'api_key_id',
-        'request_id',
-        'model',
-        'billing_detail',
-      ],
-      ...rows.map((item) => [
-        item.created_at,
-        item.event_type,
-        ledgerStreamTypeLabel(item, t),
-        (() => {
-          const meta = parseLedgerBillingMeta(item)
-          return meta?.service_tier ? normalizeServiceTierForDisplay(meta.service_tier) : ''
-        })(),
-        String(displayDeltaMicrocreditsForLedgerItem(item, showRawLedgerEvents)),
-        String(item.balance_after_microcredits),
-        item.api_key_id ?? '',
-        item.request_id ?? '',
-        item.model ?? '',
-        buildLedgerBillingDetailLines(item, showRawLedgerEvents, locale, t).join(' | '),
-      ]),
-    ]
-    const csvContent = `${lines
-      .map((line) => line.map((value) => escapeCsvField(value)).join(','))
-      .join('\n')}\n`
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `admin-billing-ledger-${effectiveTenantId || 'tenant'}-${Date.now()}.csv`
-    anchor.click()
-    URL.revokeObjectURL(url)
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-100px)] w-full items-center justify-center">
+        <Spinner
+          color="primary"
+          label={t("billing.antigravity.loading")}
+          size="lg"
+        />
+      </div>
+    );
   }
 
-  const tenantSelectValue = effectiveTenantId || '__none__'
-  const selectedTenant = useMemo(
-    () => tenants.find((tenant) => tenant.id === effectiveTenantId) ?? null,
-    [effectiveTenantId, tenants],
-  )
-  const billingLayout = describeBillingReportLayout()
-  const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
-
-  const summaryGrid = (
-    <ReportMetricGrid>
-      <ReportMetricCard
-        title={t('billing.summary.currentBalance')}
-        value={formatMicrocreditsSummary(balance?.balance_microcredits, locale)}
-        description={t('billing.summary.unitCredits')}
-      />
-      <ReportMetricCard
-        title={t('billing.summary.todayConsumed')}
-        value={formatMicrocreditsSummary(todayConsumed, locale)}
-        description={t('billing.summary.deductionHint')}
-      />
-      <ReportMetricCard
-        title={t('billing.summary.monthConsumed')}
-        value={formatMicrocreditsSummary(monthConsumed, locale)}
-        description={t('billing.summary.deductionHint')}
-      />
-    </ReportMetricGrid>
-  )
-
-  const trendPanel = (
-    <PagePanel className="space-y-5 bg-transparent shadow-none">
-      <SectionHeader
-        title={t('billing.trend.title')}
-        description={t('billing.trend.subtitle', {
-          granularity:
-            granularity === 'day'
-              ? t('billing.granularity.day')
-              : t('billing.granularity.month'),
-        })}
-      />
-      {chartData.length === 0 ? (
-        <div className="flex h-[300px] items-center justify-center rounded-[1.2rem] border border-dashed border-border/60 bg-muted/20 text-sm text-muted-foreground">
-          {t('billing.trend.noData')}
-        </div>
-      ) : (
-        <TrendChart
-          data={chartData}
-          lines={[
-            {
-              dataKey: 'consumed',
-              name: t('billing.trend.seriesConsumed'),
-              stroke: 'var(--chart-5)',
-            },
-          ]}
-          height={300}
-          locale={locale}
-          xAxisFormatter={(value) => String(value)}
-        />
-      )}
-    </PagePanel>
-  )
-
-  const rechargePanel = (
-    <PagePanel tone="secondary" className="space-y-5 bg-transparent shadow-none">
-      <SectionHeader
-        eyebrow={selectedTenant?.name ?? undefined}
-        title={t('billing.recharge.title')}
-        description={t('billing.recharge.subtitle')}
-      />
-      {selectedTenant ? (
-        <div className="rounded-[0.95rem] border border-border/65 bg-background/52 px-4 py-3 text-xs text-muted-foreground dark:bg-card/62">
-          <span className="font-medium text-slate-700 dark:text-slate-100">{selectedTenant.name}</span>
-          <div className="mt-1 font-mono">{selectedTenant.id}</div>
-        </div>
-      ) : null}
-      <div className="space-y-3">
-        <Input
-          value={rechargeAmount}
-          onChange={(event) => setRechargeAmount(event.target.value)}
-          type="number"
-          inputMode="numeric"
-          min={0}
-          aria-label={t('billing.recharge.amountAriaLabel')}
-          placeholder={t('billing.recharge.amountPlaceholder')}
-        />
-        <Input
-          value={rechargeReason}
-          onChange={(event) => setRechargeReason(event.target.value)}
-          aria-label={t('billing.recharge.reasonAriaLabel')}
-          placeholder={t('billing.recharge.reasonPlaceholder')}
-        />
-        <Button
-          className="w-full"
-          onClick={() => rechargeMutation.mutate()}
-          disabled={rechargeMutation.isPending || !effectiveTenantId}
-        >
-          {t('billing.recharge.submit')}
-        </Button>
-      </div>
-    </PagePanel>
-  )
-
-  const snapshotPanel = (
-    <PagePanel tone="secondary" className="space-y-5 bg-transparent shadow-none">
-      <SectionHeader
-        title={t('billing.snapshot.title')}
-        description={t('billing.snapshot.subtitle', {
-          granularity:
-            granularity === 'day'
-              ? t('billing.granularity.day')
-              : t('billing.granularity.month'),
-        })}
-      />
-      <StandardDataTable
-        columns={snapshotColumns}
-        data={snapshotRows}
-        defaultPageSize={20}
-        pageSizeOptions={[20, 50, 100]}
-        density="compact"
-        className={tableSurfaceClassName}
-        emptyText={t('billing.snapshot.empty')}
-      />
-    </PagePanel>
-  )
-
-  const ledgerPanel = (
-    <PagePanel className="space-y-5 bg-transparent shadow-none">
-      <SectionHeader
-        title={t('billing.ledger.title')}
-        description={t('billing.ledger.subtitle')}
-        actions={(
-          <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox
-              checked={showRawLedgerEvents}
-              onCheckedChange={(checked) => setShowRawLedgerEvents(Boolean(checked))}
-              aria-label={t('billing.ledger.showRaw')}
-            />
-            {t('billing.ledger.showRaw')}
-          </label>
-        )}
-      />
-      <StandardDataTable
-        columns={columns}
-        data={rows}
-        defaultPageSize={20}
-        pageSizeOptions={[20, 50, 100]}
-        density="compact"
-        className={tableSurfaceClassName}
-        emptyText={t('billing.ledger.empty')}
-      />
-    </PagePanel>
-  )
-
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8">
-      <ReportShell
-        intro={(
-          <PageIntro
-            archetype="detail"
-            title={t('billing.title')}
-            description={t('billing.subtitle')}
-          />
-        )}
-        toolbar={(
-          <div className="grid gap-4 border-b border-border/70 pb-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.52fr)_auto]">
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                  {t('billing.filters.tenantAriaLabel')}
-                </p>
-                <Select
-                  value={tenantSelectValue}
-                  onValueChange={(value) => setSelectedTenantId(value === '__none__' ? '' : value)}
-                >
-                  <SelectTrigger className="w-full" aria-label={t('billing.filters.tenantAriaLabel')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{t('billing.filters.tenantPlaceholder')}</SelectItem>
-                    {tenants.map((tenant) => (
-                      <SelectItem key={tenant.id} value={tenant.id}>
-                        {tenant.name} ({tenant.id})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                  {t('billing.filters.granularityAriaLabel')}
-                </p>
-                <Select value={granularity} onValueChange={(value) => setGranularity(value as BillingGranularity)}>
-                  <SelectTrigger className="w-full" aria-label={t('billing.filters.granularityAriaLabel')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="day">{t('billing.granularity.day')}</SelectItem>
-                    <SelectItem value="month">{t('billing.granularity.month')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-end">
-                <Button variant="outline" onClick={handleExportLedgerCsv} disabled={!rows.length}>
-                  <Download className="mr-2 h-4 w-4" />
-                  {t('billing.exportCsv')}
-                </Button>
-              </div>
+    <PageContent className="space-y-6">
+      <DockedPageIntro
+        archetype="workspace"
+        title={t("billing.title")}
+        description={t("billing.subtitle")}
+        actions={
+          <Button
+            color="primary"
+            isLoading={isRefreshing}
+            startContent={
+              isRefreshing ? undefined : <RefreshCcw className="h-4 w-4" />
+            }
+            variant="flat"
+            onPress={() => {
+              void refetchTenants();
+              if (activeTenantId !== null) {
+                void refetchSummary();
+                void refetchLedger();
+              }
+            }}
+          >
+            {t("common.refresh")}
+          </Button>
+        }
+      />
+
+      {activeTenantId === null ? (
+        <Card className="border-small border-dashed border-default-300 bg-content1 shadow-small">
+          <CardBody className="py-16 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-default-100">
+              <Building2 className="h-6 w-6 text-default-500" />
             </div>
-        )}
-        lead={(
-          <>
-            {billingLayout.leadSequence === 'summary-then-trend' ? (
-              <>
-                {summaryGrid}
-                {trendPanel}
-              </>
-            ) : (
-              <>
-                {trendPanel}
-                {summaryGrid}
-              </>
-            )}
-          </>
-        )}
-        rail={billingLayout.mobileContextPlacement === 'after-lead' ? rechargePanel : undefined}
-      >
-        {billingLayout.mobileDetailPlacement === 'after-context' ? (
-          <>
-            {snapshotPanel}
-            {ledgerPanel}
-          </>
-        ) : (
-          <>
-            {ledgerPanel}
-            {snapshotPanel}
-          </>
-        )}
-      </ReportShell>
-    </div>
-  )
+            <h3 className="mt-4 text-lg font-semibold text-foreground">
+              {t("billing.antigravity.noTenant")}
+            </h3>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-default-600">
+              {t("billing.antigravity.noTenantDescription")}
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <Button color="primary" onPress={() => navigate("/tenants")}>
+                {t("nav.tenants", { defaultValue: "Tenants" })}
+              </Button>
+              <Button
+                startContent={<RefreshCcw className="h-4 w-4" />}
+                variant="light"
+                onPress={() => {
+                  void refetchTenants();
+                }}
+              >
+                {t("common.refresh")}
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : (
+        <>
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)]">
+            <Card className="border-small border-default-200 bg-content1 shadow-small">
+              <CardHeader className="px-5 pb-3 pt-5">
+                <div className="space-y-1">
+                  <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                    {t("billing.antigravity.scopePanelTitle")}
+                  </h2>
+                  <p className="text-sm leading-6 text-default-600">
+                    {t("billing.antigravity.contractHint")}
+                  </p>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4 px-5 pb-5 pt-1">
+                <Select
+                  aria-label={t("billing.filters.tenantAriaLabel")}
+                  items={tenantOptions}
+                  selectedKeys={activeTenantId ? [activeTenantId] : []}
+                  disallowEmptySelection={tenantOptions.length > 0}
+                  isDisabled={tenantOptions.length === 0}
+                  placeholder={t("billing.filters.tenantPlaceholder")}
+                  size="sm"
+                  onSelectionChange={(selection) => {
+                    const nextValue = normalizeSelection(selection);
+                    if (!nextValue || nextValue === activeTenantId) {
+                      return;
+                    }
+                    setCurrentPage(1);
+                    setSearchParams({ tenant: nextValue });
+                  }}
+                >
+                  {(item) => (
+                    <SelectItem key={item.key}>{item.label}</SelectItem>
+                  )}
+                </Select>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                      {t("billing.antigravity.activeTenant")}
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-foreground">
+                      {selectedTenantName ?? t("billing.antigravity.noTenant")}
+                    </div>
+                  </div>
+                  <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                      {t("billing.antigravity.lastUpdatedLabel")}
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-foreground">
+                      {formatDateTime(summary?.updated_at)}
+                    </div>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card className="border-small border-default-200 bg-content1 shadow-small">
+              <CardHeader className="px-5 pb-3 pt-5">
+                <div className="space-y-1">
+                  <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                    {t("billing.antigravity.ledgerSignalsTitle")}
+                  </h2>
+                  <p className="text-sm leading-6 text-default-600">
+                    {t("billing.antigravity.ledgerSignalsDescription")}
+                  </p>
+                </div>
+              </CardHeader>
+              <CardBody className="grid gap-3 px-5 pb-5 pt-1 sm:grid-cols-2">
+                <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                    {t("billing.antigravity.rechargeEvents")}
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                    {positiveEntries}
+                  </div>
+                </div>
+                <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                    {t("billing.antigravity.usageEvents")}
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                    {negativeEntries}
+                  </div>
+                </div>
+                <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                    {t("billing.antigravity.ledgerRows")}
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                    {ledger.length}
+                  </div>
+                </div>
+                <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                    {t("billing.antigravity.currentBalanceChip")}
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                    {formatCredits(summary?.balance_microcredits)}
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+          </div>
+
+          {!hasLedgerActivity ? (
+            <Card className="border-small border-default-200 bg-content1 shadow-small">
+              <CardBody className="flex flex-col gap-4 px-6 py-8 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-large bg-warning/10 text-warning">
+                    <Wallet className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                      {t("billing.antigravity.noActivityTitle")}
+                    </h3>
+                    <p className="max-w-2xl text-sm leading-6 text-default-600">
+                      {t("billing.antigravity.noActivityDescription", {
+                        tenant:
+                          selectedTenantName ??
+                          t("billing.antigravity.noTenant"),
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-3">
+                  <Button color="primary" onPress={() => navigate("/accounts")}>
+                    {t("nav.accounts", { defaultValue: "Accounts Pool" })}
+                  </Button>
+                  <Button
+                    startContent={<RefreshCcw className="h-4 w-4" />}
+                    variant="light"
+                    onPress={() => {
+                      void refetchSummary();
+                      void refetchLedger();
+                    }}
+                  >
+                    {t("common.refresh")}
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                title: t("billing.summary.currentBalance"),
+                value: formatCredits(summary?.balance_microcredits),
+                description: t("billing.antigravity.balanceHint"),
+                icon: <Wallet className="h-4 w-4" />,
+                toneClassName: "bg-success/10 text-success",
+              },
+              {
+                title: t("billing.summary.todayConsumed"),
+                value: formatCredits(summary?.today_consumed_microcredits),
+                description: t("billing.antigravity.todayConsumedHint"),
+                icon: <CreditCard className="h-4 w-4" />,
+                toneClassName: "bg-primary/10 text-primary",
+              },
+              {
+                title: t("billing.summary.monthConsumed"),
+                value: formatCredits(summary?.month_consumed_microcredits),
+                description: t("billing.antigravity.monthConsumedHint"),
+                icon: <CreditCard className="h-4 w-4" />,
+                toneClassName: "bg-warning/10 text-warning",
+              },
+              {
+                title: t("billing.antigravity.averageDeduction"),
+                value: formatCredits(
+                  negativeEntries > 0
+                    ? Math.round(
+                        Math.abs(
+                          ledger
+                            .filter((entry) => entry.delta_microcredits < 0)
+                            .reduce(
+                              (sum, entry) => sum + entry.delta_microcredits,
+                              0,
+                            ),
+                        ) / negativeEntries,
+                      )
+                    : 0,
+                ),
+                description: t("billing.antigravity.averageDeductionHint"),
+                icon: <CreditCard className="h-4 w-4" />,
+                toneClassName: "bg-secondary/10 text-secondary",
+              },
+            ].map((metric) => (
+              <Card
+                key={metric.title}
+                className="border-small border-default-200 bg-content1 shadow-small"
+              >
+                <CardBody className="space-y-5 p-4">
+                  <div
+                    className={
+                      metric.toneClassName +
+                      " flex h-10 w-10 items-center justify-center rounded-large"
+                    }
+                  >
+                    {metric.icon}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-default-500">
+                      {metric.title}
+                    </p>
+                    <p className="text-[clamp(1.55rem,3vw,2.15rem)] font-semibold leading-none tracking-[-0.045em] text-foreground">
+                      {metric.value}
+                    </p>
+                    <p className="text-sm leading-6 text-default-600">
+                      {metric.description}
+                    </p>
+                  </div>
+                </CardBody>
+              </Card>
+            ))}
+          </div>
+
+          <Card className="border-small border-default-200 bg-content1 shadow-small">
+            <CardHeader className="px-5 pb-3 pt-5">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                  {t("billing.trend.title")}
+                </h2>
+                <p className="text-sm leading-6 text-default-600">
+                  {t("billing.trend.subtitle", {
+                    granularity: t("billing.granularity.day"),
+                  })}
+                </p>
+              </div>
+            </CardHeader>
+            <CardBody className="px-5 pb-5 pt-1">
+              {trendData.length ? (
+                <ResponsiveContainer height={260} width="100%">
+                  <AreaChart data={trendData}>
+                    <defs>
+                      <linearGradient
+                        id="billingConsumedGradient"
+                        x1="0"
+                        x2="0"
+                        y1="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="hsl(var(--heroui-warning))"
+                          stopOpacity={0.28}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="hsl(var(--heroui-warning))"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      stroke={chartGridColor}
+                      strokeDasharray="3 3"
+                    />
+                    <XAxis
+                      axisLine={false}
+                      dataKey="time"
+                      tick={{ fill: chartTextColor, fontSize: 11 }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tick={{ fill: chartTextColor, fontSize: 11 }}
+                      tickLine={false}
+                    />
+                    <Tooltip contentStyle={chartTooltipStyle} />
+                    <Area
+                      dataKey="consumed"
+                      fill="url(#billingConsumedGradient)"
+                      stroke="hsl(var(--heroui-warning))"
+                      strokeWidth={2}
+                      type="monotone"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-[260px] flex-col items-center justify-center gap-3 rounded-large border border-dashed border-default-200 px-6 text-center">
+                  <Wallet className="h-8 w-8 text-default-300" />
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-foreground">
+                      {t("billing.antigravity.noActivityTitle")}
+                    </div>
+                    <div className="text-sm leading-6 text-default-600">
+                      {t("billing.trend.noData")}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card className="border-small border-default-200 bg-content1 shadow-small">
+            <CardHeader className="flex flex-col items-start gap-4 px-5 pb-3 pt-5">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                  {t("billing.ledger.title")}
+                </h2>
+                <p className="text-sm leading-6 text-default-600">
+                  {t("billing.antigravity.lastUpdated", {
+                    time: summary?.updated_at
+                      ? new Date(summary.updated_at).toLocaleString()
+                      : "-",
+                  })}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <Input
+                  aria-label={t("billing.antigravity.ledgerSearch")}
+                  className="sm:max-w-sm"
+                  placeholder={t("billing.antigravity.ledgerSearch")}
+                  size="sm"
+                  startContent={<Search className="h-4 w-4 text-default-400" />}
+                  value={searchValue}
+                  onValueChange={(value) => {
+                    setCurrentPage(1);
+                    setSearchValue(value);
+                  }}
+                />
+
+                <div className="flex items-center gap-2 text-xs text-default-500">
+                  <span>{t("common.table.rowsPerPage")}</span>
+                  <Select
+                    aria-label={t("common.table.rowsPerPage")}
+                    className="w-[106px]"
+                    selectedKeys={[String(rowsPerPage)]}
+                    size="sm"
+                    onSelectionChange={(selection) => {
+                      const nextValue = normalizeSelection(selection);
+                      if (!nextValue) {
+                        return;
+                      }
+                      setCurrentPage(1);
+                      setRowsPerPage(Number(nextValue));
+                    }}
+                  >
+                    {TABLE_PAGE_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={String(size)}>{size}</SelectItem>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardBody className="gap-4 px-5 pb-5 pt-0">
+              <Table
+                isHeaderSticky
+                aria-label={t("billing.ledger.title")}
+                classNames={{
+                  base: "min-h-[26rem]",
+                  wrapper: "bg-transparent px-0 py-0 shadow-none",
+                  th: "bg-default-100/60 text-xs font-semibold uppercase tracking-[0.12em] text-default-500",
+                  td: "align-top py-4 text-sm text-foreground",
+                  tr: "data-[hover=true]:bg-content2/35 transition-colors",
+                  emptyWrapper: "h-48",
+                }}
+              >
+                <TableHeader>
+                  <TableColumn>{t("billing.columns.timestamp")}</TableColumn>
+                  <TableColumn>{t("billing.columns.eventType")}</TableColumn>
+                  <TableColumn>{t("billing.columns.model")}</TableColumn>
+                  <TableColumn>{t("billing.columns.delta")}</TableColumn>
+                  <TableColumn>{t("billing.columns.balanceAfter")}</TableColumn>
+                </TableHeader>
+                <TableBody
+                  emptyContent={
+                    <div className="flex flex-col items-center gap-3 py-10 text-default-500">
+                      <CreditCard className="h-10 w-10 opacity-35" />
+                      <div className="text-sm font-medium">
+                        {t("billing.ledger.empty")}
+                      </div>
+                    </div>
+                  }
+                  items={paginatedLedger}
+                >
+                  {(entry) => (
+                    <TableRow key={entry.id}>
+                      <TableCell>
+                        <div className="min-w-[180px] font-mono text-xs text-default-500">
+                          {formatDateTime(entry.created_at)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="min-w-[180px] space-y-2">
+                          <Chip
+                            color={
+                              entry.delta_microcredits >= 0
+                                ? "success"
+                                : "warning"
+                            }
+                            size="sm"
+                            variant="flat"
+                          >
+                            {mapLedgerEventType(t, entry.event_type)}
+                          </Chip>
+                          <div className="text-xs leading-5 text-default-500">
+                            {entry.request_id ??
+                              entry.api_key_id ??
+                              t("billing.antigravity.tenantCreditEvent")}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="min-w-[180px] text-sm text-default-600">
+                          {entry.model ?? "-"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div
+                          className={`min-w-[140px] font-mono text-sm font-semibold ${
+                            entry.delta_microcredits >= 0
+                              ? "text-success"
+                              : "text-danger"
+                          }`}
+                        >
+                          {entry.delta_microcredits >= 0 ? "+" : "-"}
+                          {formatCredits(Math.abs(entry.delta_microcredits))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="min-w-[140px] font-mono text-xs text-default-500">
+                          {formatCredits(entry.balance_after_microcredits)}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+
+              <div className="flex flex-col gap-3 border-t border-default-200 pt-3 text-xs text-default-500 sm:flex-row sm:items-center sm:justify-between">
+                <div className="tabular-nums">
+                  {t("common.table.range", {
+                    start: visibleRangeStart,
+                    end: visibleRangeEnd,
+                    total: filteredLedger.length,
+                  })}
+                </div>
+                <Pagination
+                  color="primary"
+                  isCompact
+                  page={resolvedPage}
+                  total={totalPages}
+                  onChange={setCurrentPage}
+                />
+              </div>
+            </CardBody>
+          </Card>
+        </>
+      )}
+    </PageContent>
+  );
 }

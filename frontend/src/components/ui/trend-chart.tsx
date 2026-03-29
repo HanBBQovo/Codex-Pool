@@ -6,7 +6,7 @@ const TrendChartCore = lazy(() => import('./trend-chart-core'))
 
 export function TrendChart(props: TrendChartProps) {
   return (
-    <Suspense fallback={<div className="w-full rounded-md bg-muted/40" style={{ height: props.height ?? 300 }} />}>
+    <Suspense fallback={<div className="w-full rounded-md bg-content2/30" style={{ height: props.height ?? 300 }} />}>
       <TrendChartCore {...props} />
     </Suspense>
   )

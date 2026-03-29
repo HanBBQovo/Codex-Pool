@@ -1,4 +1,4 @@
-import type { SystemCapabilitiesResponse } from './types'
+import type { SystemCapabilitiesResponse } from './types.ts'
 
 export const DEFAULT_SYSTEM_CAPABILITIES: SystemCapabilitiesResponse = {
   edition: 'personal',

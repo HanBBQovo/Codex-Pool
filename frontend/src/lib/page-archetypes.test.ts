@@ -222,18 +222,3 @@ test('describeConfigSettingsLayout keeps save actions after the settings section
     sectionFlow: 'stacked-panels',
   })
 })
-
-test('describeAdminApiKeysSettingsLayout keeps standalone admin key management quiet, stacked, and keeps one-time plaintext disclosure inside the create panel', () => {
-  const describeAdminApiKeysSettingsLayout = (
-    pageArchetypes as typeof pageArchetypes & {
-      describeAdminApiKeysSettingsLayout?: () => unknown
-    }
-  ).describeAdminApiKeysSettingsLayout
-
-  assert.deepEqual(describeAdminApiKeysSettingsLayout?.(), {
-    introArchetype: 'settings',
-    sectionFlow: 'stacked-panels',
-    createdKeyPlacement: 'within-create-panel',
-    listDensity: 'compact',
-  })
-})

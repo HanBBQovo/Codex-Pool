@@ -91,19 +91,31 @@ export interface OpenAiModelsSyncResponse {
 }
 
 export const modelsApi = {
-  listModels: () =>
-    apiClient.get<ListModelsResponse>('/admin/models', {
+  listModels: async (): Promise<ListModelsResponse> => {
+    const response = await apiClient.get<ListModelsResponse>('/admin/models', {
       timeout: 30000,
-    }),
-  syncOpenAiCatalog: () =>
-    apiClient.post<OpenAiModelsSyncResponse>('/admin/models/sync-openai', {}),
-  probeModels: (payload: ProbeModelsRequest = {}) =>
-    apiClient.post<ListModelsResponse>('/admin/models/probe', payload, {
+    })
+    return response.data
+  },
+  syncOpenAiCatalog: async (): Promise<OpenAiModelsSyncResponse> => {
+    const response = await apiClient.post<OpenAiModelsSyncResponse>('/admin/models/sync-openai', {})
+    return response.data
+  },
+  probeModels: async (payload: ProbeModelsRequest = {}): Promise<ListModelsResponse> => {
+    const response = await apiClient.post<ListModelsResponse>('/admin/models/probe', payload, {
       timeout: 120000,
-    }),
-  listModelPricing: () => apiClient.get<ModelPricingItem[]>('/admin/model-pricing'),
-  upsertModelPricing: (payload: ModelPricingUpsertRequest) =>
-    apiClient.post<ModelPricingItem>('/admin/model-pricing', payload),
-  deleteModelPricing: (pricingId: string) =>
-    apiClient.delete<void>(`/admin/model-pricing/${pricingId}`),
+    })
+    return response.data
+  },
+  listModelPricing: async (): Promise<ModelPricingItem[]> => {
+    const response = await apiClient.get<ModelPricingItem[]>('/admin/model-pricing')
+    return response.data
+  },
+  upsertModelPricing: async (payload: ModelPricingUpsertRequest): Promise<ModelPricingItem> => {
+    const response = await apiClient.post<ModelPricingItem>('/admin/model-pricing', payload)
+    return response.data
+  },
+  deleteModelPricing: async (pricingId: string): Promise<void> => {
+    await apiClient.delete<void>(`/admin/model-pricing/${pricingId}`)
+  },
 }

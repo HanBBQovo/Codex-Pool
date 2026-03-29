@@ -1,91 +1,73 @@
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { HeroUIProvider } from '@heroui/react'
-import { AppLayout } from '@/components/layout/AppLayout'
-import { ThemeProvider } from '@/components/theme-provider'
 import { lazy, Suspense, useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+
 import {
   AUTH_REQUIRED_EVENT,
   LOGIN_FAILED_EVENT,
   SESSION_EXPIRED_REASON,
 } from '@/api/client'
+import { adminAuthApi } from '@/api/adminAuth'
 import { adminTenantsApi } from '@/api/adminTenants'
 import { systemApi, DEFAULT_SYSTEM_CAPABILITIES } from '@/api/system'
-import { notify } from '@/lib/notification'
-import { clearAdminAccessToken, setAdminAccessToken } from '@/lib/admin-session'
+import { ThemeProvider } from '@/components/theme-provider'
+import { UiPreferencesProvider } from '@/components/ui-preferences-provider'
 import { LoadingScreen } from '@/components/ui/loading-overlay'
 import { NotificationCenter } from '@/components/ui/notification-center'
-import { applyRouteSeo } from '@/lib/seo'
-import type { SystemCapabilitiesResponse } from '@/api/types'
 import { resolveAppShellTarget } from '@/lib/edition-shell-routing'
+import { notify } from '@/lib/notification'
+import { clearAdminAccessToken, setAdminAccessToken } from '@/lib/admin-session'
 import {
   LEGACY_STANDALONE_ADMIN_API_KEYS_PATH,
   resolveAdminCapabilityRedirect,
   STANDALONE_ADMIN_API_KEYS_PATH,
-  shouldShowStandaloneAdminApiKeys,
 } from '@/features/api-keys/admin-capabilities'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-})
-
-import { adminAuthApi } from '@/api/adminAuth'
-
+const AppLayout = lazy(() => import('@/components/layout/AppLayout'))
+const Login = lazy(() => import('@/pages/Login'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const Accounts = lazy(() => import('@/pages/Accounts'))
 const Inventory = lazy(() => import('@/pages/Inventory'))
-const ImportJobs = lazy(() => import('@/pages/ImportJobs'))
-const OAuthImport = lazy(() => import('@/pages/OAuthImport'))
-const Groups = lazy(() => import('@/pages/Groups'))
-const ModelRouting = lazy(() => import('@/pages/ModelRouting'))
 const Models = lazy(() => import('@/pages/Models'))
-const Usage = lazy(() => import('@/pages/Usage'))
-const Billing = lazy(() => import('@/pages/Billing'))
-const Proxies = lazy(() => import('@/pages/Proxies'))
-const AdminApiKeys = lazy(() => import('@/pages/AdminApiKeys'))
-const Tenants = lazy(() => import('@/pages/Tenants'))
-const Config = lazy(() => import('@/pages/Config'))
 const Logs = lazy(() => import('@/pages/Logs'))
 const System = lazy(() => import('@/pages/System'))
-const Login = lazy(() => import('@/pages/Login'))
+const Billing = lazy(() => import('@/pages/Billing'))
+const Groups = lazy(() => import('@/pages/Groups'))
+const ImportJobs = lazy(() => import('@/pages/ImportJobs'))
+const OAuthImport = lazy(() => import('@/pages/OAuthImport'))
+const ModelRouting = lazy(() => import('@/pages/ModelRouting'))
+const Proxies = lazy(() => import('@/pages/Proxies'))
+const Config = lazy(() => import('@/pages/Config'))
+const Tenants = lazy(() => import('@/pages/Tenants'))
+const AdminApiKeys = lazy(() => import('@/pages/AdminApiKeys'))
+const Usage = lazy(() => import('@/pages/Usage'))
 const TenantApp = lazy(() =>
-  import('@/tenant/TenantApp').then((module) => ({ default: module.TenantApp })),
+  import('@/tenant/TenantApp').then((module) => ({
+    default: module.TenantApp,
+  })),
 )
 
-const RouteSkeleton = () => {
+function LoadingFallback() {
   const { t } = useTranslation()
+
   return (
     <LoadingScreen
-      title={t('common.routeLoading')}
-      description={t('common.loading')}
-      className="flex-1 min-h-0"
+      title={t('common.routeLoading', { defaultValue: 'Loading page...' })}
+      description={t('common.loading', { defaultValue: 'Loading...' })}
+      className="min-h-screen"
     />
   )
 }
 
-const RouteSeoSync = () => {
-  const location = useLocation()
-  const { t, i18n } = useTranslation()
-
-  useEffect(() => {
-    applyRouteSeo(location.pathname, t)
-  }, [location.pathname, t, i18n.resolvedLanguage])
-
-  return null
+interface AdminAppProps {
+  capabilities: typeof DEFAULT_SYSTEM_CAPABILITIES
 }
 
-interface EditionAwareAppProps {
-  capabilities: SystemCapabilitiesResponse
-}
-
-function AdminApp({ capabilities }: EditionAwareAppProps) {
-  const { t, i18n } = useTranslation()
+function AdminApp({ capabilities }: AdminAppProps) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [authChecked, setAuthChecked] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
 
@@ -124,6 +106,7 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
           description: t('notifications.sessionExpired.description'),
         })
       }
+
       clearAdminAccessToken()
       queryClient.clear()
       setAuthenticated(false)
@@ -140,23 +123,18 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
 
     window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired)
     window.addEventListener(LOGIN_FAILED_EVENT, onLoginFailed)
+
     return () => {
       window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired)
       window.removeEventListener(LOGIN_FAILED_EVENT, onLoginFailed)
     }
-  }, [t])
-
-  const showStandaloneAdminApiKeys = shouldShowStandaloneAdminApiKeys(capabilities)
-  const adminApiKeysRedirect = resolveAdminCapabilityRedirect(
-    STANDALONE_ADMIN_API_KEYS_PATH,
-    capabilities,
-  )
-  const tenantsRedirect = resolveAdminCapabilityRedirect('/tenants', capabilities)
+  }, [queryClient, t])
 
   useEffect(() => {
     if (!authenticated || !capabilities.features.multi_tenant) {
       return
     }
+
     let cancelled = false
     adminTenantsApi
       .ensureDefaultTenant()
@@ -168,16 +146,11 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
       .catch(() => {
         // best-effort warmup: avoid interrupting admin login flow
       })
+
     return () => {
       cancelled = true
     }
-  }, [authenticated, capabilities.features.multi_tenant])
-
-  useEffect(() => {
-    if (!authenticated) {
-      applyRouteSeo('/login', t)
-    }
-  }, [authenticated, t, i18n.resolvedLanguage])
+  }, [authenticated, capabilities.features.multi_tenant, queryClient])
 
   const handleLogin = async (username: string, password: string) => {
     const response = await adminAuthApi.login(username, password)
@@ -198,215 +171,91 @@ function AdminApp({ capabilities }: EditionAwareAppProps) {
   }
 
   if (!authChecked) {
-    return (
-      <LoadingScreen
-        title={t('common.routeLoading')}
-        description={t('common.loading')}
-        className="min-h-screen"
-      />
-    )
+    return <LoadingFallback />
   }
 
   if (!authenticated) {
     return (
-      <Suspense fallback={<RouteSkeleton />}>
+      <Suspense fallback={<LoadingFallback />}>
         <Login onLogin={handleLogin} />
       </Suspense>
     )
   }
 
+  const tenantsRedirect = resolveAdminCapabilityRedirect('/tenants', capabilities)
+  const adminApiKeysRedirect = resolveAdminCapabilityRedirect(
+    STANDALONE_ADMIN_API_KEYS_PATH,
+    capabilities,
+  )
+
   return (
     <BrowserRouter>
-      <RouteSeoSync />
-      <Routes>
-        <Route
-          element={<AppLayout onLogout={handleLogout} role="admin" capabilities={capabilities} />}
-        >
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route
-            path="/dashboard"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Dashboard />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/accounts"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Accounts />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/inventory"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Inventory />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/imports"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <ImportJobs />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/oauth-import"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <OAuthImport />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/groups"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Groups />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/model-routing"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <ModelRouting />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/models"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Models />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/usage"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Usage />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/billing"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Billing />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/proxies"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Proxies />
-              </Suspense>
-            )}
-          />
-          <Route
-            path={STANDALONE_ADMIN_API_KEYS_PATH}
-            element={
-              adminApiKeysRedirect || !showStandaloneAdminApiKeys ? (
-                <Navigate to={adminApiKeysRedirect ?? '/dashboard'} replace />
-              ) : (
-                <Suspense fallback={<RouteSkeleton />}>
+      <Suspense fallback={<LoadingFallback />}>
+        <Routes>
+          <Route element={<AppLayout onLogout={handleLogout} capabilities={capabilities} />}>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/accounts" element={<Accounts />} />
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/models" element={<Models />} />
+            <Route path="/logs" element={<Logs />} />
+            <Route path="/system" element={<System />} />
+            <Route path="/billing" element={<Billing />} />
+            <Route path="/groups" element={<Groups />} />
+            <Route path="/imports" element={<ImportJobs />} />
+            <Route path="/oauth-import" element={<OAuthImport />} />
+            <Route path="/model-routing" element={<ModelRouting />} />
+            <Route path="/proxies" element={<Proxies />} />
+            <Route path="/config" element={<Config />} />
+            <Route
+              path="/tenants"
+              element={tenantsRedirect ? <Navigate to={tenantsRedirect} replace /> : <Tenants />}
+            />
+            <Route
+              path={LEGACY_STANDALONE_ADMIN_API_KEYS_PATH}
+              element={
+                <Navigate
+                  to={adminApiKeysRedirect ?? STANDALONE_ADMIN_API_KEYS_PATH}
+                  replace
+                />
+              }
+            />
+            <Route
+              path={STANDALONE_ADMIN_API_KEYS_PATH}
+              element={
+                adminApiKeysRedirect ? (
+                  <Navigate to={adminApiKeysRedirect} replace />
+                ) : (
                   <AdminApiKeys />
-                </Suspense>
-              )
-            }
-          />
-          <Route
-            path={LEGACY_STANDALONE_ADMIN_API_KEYS_PATH}
-            element={<Navigate to={STANDALONE_ADMIN_API_KEYS_PATH} replace />}
-          />
-          <Route
-            path="/tenants"
-            element={
-              tenantsRedirect || !capabilities.features.multi_tenant ? (
-                <Navigate to={tenantsRedirect ?? '/dashboard'} replace />
-              ) : (
-                <Suspense fallback={<RouteSkeleton />}>
-                  <Tenants />
-                </Suspense>
-              )
-            }
-          />
-          <Route
-            path="/config"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Config />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/logs"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <Logs />
-              </Suspense>
-            )}
-          />
-          <Route
-            path="/system"
-            element={(
-              <Suspense fallback={<RouteSkeleton />}>
-                <System />
-              </Suspense>
-            )}
-          />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Route>
-      </Routes>
+                )
+              }
+            />
+            <Route path="/usage" element={<Usage />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   )
 }
 
 function AppShell() {
-  const { t, i18n } = useTranslation()
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
-  const isTenantPath = pathname.startsWith('/tenant')
   const capabilitiesQuery = useQuery({
     queryKey: ['systemCapabilities'],
     queryFn: systemApi.getCapabilities,
     staleTime: 60_000,
   })
-  const shellTarget = resolveAppShellTarget(pathname, capabilitiesQuery.data)
   const capabilities = capabilitiesQuery.data ?? DEFAULT_SYSTEM_CAPABILITIES
+  const shellTarget = resolveAppShellTarget(pathname, capabilitiesQuery.data)
 
-  useEffect(() => {
-    if (isTenantPath && capabilities.features.tenant_portal && typeof window !== 'undefined') {
-      applyRouteSeo(pathname, t)
-    }
-  }, [
-    capabilities.features.tenant_portal,
-    isTenantPath,
-    pathname,
-    t,
-    i18n.resolvedLanguage,
-  ])
-
-  if (shellTarget === 'loading') {
-    return (
-      <LoadingScreen
-        title={t('common.routeLoading')}
-        description={t('common.loading')}
-        className="min-h-screen"
-      />
-    )
+  if (shellTarget === 'loading' || capabilitiesQuery.isLoading) {
+    return <LoadingFallback />
   }
 
   if (shellTarget === 'tenant') {
     return (
-      <Suspense fallback={<RouteSkeleton />}>
+      <Suspense fallback={<LoadingFallback />}>
         <TenantApp capabilities={capabilities} />
       </Suspense>
     )
@@ -415,17 +264,17 @@ function AppShell() {
   return <AdminApp capabilities={capabilities} />
 }
 
-function App() {
+export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="system" storageKey="codex-ui-theme">
+    <ThemeProvider defaultTheme="system" storageKey="codex-ui-theme">
+      <UiPreferencesProvider>
         <HeroUIProvider>
-          <NotificationCenter />
-          <AppShell />
+          <main className="bg-background text-foreground min-h-screen">
+            <AppShell />
+            <NotificationCenter />
+          </main>
         </HeroUIProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+      </UiPreferencesProvider>
+    </ThemeProvider>
   )
 }
-
-export default App

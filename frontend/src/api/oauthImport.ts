@@ -42,23 +42,29 @@ export interface CreateCodexOAuthLoginSessionRequest {
 }
 
 export const oauthImportApi = {
-  createCodexLoginSession: (payload: CreateCodexOAuthLoginSessionRequest) =>
-    apiClient.post<CodexOAuthLoginSession>(
+  createCodexLoginSession: async (payload: CreateCodexOAuthLoginSessionRequest) => {
+    const response = await apiClient.post<CodexOAuthLoginSession>(
       '/upstream-accounts/oauth/codex/login-sessions',
       payload,
       { timeout: 30000 },
-    ),
+    )
+    return response.data
+  },
 
-  getCodexLoginSession: (sessionId: string) =>
-    apiClient.get<CodexOAuthLoginSession>(
+  getCodexLoginSession: async (sessionId: string) => {
+    const response = await apiClient.get<CodexOAuthLoginSession>(
       `/upstream-accounts/oauth/codex/login-sessions/${sessionId}`,
       { timeout: 30000 },
-    ),
+    )
+    return response.data
+  },
 
-  submitCodexLoginCallback: (sessionId: string, redirectUrl: string) =>
-    apiClient.post<CodexOAuthLoginSession>(
+  submitCodexLoginCallback: async (sessionId: string, redirectUrl: string) => {
+    const response = await apiClient.post<CodexOAuthLoginSession>(
       `/upstream-accounts/oauth/codex/login-sessions/${sessionId}/callback`,
       { redirect_url: redirectUrl },
       { timeout: 30000 },
-    ),
+    )
+    return response.data
+  },
 }

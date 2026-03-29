@@ -31,26 +31,6 @@ export interface DataPlaneDebugState {
   failover_exhausted_total?: number
   same_account_retry_total?: number
   billing_authorize_total?: number
-  routing_cache_local_sticky_hit_total?: number
-  routing_cache_local_sticky_miss_total?: number
-  routing_cache_shared_sticky_hit_total?: number
-  routing_cache_shared_sticky_miss_total?: number
-  billing_preauth_error_ratio_count_total?: number
-  billing_preauth_error_ratio_avg?: number
-  billing_preauth_error_ratio_p50?: number
-  billing_preauth_error_ratio_p95?: number
-  billing_preauth_capture_missing_total?: number
-  billing_settle_complete_total?: number
-  billing_release_without_capture_total?: number
-  billing_settle_complete_ratio?: number
-  billing_release_without_capture_ratio?: number
-  billing_preauth_model_error_stats?: {
-    model: string
-    sample_count: number
-    avg_ratio: number
-    p50_ratio: number
-    p95_ratio: number
-  }[]
 }
 
 export interface ControlPlaneDebugState {
@@ -72,8 +52,15 @@ export interface RuntimeConfigSnapshot {
   notes?: string
 }
 
-export type ProductEdition = 'personal' | 'team' | 'business'
+export interface RuntimeConfigUpdateRequest {
+  data_plane_base_url?: string
+  auth_validate_url?: string
+  oauth_refresh_enabled?: boolean
+  oauth_refresh_interval_sec?: number
+  notes?: string
+}
 
+export type ProductEdition = 'personal' | 'team' | 'business'
 export type BillingMode = 'cost_report_only' | 'credit_enforced'
 
 export interface EditionFeatures {
@@ -91,14 +78,6 @@ export interface SystemCapabilitiesResponse {
   features: EditionFeatures
 }
 
-export interface RuntimeConfigUpdateRequest {
-  data_plane_base_url?: string
-  auth_validate_url?: string
-  oauth_refresh_enabled?: boolean
-  oauth_refresh_interval_sec?: number
-  notes?: string
-}
-
 export interface AdminSystemStateResponse {
   generated_at: string
   started_at: string
@@ -109,30 +88,6 @@ export interface AdminSystemStateResponse {
   control_plane_debug?: ControlPlaneDebugState
   data_plane_debug?: DataPlaneDebugState
   data_plane_error?: string
-}
-
-export interface UsageSummaryQueryResponse {
-  start_ts: number
-  end_ts: number
-  account_total_requests: number
-  tenant_api_key_total_requests: number
-  unique_account_count: number
-  unique_tenant_api_key_count: number
-  estimated_cost_microusd?: number
-  dashboard_metrics?: UsageDashboardMetrics
-}
-
-export interface HourlyUsageTotalPoint {
-  hour_start: number
-  request_count: number
-}
-
-export interface UsageHourlyTrendsResponse {
-  start_ts: number
-  end_ts: number
-  account_totals: HourlyUsageTotalPoint[]
-  tenant_api_key_totals: HourlyUsageTotalPoint[]
-  dashboard_metrics?: UsageDashboardMetrics
 }
 
 export interface UsageDashboardTokenBreakdown {
@@ -170,6 +125,30 @@ export interface UsageDashboardMetrics {
   model_token_distribution: UsageDashboardModelDistributionItem[]
 }
 
+export interface UsageSummaryQueryResponse {
+  start_ts: number
+  end_ts: number
+  account_total_requests: number
+  tenant_api_key_total_requests: number
+  unique_account_count: number
+  unique_tenant_api_key_count: number
+  estimated_cost_microusd?: number
+  dashboard_metrics?: UsageDashboardMetrics
+}
+
+export interface HourlyUsageTotalPoint {
+  hour_start: number
+  request_count: number
+}
+
+export interface UsageHourlyTrendsResponse {
+  start_ts: number
+  end_ts: number
+  account_totals: HourlyUsageTotalPoint[]
+  tenant_api_key_totals: HourlyUsageTotalPoint[]
+  dashboard_metrics?: UsageDashboardMetrics
+}
+
 export interface HourlyTenantUsageTotalPoint {
   tenant_id: string
   hour_start: number
@@ -198,15 +177,6 @@ export interface ApiKeyUsageLeaderboardItem {
   total_requests: number
 }
 
-export interface UsageLeaderboardOverviewResponse {
-  start_ts: number
-  end_ts: number
-  tenants: TenantUsageLeaderboardItem[]
-  accounts: AccountUsageLeaderboardItem[]
-  api_keys: ApiKeyUsageLeaderboardItem[]
-  summary?: UsageSummaryQueryResponse
-}
-
 export interface TenantUsageLeaderboardResponse {
   start_ts: number
   end_ts: number
@@ -223,6 +193,15 @@ export interface ApiKeyUsageLeaderboardResponse {
   start_ts: number
   end_ts: number
   items: ApiKeyUsageLeaderboardItem[]
+}
+
+export interface UsageLeaderboardOverviewResponse {
+  start_ts: number
+  end_ts: number
+  tenants: TenantUsageLeaderboardItem[]
+  accounts: AccountUsageLeaderboardItem[]
+  api_keys: ApiKeyUsageLeaderboardItem[]
+  summary?: UsageSummaryQueryResponse
 }
 
 export interface AdminLogEntry {

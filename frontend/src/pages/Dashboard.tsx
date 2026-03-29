@@ -1,7 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { type ColumnDef } from '@tanstack/react-table'
+import { Icon } from '@iconify/react'
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Chip,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+  Progress,
+  Spinner,
+} from '@heroui/react'
 import { useQuery } from '@tanstack/react-query'
-import { Archive, Building2, Gauge, RefreshCcw, ShieldCheck, Timer, TrendingUp, TriangleAlert, Users, Zap } from 'lucide-react'
+import {
+  AlertTriangle,
+  Archive,
+  Gauge,
+  RefreshCcw,
+  ShieldCheck,
+  Timer,
+  TriangleAlert,
+} from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -16,1416 +37,770 @@ import {
   YAxis,
 } from 'recharts'
 
-import { adminKeysApi } from '@/api/adminKeys'
-import { adminTenantsApi } from '@/api/adminTenants'
+import { useSpringNumber } from '@/lib/use-spring-number'
 import { accountPoolApi } from '@/api/accounts'
+import { PoolArcChart, type PoolArcSegment } from '@/features/dashboard/pool-arc-chart'
 import { dashboardApi } from '@/api/dashboard'
+import { adminApi } from '@/api/settings'
 import { usageApi } from '@/api/usage'
 import {
-  DashboardMetricCard,
-  DashboardMetricGrid,
-  DashboardShell,
-  PageIntro,
-  PagePanel,
-  SectionHeader,
+  DockedPageIntro,
+  PageContent,
 } from '@/components/layout/page-archetypes'
+import { CHART_SERIES_COLORS, useChartTheme } from '@/lib/chart-theme'
 import {
-  ChartAccessibility,
-  type ChartAccessibilityColumn,
-} from '@/components/ui/chart-accessibility'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
-import { ToggleBadgeButton } from '@/components/ui/toggle-badge-button'
-import {
-  buildTokenTrendA11yRows,
-  getVisibleTokenComponentKeys,
-  summarizeModelDistribution,
-  summarizeTokenTrendRows,
-  type TokenTrendA11yRow,
-} from '@/lib/dashboard-chart-a11y'
-import {
-  MODEL_DISTRIBUTION_BAR_COLOR,
-  TOKEN_COMPONENT_CHART_COLORS,
-} from '@/lib/dashboard-chart-theme'
-import {
-  buildModelDistributionPoints,
-  buildTokenTrendChartPoints,
-  computePerMinute,
-  loadTokenComponentSelection,
-  persistTokenComponentSelection,
-  toggleTokenComponent,
-  type ModelDistributionPoint,
-  type ModelDistributionMode,
-  type TokenComponentKey,
-  type TokenComponentSelection,
-} from '@/lib/dashboard-metrics'
-import {
-  formatDashboardCount,
-  formatDashboardDurationSeconds,
-  formatDashboardExactNumber,
-  formatDashboardMetric,
-  formatDashboardTokenCount,
-  formatDashboardTokenRate,
-  formatDashboardTrendTimestampLabel,
-} from '@/lib/dashboard-number-format'
-import { formatExactCount } from '@/lib/count-number-format'
-import { describeDashboardOverviewLayout } from '@/lib/page-archetypes'
+  buildDashboardKpis,
+  buildModelDistribution,
+  buildTopApiKeys,
+  buildTokenTrend,
+  buildTrafficData,
+} from '@/features/usage/contracts'
+import { formatDurationMs } from '@/lib/duration-format'
 import { cn } from '@/lib/utils'
 
-type AlertSeverity = 'critical' | 'warning' | 'info'
-type AlertStatus = 'open' | 'resolved'
-type DashboardScope = 'global' | 'tenant' | 'api_key'
-type RangePreset = 1 | 7 | 30
+const POOL_TONE_CLASS_NAMES = {
+  brand: 'border-primary-200 bg-primary-50 text-primary-700 dark:bg-primary/10 dark:text-primary-300',
+  success: 'border-success-200 bg-success-50 text-success-700 dark:bg-success/10 dark:text-success-300',
+  warning: 'border-warning-200 bg-warning-50 text-warning-700 dark:bg-warning/10 dark:text-warning-300',
+  danger: 'border-danger-200 bg-danger-50 text-danger-700 dark:bg-danger/10 dark:text-danger-300',
+} as const
 
-interface AlertRow {
-  id: string
-  severity: AlertSeverity
-  source: 'data_plane' | 'usage_repo'
-  status: AlertStatus
-  message: string
-  actionLabel: string
-  happenedAt: string
+const POOL_PROGRESS_COLORS = {
+  brand: 'primary',
+  success: 'success',
+  warning: 'warning',
+  danger: 'danger',
+} as const
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return n.toString()
 }
 
-interface DashboardTopKeyRow {
-  apiKeyId: string
-  tenantId: string
-  requests: number
-}
-
-interface StoredDashboardFilters {
-  scope: DashboardScope
-  rangePreset: RangePreset
-  tenantId: string
-  apiKeyId: string
-}
-
-interface TokenBreakdownRow {
-  key: TokenComponentKey
-  label: string
-  value: number
-  color: string
-}
-
-const DASHBOARD_FILTERS_STORAGE_KEY = 'cp:admin-dashboard-filters:v1'
-const ADMIN_TOKEN_COMPONENT_STORAGE_KEY = 'cp:admin-dashboard-token-components:v1'
-const ADMIN_MODEL_MODE_STORAGE_KEY = 'cp:admin-dashboard-model-mode:v1'
-
-function loadStoredFilters(): StoredDashboardFilters {
-  if (typeof window === 'undefined') {
-    return {
-      scope: 'global',
-      rangePreset: 1,
-      tenantId: '',
-      apiKeyId: '',
-    }
-  }
-  try {
-    const raw = window.localStorage.getItem(DASHBOARD_FILTERS_STORAGE_KEY)
-    if (!raw) {
-      return {
-        scope: 'global',
-        rangePreset: 1,
-        tenantId: '',
-        apiKeyId: '',
-      }
-    }
-    const parsed = JSON.parse(raw) as Partial<StoredDashboardFilters>
-    return {
-      // Avoid restoring stale tenant/api-key scoped filters that can easily look like "no data".
-      scope: 'global',
-      rangePreset: parsed.rangePreset ?? 1,
-      tenantId: '',
-      apiKeyId: '',
-    }
-  } catch {
-    return {
-      scope: 'global',
-      rangePreset: 1,
-      tenantId: '',
-      apiKeyId: '',
-    }
-  }
-}
-
-function loadModelMode(): ModelDistributionMode {
-  if (typeof window === 'undefined') {
-    return 'requests'
-  }
-  const raw = window.localStorage.getItem(ADMIN_MODEL_MODE_STORAGE_KEY)
-  return raw === 'tokens' ? 'tokens' : 'requests'
-}
-
-function compactTenantId(tenantId: string): string {
-  if (tenantId.length <= 14) {
-    return tenantId
-  }
-  return `${tenantId.slice(0, 8)}...${tenantId.slice(-4)}`
+/** 弹簧动画数字：从旧值平滑过渡到新值，刷新时有触感反馈 */
+function SpringKpiValue({ rawValue, format }: { rawValue: number; format: (n: number) => string }) {
+  const animated = useSpringNumber(rawValue, { stiffness: 100, damping: 18 })
+  return <>{format(animated)}</>
 }
 
 export default function Dashboard() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
-  const [scope, setScope] = useState<DashboardScope>(() => loadStoredFilters().scope)
-  const [rangePreset, setRangePreset] = useState<RangePreset>(() => loadStoredFilters().rangePreset)
-  const [selectedTenantId, setSelectedTenantId] = useState<string>(() => loadStoredFilters().tenantId)
-  const [selectedApiKeyId, setSelectedApiKeyId] = useState<string>(() => loadStoredFilters().apiKeyId)
-  const [rangeAnchorMs, setRangeAnchorMs] = useState<number>(() => Date.now())
-  const [manualRefreshing, setManualRefreshing] = useState(false)
-  const refreshIndicatorTimerRef = useRef<number | null>(null)
-  const [tokenComponents, setTokenComponents] = useState<TokenComponentSelection>(() =>
-    loadTokenComponentSelection(ADMIN_TOKEN_COMPONENT_STORAGE_KEY),
-  )
-  const [modelMode, setModelMode] = useState<ModelDistributionMode>(() => loadModelMode())
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const payload: StoredDashboardFilters = {
-      scope,
-      rangePreset,
-      tenantId: selectedTenantId,
-      apiKeyId: selectedApiKeyId,
-    }
-    window.localStorage.setItem(DASHBOARD_FILTERS_STORAGE_KEY, JSON.stringify(payload))
-  }, [scope, rangePreset, selectedTenantId, selectedApiKeyId])
-
-  useEffect(() => {
-    persistTokenComponentSelection(ADMIN_TOKEN_COMPONENT_STORAGE_KEY, tokenComponents)
-  }, [tokenComponents])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(ADMIN_MODEL_MODE_STORAGE_KEY, modelMode)
-  }, [modelMode])
-
-  const { startTs, endTs } = useMemo(() => {
-    const end = Math.floor(rangeAnchorMs / 1000)
-    const start = end - rangePreset * 24 * 60 * 60
-    return { startTs: start, endTs: end }
-  }, [rangeAnchorMs, rangePreset])
-  const scopeLabel = (currentScope: DashboardScope) => {
-    if (currentScope === 'global') {
-      return t('dashboard.scope.global', { defaultValue: '全局视角' })
-    }
-    if (currentScope === 'tenant') {
-      return t('dashboard.scope.tenant', { defaultValue: '租户视角' })
-    }
-    return t('dashboard.scope.apiKey', { defaultValue: 'API密钥视角' })
-  }
-
-  const { data: tenants = [] } = useQuery({
-    queryKey: ['adminDashboardTenants'],
-    queryFn: () => adminTenantsApi.listTenants(),
-    staleTime: 60_000,
+  const { textColor: chartTextColor, gridColor: chartGridColor, tooltipStyle: chartTooltipStyle } = useChartTheme()
+  const prefersReducedMotion =
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const [{ startTs, endTs }] = useState(() => {
+    const endTs = Math.floor(Date.now() / 1000)
+    const startTs = endTs - 86400
+    return { startTs, endTs }
   })
 
-  const { data: adminApiKeys = [] } = useQuery({
-    queryKey: ['adminDashboardApiKeys'],
-    queryFn: () => adminKeysApi.list(),
-    staleTime: 60_000,
-  })
-
-  const effectiveTenantId = useMemo(() => {
-    if (scope === 'global') return ''
-    if (selectedTenantId) return selectedTenantId
-    return tenants[0]?.id ?? ''
-  }, [scope, selectedTenantId, tenants])
-
-  const filteredApiKeys = useMemo(() => {
-    if (!effectiveTenantId) return adminApiKeys
-    return adminApiKeys.filter((key) => key.tenant_id === effectiveTenantId)
-  }, [adminApiKeys, effectiveTenantId])
-
-  const effectiveApiKeyId = useMemo(() => {
-    if (scope !== 'api_key') return ''
-    if (selectedApiKeyId && filteredApiKeys.some((item) => item.id === selectedApiKeyId)) {
-      return selectedApiKeyId
-    }
-    return filteredApiKeys[0]?.id ?? ''
-  }, [filteredApiKeys, scope, selectedApiKeyId])
-
-  const usageQueryParams = useMemo(() => {
-    const params: {
-      start_ts: number
-      end_ts: number
-      tenant_id?: string
-      account_id?: string
-      api_key_id?: string
-      limit?: number
-    } = {
-      start_ts: startTs,
-      end_ts: endTs,
-      limit: Math.max(24, rangePreset * 24),
-    }
-    if (scope === 'tenant' && effectiveTenantId) {
-      params.tenant_id = effectiveTenantId
-    }
-    if (scope === 'api_key') {
-      if (effectiveTenantId) {
-        params.tenant_id = effectiveTenantId
-      }
-      if (effectiveApiKeyId) {
-        params.api_key_id = effectiveApiKeyId
-      }
-    }
-    return params
-  }, [effectiveApiKeyId, effectiveTenantId, endTs, rangePreset, scope, startTs])
-
-  const {
-    data: systemState,
-    isLoading: isLoadingSystem,
-    refetch: refetchSystem,
-    isFetching: isRefetchingSystem,
-  } = useQuery({
-    queryKey: ['adminSystemState'],
-    queryFn: dashboardApi.getSystemState,
+  const { data: systemState, isLoading: isLoadingSystem } = useQuery({
+    queryKey: ['dashboardSystemState'],
+    queryFn: adminApi.getSystemState,
     refetchInterval: 30_000,
+  })
+
+  const { data: summaryData, isLoading: isLoadingSummary } = useQuery({
+    queryKey: ['dashboardUsageSummary', startTs, endTs],
+    queryFn: () => dashboardApi.getUsageSummary({ start_ts: startTs, end_ts: endTs }),
+    refetchInterval: 30_000,
+  })
+
+  const { data: hourlyTrends, isLoading: isLoadingTrends } = useQuery({
+    queryKey: ['dashboardHourlyTrends', startTs, endTs],
+    queryFn: () =>
+      dashboardApi.getHourlyTrends({
+        start_ts: startTs,
+        end_ts: endTs,
+        limit: 24,
+      }),
+    refetchInterval: 30_000,
+  })
+
+  const { data: leaderboard, isLoading: isLoadingLeaderboard } = useQuery({
+    queryKey: ['dashboardLeaderboard', startTs, endTs],
+    queryFn: () =>
+      usageApi.getLeaderboard({
+        start_ts: startTs,
+        end_ts: endTs,
+        limit: 5,
+      }),
+    refetchInterval: 60_000,
   })
 
   const { data: accountPoolSummary } = useQuery({
     queryKey: ['dashboardAccountPoolSummary'],
     queryFn: accountPoolApi.getSummary,
-    staleTime: 60_000,
     refetchInterval: 60_000,
   })
 
-  const {
-    data: summaryData,
-    isLoading: isLoadingSummary,
-    refetch: refetchSummary,
-    isFetching: isRefetchingSummary,
-  } = useQuery({
-    queryKey: ['usageSummary', usageQueryParams],
-    queryFn: () => dashboardApi.getUsageSummary(usageQueryParams),
-    refetchInterval: 30_000,
-  })
+  const kpis = buildDashboardKpis(summaryData, systemState?.counts)
+  const alerts = useMemo(() => {
+    const next: Array<{
+      id: string
+      severity: 'critical' | 'warning'
+      status: 'open' | 'resolved'
+      message: string
+    }> = []
 
-  const {
-    data: leaderboardData,
-    isLoading: isLoadingLeaderboard,
-    refetch: refetchLeaderboard,
-    isFetching: isRefetchingLeaderboard,
-  } = useQuery({
-    queryKey: ['dashboardLeaderboard', usageQueryParams],
-    queryFn: () =>
-      usageApi.getLeaderboard({
-        start_ts: usageQueryParams.start_ts,
-        end_ts: usageQueryParams.end_ts,
-        limit: 12,
-        tenant_id: usageQueryParams.tenant_id,
-        api_key_id: usageQueryParams.api_key_id,
-      }),
-    refetchInterval: 60_000,
-  })
-
-  const isRefreshing = manualRefreshing || isRefetchingSystem || isRefetchingSummary || isRefetchingLeaderboard
-  const isLoading = isLoadingSystem || isLoadingSummary
-
-  const handleRefresh = () => {
-    setRangeAnchorMs(Date.now())
-    if (refreshIndicatorTimerRef.current !== null) {
-      window.clearTimeout(refreshIndicatorTimerRef.current)
-    }
-    setManualRefreshing(true)
-    refreshIndicatorTimerRef.current = window.setTimeout(() => {
-      setManualRefreshing(false)
-      refreshIndicatorTimerRef.current = null
-    }, 500)
-    refetchSystem()
-    refetchSummary()
-    refetchLeaderboard()
-  }
-
-  useEffect(() => {
-    return () => {
-      if (refreshIndicatorTimerRef.current !== null) {
-        window.clearTimeout(refreshIndicatorTimerRef.current)
-      }
-    }
-  }, [])
-
-  const logsSearch = useMemo(() => {
-    const params = new URLSearchParams()
-    params.set('tab', 'request')
-    params.set('range', String(rangePreset))
-    if (scope !== 'global' && effectiveTenantId) {
-      params.set('tenant_id', effectiveTenantId)
-    }
-    if (scope === 'api_key' && effectiveApiKeyId) {
-      params.set('api_key_id', effectiveApiKeyId)
-    }
-    return params.toString()
-  }, [effectiveApiKeyId, effectiveTenantId, rangePreset, scope])
-
-  const billingSearch = useMemo(() => {
-    const params = new URLSearchParams()
-    params.set('granularity', rangePreset === 30 ? 'month' : 'day')
-    if (effectiveTenantId) {
-      params.set('tenant_id', effectiveTenantId)
-    }
-    return params.toString()
-  }, [effectiveTenantId, rangePreset])
-
-  const detailedDateTimeFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(i18n.resolvedLanguage, {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }),
-    [i18n.resolvedLanguage],
-  )
-
-  const dashboardMetrics = summaryData?.dashboard_metrics
-  const tokenBreakdown = dashboardMetrics?.token_breakdown ?? {
-    input_tokens: 0,
-    cached_input_tokens: 0,
-    output_tokens: 0,
-    reasoning_tokens: 0,
-    total_tokens: 0,
-  }
-  const inputTokens = tokenBreakdown.input_tokens
-  const cachedInputTokens = tokenBreakdown.cached_input_tokens
-  const outputTokens = tokenBreakdown.output_tokens
-  const reasoningTokens = tokenBreakdown.reasoning_tokens
-  const totalRequests = dashboardMetrics?.total_requests
-    ?? (scope === 'global'
-      ? summaryData?.account_total_requests ?? 0
-      : summaryData?.tenant_api_key_total_requests ?? 0)
-  const totalTokens = tokenBreakdown.total_tokens
-  const rpm = computePerMinute(totalRequests, usageQueryParams.start_ts, usageQueryParams.end_ts)
-  const tpm = computePerMinute(totalTokens, usageQueryParams.start_ts, usageQueryParams.end_ts)
-  const avgFirstTokenSec = typeof dashboardMetrics?.avg_first_token_latency_ms === 'number'
-    ? dashboardMetrics.avg_first_token_latency_ms / 1000
-    : null
-  const tokenTrendData = useMemo(() => buildTokenTrendChartPoints(dashboardMetrics), [dashboardMetrics])
-  const modelDistributionData = useMemo(
-    () => buildModelDistributionPoints(dashboardMetrics, modelMode),
-    [dashboardMetrics, modelMode],
-  )
-
-  const metrics = [
-    {
-      id: 'total_requests',
-      title: t('dashboard.kpi.totalRequests', { defaultValue: 'Total requests' }),
-      value: formatDashboardCount(totalRequests),
-      exactValue: formatExactCount(totalRequests),
-      change: `${scopeLabel(scope)} / ${rangePreset === 1 ? '24h' : `${rangePreset}d`}`,
-      icon: TrendingUp,
-    },
-    {
-      id: 'total_tokens',
-      title: t('dashboard.kpi.totalTokens', { defaultValue: 'Token consumption total' }),
-      value: formatDashboardTokenCount(totalTokens),
-      exactValue: formatExactCount(totalTokens),
-      change: t('dashboard.kpi.totalTokensDesc', { defaultValue: 'Input + cached + output + reasoning' }),
-      icon: Zap,
-    },
-    {
-      id: 'rpm',
-      title: t('dashboard.kpi.rpm', { defaultValue: 'RPM' }),
-      value: formatDashboardMetric(rpm),
-      exactValue: formatDashboardExactNumber(rpm),
-      change: t('dashboard.kpi.rpmDesc', { defaultValue: 'Requests per minute' }),
-      icon: Gauge,
-    },
-    {
-      id: 'tpm',
-      title: t('dashboard.kpi.tpm', { defaultValue: 'TPM' }),
-      value: formatDashboardTokenRate(tpm),
-      exactValue: formatDashboardExactNumber(tpm),
-      change: t('dashboard.kpi.tpmDesc', { defaultValue: 'Tokens per minute' }),
-      icon: Gauge,
-    },
-    {
-      id: 'avg_first_token_speed',
-      title: t('dashboard.kpi.avgFirstTokenSpeed', { defaultValue: 'Average first-token speed' }),
-      value: formatDashboardDurationSeconds(avgFirstTokenSec),
-      exactValue: formatDashboardDurationSeconds(avgFirstTokenSec),
-      change: t('dashboard.kpi.avgFirstTokenSpeedDesc', { defaultValue: 'TTFT (streaming exact / non-stream approximate)' }),
-      icon: Timer,
-    },
-    {
-      id: 'tenant_count',
-      title: t('dashboard.kpi.tenants', { defaultValue: 'Tenants' }),
-      value: formatDashboardCount(systemState?.counts.tenants ?? 0),
-      exactValue: formatExactCount(systemState?.counts.tenants ?? 0),
-      change: t('dashboard.kpi.tenantsDesc', { defaultValue: 'Admin-only operational metric' }),
-      icon: Building2,
-    },
-    {
-      id: 'account_count',
-      title: t('dashboard.kpi.accounts', { defaultValue: 'Accounts' }),
-      value: formatDashboardCount(systemState?.counts.total_accounts ?? 0),
-      exactValue: formatExactCount(systemState?.counts.total_accounts ?? 0),
-      change: t('dashboard.kpi.accountsDesc', { defaultValue: 'Admin-only operational metric' }),
-      icon: Users,
-    },
-    {
-      id: 'api_key_count',
-      title: t('dashboard.kpi.apiKeys', { defaultValue: 'API keys' }),
-      value: formatDashboardCount(systemState?.counts.api_keys ?? 0),
-      exactValue: formatExactCount(systemState?.counts.api_keys ?? 0),
-      change: t('dashboard.kpi.apiKeysDesc', { defaultValue: 'Configured keys in system' }),
-      icon: Zap,
-    },
-  ]
-
-  const alerts = useMemo<AlertRow[]>(() => {
-    if (!systemState) {
-      return []
-    }
-
-    const rows: AlertRow[] = []
-
-    if (systemState.data_plane_error) {
-      rows.push({
-        id: 'data_plane_error',
+    if (systemState?.data_plane_error) {
+      next.push({
+        id: 'data-plane-error',
         severity: 'critical',
-        source: 'data_plane',
         status: 'open',
-        message: systemState.data_plane_error,
-        actionLabel: t('dashboard.alerts.checkRoutes'),
-        happenedAt: systemState.generated_at,
+        message: t('dashboard.alerts.dataPlaneDisconnected', {
+          defaultValue: 'Data plane is disconnected',
+        }),
       })
     }
-
-    if (!systemState.usage_repo_available) {
-      rows.push({
-        id: 'usage_repo_unavailable',
+    if (systemState && !systemState.usage_repo_available) {
+      next.push({
+        id: 'usage-repo-unavailable',
         severity: 'warning',
-        source: 'usage_repo',
         status: 'open',
-        message: t('dashboard.alerts.usageRepoUnavailable'),
-        actionLabel: t('dashboard.alerts.resolve'),
-        happenedAt: systemState.generated_at,
+        message: t('dashboard.alerts.usageRepoUnavailable', {
+          defaultValue: 'Usage analytics storage is unavailable',
+        }),
       })
     }
 
-    return rows
+    return next
   }, [systemState, t])
 
-  const openAlertCount = alerts.filter((item) => item.status === 'open').length
+  const trafficData = useMemo(() => buildTrafficData(hourlyTrends), [hourlyTrends])
+  const tokenTrend = useMemo(() => buildTokenTrend(summaryData), [summaryData])
+  const topApiKeys = useMemo(() => buildTopApiKeys(leaderboard), [leaderboard])
+  const topApiKeysMax = topApiKeys[0]?.requests ?? 0
+  const modelDistribution = useMemo(() => buildModelDistribution(summaryData), [summaryData])
 
-  const alertColumns = useMemo<ColumnDef<AlertRow>[]>(() => {
-    return [
-      {
-        id: 'severity',
-        header: t('dashboard.alerts.columns.severity'),
-        accessorFn: (row) => row.severity,
-        cell: ({ row }) => {
-          const severity = row.original.severity
-          const variant =
-            severity === 'critical' ? 'destructive' : severity === 'warning' ? 'warning' : 'secondary'
-          return (
-            <Badge variant={variant} className="uppercase text-[10px]">
-              {t(`dashboard.alerts.severity.${severity}`)}
-            </Badge>
-          )
-        },
-      },
-      {
-        id: 'source',
-        header: t('dashboard.alerts.columns.source'),
-        accessorFn: (row) => row.source,
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {t(`dashboard.alerts.source.${row.original.source}`)}
-          </span>
-        ),
-      },
-      {
-        id: 'message',
-        header: t('dashboard.alerts.columns.message'),
-        accessorFn: (row) => row.message.toLowerCase(),
-        cell: ({ row }) => <span className="text-sm leading-6">{row.original.message}</span>,
-      },
-      {
-        id: 'status',
-        header: t('dashboard.alerts.columns.status'),
-        accessorFn: (row) => row.status,
-        cell: ({ row }) => {
-          const status = row.original.status
-          const variant = status === 'open' ? 'warning' : 'success'
-          return <Badge variant={variant}>{t(`dashboard.alerts.status.${status}`)}</Badge>
-        },
-      },
-      {
-        id: 'happenedAt',
-        header: t('dashboard.alerts.columns.time'),
-        accessorFn: (row) => new Date(row.happenedAt).getTime(),
-        cell: ({ row }) => (
-          <span className="font-mono text-xs">
-            {detailedDateTimeFormatter.format(new Date(row.original.happenedAt))}
-          </span>
-        ),
-      },
-      {
-        id: 'action',
-        header: t('dashboard.alerts.columns.action'),
-        accessorFn: (row) => row.actionLabel.toLowerCase(),
-        cell: ({ row }) => <span className="text-xs text-primary">{row.original.actionLabel}</span>,
-      },
-    ]
-  }, [detailedDateTimeFormatter, t])
+  // 图表版本号：数据更新时递增，用作 key 强制重新运行入场动画
+  const chartAnimKey = useMemo(() => ({
+    traffic: `traffic-${hourlyTrends?.account_totals?.length ?? 0}-${hourlyTrends?.account_totals?.[0]?.hour_start ?? 0}`,
+    token: `token-${summaryData?.dashboard_metrics?.token_trends?.length ?? 0}`,
+    model: `model-${modelDistribution.length}-${modelDistribution[0]?.requests ?? 0}`,
+  }), [hourlyTrends, summaryData, modelDistribution])
 
-  const topKeyRows = useMemo<DashboardTopKeyRow[]>(
-    () =>
-      (leaderboardData?.api_keys ?? []).map((item) => ({
-        apiKeyId: item.api_key_id,
-        tenantId: item.tenant_id,
-        requests: item.total_requests,
-      })),
-    [leaderboardData?.api_keys],
-  )
-
-  const topKeyColumns = useMemo<ColumnDef<DashboardTopKeyRow>[]>(
+  const overviewMetrics = useMemo(
     () => [
       {
-        id: 'apiKeyId',
-        header: t('dashboard.table.apiKey', { defaultValue: 'API Key' }),
-        accessorFn: (row) => row.apiKeyId.toLowerCase(),
-        cell: ({ row }) => (
-          <div className="space-y-1">
-            <div className="font-medium">{row.original.apiKeyId}</div>
-            <div className="text-xs text-muted-foreground">{row.original.tenantId}</div>
-          </div>
-        ),
+        title: t('dashboard.kpi.totalRequests'),
+        rawValue: kpis.totalRequests,
+        format: formatNumber,
+        description: t('dashboard.antigravity.last24Hours', { defaultValue: 'Last 24 hours' }),
       },
       {
-        id: 'requests',
-        header: t('dashboard.table.requests', { defaultValue: 'Requests' }),
-        accessorKey: 'requests',
-        cell: ({ row }) => (
-          <span
-            className="font-mono"
-            title={formatExactCount(row.original.requests)}
-          >
-            {formatDashboardCount(row.original.requests)}
-          </span>
-        ),
+        title: t('dashboard.kpi.totalTokens'),
+        rawValue: kpis.totalTokens,
+        format: formatNumber,
+        description: t('dashboard.kpi.totalTokensDesc'),
+      },
+      {
+        title: t('dashboard.kpi.rpm'),
+        rawValue: kpis.rpm,
+        format: (n: number) => n.toString(),
+        description: t('dashboard.kpi.rpmDesc'),
+      },
+      {
+        title: t('dashboard.kpi.avgFirstTokenSpeed'),
+        rawValue: kpis.avgFirstTokenMs,
+        format: formatDurationMs,
+        description: t('dashboard.kpi.avgFirstTokenSpeedDesc'),
+      },
+      {
+        title: t('dashboard.kpi.tenants'),
+        rawValue: kpis.tenantCount,
+        format: (n: number) => n.toString(),
+        description: t('dashboard.kpi.tenantsDesc'),
+      },
+      {
+        title: t('dashboard.kpi.accounts'),
+        rawValue: kpis.accountCount,
+        format: (n: number) => n.toString(),
+        description: t('dashboard.antigravity.activeAccounts', {
+          count: kpis.activeAccounts,
+          defaultValue: '{{count}} active',
+        }),
+      },
+      {
+        title: t('dashboard.kpi.apiKeys'),
+        rawValue: kpis.apiKeyCount,
+        format: (n: number) => n.toString(),
+        description: t('dashboard.kpi.apiKeysDesc'),
+      },
+      {
+        title: t('dashboard.kpi.tpm'),
+        rawValue: kpis.tpm,
+        format: formatNumber,
+        description: t('dashboard.kpi.tpmDesc'),
       },
     ],
-    [t],
+    [kpis, t],
   )
 
-  const tenantSelectValue = effectiveTenantId || '__none__'
-  const apiKeySelectValue = effectiveApiKeyId || '__none__'
-
-  const tokenLabelByKey = useMemo<Record<TokenComponentKey, string>>(
-    () => ({
-      input: t('dashboard.tokenComponents.input', { defaultValue: 'Input' }),
-      cached: t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' }),
-      output: t('dashboard.tokenComponents.output', { defaultValue: 'Output' }),
-      reasoning: t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' }),
-    }),
-    [t],
+  const poolOverviewMetrics = useMemo(
+    () => [
+      {
+        title: t('dashboard.poolOverview.inventory'),
+        value: accountPoolSummary?.inventory ?? 0,
+        description: t('dashboard.poolOverview.inventoryDesc'),
+        tone: 'brand' as const,
+        icon: <Archive aria-hidden="true" className="h-5 w-5" />,
+      },
+      {
+        title: t('dashboard.poolOverview.routable'),
+        value: accountPoolSummary?.routable ?? 0,
+        description: t('dashboard.poolOverview.routableDesc'),
+        tone: 'success' as const,
+        icon: <ShieldCheck aria-hidden="true" className="h-5 w-5" />,
+      },
+      {
+        title: t('dashboard.poolOverview.cooling'),
+        value: accountPoolSummary?.cooling ?? 0,
+        description: t('dashboard.poolOverview.coolingDesc'),
+        tone: 'warning' as const,
+        icon: <Gauge aria-hidden="true" className="h-5 w-5" />,
+      },
+      {
+        title: t('dashboard.poolOverview.pendingDelete'),
+        value: accountPoolSummary?.pending_delete ?? 0,
+        description: t('dashboard.poolOverview.pendingDeleteDesc'),
+        tone: 'danger' as const,
+        icon: <TriangleAlert aria-hidden="true" className="h-5 w-5" />,
+      },
+    ],
+    [accountPoolSummary, t],
   )
-  const tokenBreakdownRows: TokenBreakdownRow[] = [
-    {
-      key: 'input',
-      label: tokenLabelByKey.input,
-      value: inputTokens,
-      color: TOKEN_COMPONENT_CHART_COLORS.input,
-    },
-    {
-      key: 'cached',
-      label: tokenLabelByKey.cached,
-      value: cachedInputTokens,
-      color: TOKEN_COMPONENT_CHART_COLORS.cached,
-    },
-    {
-      key: 'output',
-      label: tokenLabelByKey.output,
-      value: outputTokens,
-      color: TOKEN_COMPONENT_CHART_COLORS.output,
-    },
-    {
-      key: 'reasoning',
-      label: tokenLabelByKey.reasoning,
-      value: reasoningTokens,
-      color: TOKEN_COMPONENT_CHART_COLORS.reasoning,
-    },
-  ]
-  const overviewLayout = describeDashboardOverviewLayout()
-  const dashboardSelectTriggerClassName = 'min-h-11 rounded-[0.8rem] border-border/75 bg-background/84 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] md:min-h-0 md:h-10'
-  const dashboardButtonClassName = 'min-h-11 rounded-[0.8rem] px-3.5 md:min-h-0 md:h-10'
-  const toggleBadgeButtonClassName = (pressed: boolean) =>
-    cn(
-      'gap-2 rounded-[0.8rem] border-border/70 bg-background/84 px-3 py-1.5 text-xs font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]',
-      pressed
-        ? 'bg-accent text-accent-foreground hover:bg-accent/92'
-        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+
+  const totalManagedPool = useMemo(
+    () => poolOverviewMetrics.reduce((sum, metric) => sum + metric.value, 0),
+    [poolOverviewMetrics],
+  )
+
+  const poolArcSegments = useMemo<PoolArcSegment[]>(
+    () => [
+      {
+        label: t('dashboard.poolOverview.inventory'),
+        value: accountPoolSummary?.inventory ?? 0,
+        color: 'oklch(55% 0.14 180)',
+        colorDark: 'oklch(72% 0.14 180)',
+      },
+      {
+        label: t('dashboard.poolOverview.routable'),
+        value: accountPoolSummary?.routable ?? 0,
+        color: 'oklch(50% 0.18 145)',
+        colorDark: 'oklch(70% 0.18 145)',
+      },
+      {
+        label: t('dashboard.poolOverview.cooling'),
+        value: accountPoolSummary?.cooling ?? 0,
+        color: 'oklch(62% 0.16 70)',
+        colorDark: 'oklch(78% 0.16 70)',
+      },
+      {
+        label: t('dashboard.poolOverview.pendingDelete'),
+        value: accountPoolSummary?.pending_delete ?? 0,
+        color: 'oklch(50% 0.20 25)',
+        colorDark: 'oklch(68% 0.20 25)',
+      },
+    ],
+    [accountPoolSummary, t],
+  )
+
+  const healthSignalMetrics = useMemo(
+    () => [
+      {
+        title: t('dashboard.healthSignals.healthy'),
+        value: accountPoolSummary?.healthy ?? 0,
+        description: t('dashboard.healthSignals.healthyDesc'),
+        icon: <ShieldCheck aria-hidden="true" className="h-4 w-4 text-success" />,
+      },
+      {
+        title: t('dashboard.healthSignals.quota'),
+        value: accountPoolSummary?.quota ?? 0,
+        description: t('dashboard.healthSignals.quotaDesc'),
+        icon: <Timer aria-hidden="true" className="h-4 w-4 text-warning" />,
+      },
+      {
+        title: t('dashboard.healthSignals.fatal'),
+        value: accountPoolSummary?.fatal ?? 0,
+        description: t('dashboard.healthSignals.fatalDesc'),
+        icon: <TriangleAlert aria-hidden="true" className="h-4 w-4 text-danger" />,
+      },
+      {
+        title: t('dashboard.healthSignals.transient'),
+        value: accountPoolSummary?.transient ?? 0,
+        description: t('dashboard.healthSignals.transientDesc'),
+        icon: <RefreshCcw aria-hidden="true" className="h-4 w-4 text-secondary" />,
+      },
+      {
+        title: t('dashboard.healthSignals.admin'),
+        value: accountPoolSummary?.admin ?? 0,
+        description: t('dashboard.healthSignals.adminDesc'),
+        icon: <Archive aria-hidden="true" className="h-4 w-4 text-primary" />,
+      },
+    ],
+    [accountPoolSummary, t],
+  )
+
+  const isLoading = isLoadingSystem || isLoadingSummary || isLoadingTrends || isLoadingLeaderboard
+
+  const handlePoolOverviewAction = (actionKey: string | number) => {
+    switch (String(actionKey)) {
+      case 'accounts':
+        navigate('/accounts')
+        break
+      case 'logs':
+        navigate('/logs')
+        break
+      case 'imports':
+        navigate('/imports')
+        break
+      default:
+        break
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-100px)] w-full items-center justify-center">
+        <Spinner
+          size="lg"
+          color="primary"
+          label={t('dashboard.antigravity.loading', { defaultValue: 'Loading dashboard data…' })}
+        />
+      </div>
     )
-  const visibleTokenComponentKeys = useMemo(
-    () => getVisibleTokenComponentKeys(tokenComponents),
-    [tokenComponents],
-  )
-  const tokenTrendA11yRows = useMemo(
-    () => buildTokenTrendA11yRows(tokenTrendData, tokenComponents),
-    [tokenComponents, tokenTrendData],
-  )
-  const tokenTrendA11yColumns = useMemo<ChartAccessibilityColumn<TokenTrendA11yRow>[]>(
-    () => [
-      {
-        key: 'timestamp',
-        header: t('dashboard.tokenTrend.a11y.timestamp', {
-          defaultValue: 'Timestamp',
-        }),
-        render: (row: TokenTrendA11yRow) =>
-          formatDashboardTrendTimestampLabel(row.timestamp, {
-            locale: i18n.resolvedLanguage,
-          }),
-      },
-      ...visibleTokenComponentKeys.map(
-        (key): ChartAccessibilityColumn<TokenTrendA11yRow> => ({
-          key,
-          header: tokenLabelByKey[key],
-          render: (row: TokenTrendA11yRow) =>
-            formatDashboardTokenCount(
-              row.values.find(
-                (value: TokenTrendA11yRow['values'][number]) => value.key === key,
-              )?.value ?? 0,
-              i18n.resolvedLanguage,
-            ),
-        }),
-      ),
-    ],
-    [i18n.resolvedLanguage, t, tokenLabelByKey, visibleTokenComponentKeys],
-  )
-  const tokenTrendA11ySummary = useMemo(() => {
-    const summary = summarizeTokenTrendRows(tokenTrendA11yRows)
-
-    if (summary.rowCount === 0 || summary.startTimestamp === null || summary.endTimestamp === null) {
-      return t('dashboard.tokenTrend.a11y.summaryEmpty', {
-        defaultValue: 'No token trend data is available for the current selection.',
-      })
-    }
-
-    return t('dashboard.tokenTrend.a11y.summary', {
-      defaultValue: 'Hourly token trend covering {{count}} time points from {{start}} to {{end}}. Accessible data table follows.',
-      count: summary.rowCount,
-      start: formatDashboardTrendTimestampLabel(summary.startTimestamp, {
-        locale: i18n.resolvedLanguage,
-      }),
-      end: formatDashboardTrendTimestampLabel(summary.endTimestamp, {
-        locale: i18n.resolvedLanguage,
-      }),
-    })
-  }, [i18n.resolvedLanguage, t, tokenTrendA11yRows])
-  const modelDistributionA11ySummary = useMemo(() => {
-    const summary = summarizeModelDistribution(modelDistributionData)
-
-    if (summary.rowCount === 0 || !summary.topLabel) {
-      return t('dashboard.modelDistribution.a11y.summaryEmpty', {
-        defaultValue: 'No model distribution data is available for the current selection.',
-      })
-    }
-
-    return t('dashboard.modelDistribution.a11y.summary', {
-      defaultValue: 'Model distribution includes {{count}} rows sorted by {{mode}}. Leading model: {{top}}. Accessible data table follows.',
-      count: summary.rowCount,
-      mode:
-        modelMode === 'tokens'
-          ? t('dashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })
-          : t('dashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' }),
-      top: summary.topLabel,
-    })
-  }, [modelDistributionData, modelMode, t])
-  const modelDistributionA11yColumns = useMemo<ChartAccessibilityColumn<ModelDistributionPoint>[]>(
-    () => [
-      {
-        key: 'model',
-        header: t('dashboard.modelDistribution.a11y.model', {
-          defaultValue: 'Model',
-        }),
-        render: (row) =>
-          row.model === 'other'
-            ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
-            : row.model,
-      },
-      {
-        key: 'value',
-        header:
-          modelMode === 'tokens'
-            ? t('dashboard.modelDistribution.modeTokens', {
-                defaultValue: 'By tokens',
-              })
-            : t('dashboard.modelDistribution.modeRequests', {
-                defaultValue: 'By requests',
-              }),
-        render: (row) =>
-          modelMode === 'tokens'
-            ? formatDashboardTokenCount(row.value, i18n.resolvedLanguage)
-            : formatDashboardCount(row.value, i18n.resolvedLanguage),
-      },
-    ],
-    [i18n.resolvedLanguage, modelMode, t],
-  )
-
-  const rangeLabel =
-    rangePreset === 1
-      ? t('dashboard.filters.range.last24Hours', { defaultValue: 'Last 24 hours' })
-      : rangePreset === 7
-        ? t('dashboard.filters.range.last7Days', { defaultValue: 'Last 7 days' })
-        : t('dashboard.filters.range.last30Days', { defaultValue: 'Last 30 days' })
-
-  const operationalPulseItems = [
-    {
-      id: 'alerts',
-      label: t('dashboard.overview.openAlerts', { defaultValue: 'Open alerts' }),
-      value: formatDashboardCount(openAlertCount),
-      tone:
-        openAlertCount > 0
-          ? 'text-amber-700 dark:text-amber-300'
-          : 'text-emerald-700 dark:text-emerald-300',
-      meta:
-        openAlertCount > 0
-          ? t('dashboard.overview.attentionNeeded', { defaultValue: 'Action recommended' })
-          : t('dashboard.overview.stable', { defaultValue: 'No active incidents' }),
-    },
-    {
-      id: 'usageRepo',
-      label: t('dashboard.overview.usagePipeline', { defaultValue: 'Usage pipeline' }),
-      value: systemState?.usage_repo_available
-        ? t('nav.online', { defaultValue: 'Online' })
-        : t('dashboard.overview.degraded', { defaultValue: 'Degraded' }),
-      tone: systemState?.usage_repo_available
-        ? 'text-emerald-700 dark:text-emerald-300'
-        : 'text-amber-700 dark:text-amber-300',
-      meta: t('dashboard.overview.autoRefresh', { defaultValue: 'Auto-refresh every 30 seconds' }),
-    },
-    {
-      id: 'tenants',
-      label: t('dashboard.kpi.tenants', { defaultValue: 'Tenants' }),
-      value: formatDashboardCount(systemState?.counts.tenants ?? 0),
-      tone: 'text-slate-900 dark:text-slate-50',
-      meta: t('dashboard.overview.managedScope', { defaultValue: 'Managed scope right now' }),
-    },
-    {
-      id: 'accounts',
-      label: t('dashboard.kpi.accounts', { defaultValue: 'Accounts' }),
-      value: formatDashboardCount(systemState?.counts.total_accounts ?? 0),
-      tone: 'text-slate-900 dark:text-slate-50',
-      meta: t('dashboard.overview.inventory', { defaultValue: 'Available upstream inventory' }),
-    },
-  ]
-
-  const poolOverviewMetrics = [
-    {
-      id: 'inventory',
-      title: t('accountPool.state.inventory'),
-      value: accountPoolSummary?.inventory ?? 0,
-      icon: Archive,
-      description: t('dashboard.poolOverview.inventoryDesc', {
-        defaultValue: 'Stored in the pool but not yet eligible for routing.',
-      }),
-    },
-    {
-      id: 'routable',
-      title: t('accountPool.state.routable'),
-      value: accountPoolSummary?.routable ?? 0,
-      icon: ShieldCheck,
-      description: t('dashboard.poolOverview.routableDesc', {
-        defaultValue: 'Currently healthy enough to serve routing traffic.',
-      }),
-    },
-    {
-      id: 'cooling',
-      title: t('accountPool.state.cooling'),
-      value: accountPoolSummary?.cooling ?? 0,
-      icon: Gauge,
-      description: t('dashboard.poolOverview.coolingDesc', {
-        defaultValue: 'Temporarily out of routing while cooling or waiting for reprobe.',
-      }),
-    },
-    {
-      id: 'pending-delete',
-      title: t('accountPool.state.pendingDelete'),
-      value: accountPoolSummary?.pending_delete ?? 0,
-      icon: TriangleAlert,
-      description: t('dashboard.poolOverview.pendingDeleteDesc', {
-        defaultValue: 'Marked for removal after fatal health decisions.',
-      }),
-    },
-  ]
-
-  const poolReasonMetrics = [
-    {
-      id: 'healthy',
-      title: t('accountPool.reasonClass.healthy'),
-      value: accountPoolSummary?.healthy ?? 0,
-      icon: ShieldCheck,
-      description: t('dashboard.healthSignals.healthyDesc', {
-        defaultValue: 'Accounts currently classified as healthy.',
-      }),
-    },
-    {
-      id: 'quota',
-      title: t('accountPool.reasonClass.quota'),
-      value: accountPoolSummary?.quota ?? 0,
-      icon: Timer,
-      description: t('dashboard.healthSignals.quotaDesc', {
-        defaultValue: 'Accounts cooling because of rate limits or quota exhaustion.',
-      }),
-    },
-    {
-      id: 'fatal',
-      title: t('accountPool.reasonClass.fatal'),
-      value: accountPoolSummary?.fatal ?? 0,
-      icon: TriangleAlert,
-      description: t('dashboard.healthSignals.fatalDesc', {
-        defaultValue: 'Accounts marked by fatal auth or account failures.',
-      }),
-    },
-    {
-      id: 'transient',
-      title: t('accountPool.reasonClass.transient'),
-      value: accountPoolSummary?.transient ?? 0,
-      icon: RefreshCcw,
-      description: t('dashboard.healthSignals.transientDesc', {
-        defaultValue: 'Accounts waiting on transient transport or upstream recovery.',
-      }),
-    },
-    {
-      id: 'admin',
-      title: t('accountPool.reasonClass.admin'),
-      value: accountPoolSummary?.admin ?? 0,
-      icon: Archive,
-      description: t('dashboard.healthSignals.adminDesc', {
-        defaultValue: 'Accounts held by explicit operator action.',
-      }),
-    },
-  ]
+  }
 
   return (
-    <div className="flex-1 w-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
-      <DashboardShell
-        intro={(
-          <PageIntro
-            archetype="dashboard"
-            eyebrow={t('dashboard.hero.eyebrow', { defaultValue: 'Operations Overview' })}
-            title={t('dashboard.title')}
-            description={t('dashboard.subtitle')}
-            meta={(
-              <div className="flex flex-wrap items-center gap-2 text-sm leading-6">
-                <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
-                  {t('dashboard.currentScope', {
-                    defaultValue: 'Current: {{scope}}',
-                    scope: scopeLabel(scope),
-                  })}
-                </span>
-                <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
-                  {rangeLabel}
-                </span>
-                <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
-                  {t('dashboard.meta.autoRefresh', {
-                    defaultValue: 'Auto-refresh every 30 seconds',
-                  })}
-                </span>
-              </div>
-            )}
-            actions={(
-              <div
-                className={cn(
-                  'flex w-full flex-wrap items-center gap-2 sm:w-auto',
-                  overviewLayout.actionDensity === 'tight' && 'sm:justify-end',
-                )}
-              >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn('min-w-0 justify-center sm:w-auto sm:justify-start', dashboardButtonClassName)}
-                  onClick={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
-                >
-                  {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn('min-w-0 justify-center sm:w-auto sm:justify-start', dashboardButtonClassName)}
-                  onClick={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
-                >
-                  {t('dashboard.actions.viewBilling', { defaultValue: 'View billing' })}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRefresh}
-                  disabled={isRefreshing}
-                  className={cn('group col-span-2 min-w-0 justify-center transition-colors sm:col-span-1 sm:w-auto sm:justify-start', dashboardButtonClassName)}
-                >
-                  <RefreshCcw
-                    className={cn(
-                      'mr-2 h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground',
-                      isRefreshing && 'animate-spin text-primary',
-                    )}
-                  />
-                  {t('common.refresh')}
-                </Button>
-              </div>
-            )}
-          />
-        )}
-        rail={(
-          <>
-            <section className="space-y-3 border-b border-border/70 pb-4">
-              <SectionHeader
-                eyebrow={t('dashboard.filters.eyebrow', { defaultValue: 'Context' })}
-                title={t('dashboard.filters.title', { defaultValue: 'Scope and filters' })}
-                description={t('dashboard.filters.description', {
-                  defaultValue: 'Tighten the view to a tenant or API key when you need to isolate hotspots quickly.',
-                })}
-              />
-              <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-1">
-                <Select value={scope} onValueChange={(value) => setScope(value as DashboardScope)}>
-                  <SelectTrigger
-                    className={cn('w-full', dashboardSelectTriggerClassName)}
-                    aria-label={t('dashboard.filters.scopeAriaLabel', { defaultValue: 'Scope' })}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="global">{scopeLabel('global')}</SelectItem>
-                    <SelectItem value="tenant">{scopeLabel('tenant')}</SelectItem>
-                    <SelectItem value="api_key">{scopeLabel('api_key')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={String(rangePreset)}
-                  onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
-                >
-                  <SelectTrigger
-                    className={cn('w-full', dashboardSelectTriggerClassName)}
-                    aria-label={t('dashboard.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">{t('dashboard.filters.range.last24Hours', { defaultValue: 'Last 24 hours' })}</SelectItem>
-                    <SelectItem value="7">{t('dashboard.filters.range.last7Days', { defaultValue: 'Last 7 days' })}</SelectItem>
-                    <SelectItem value="30">{t('dashboard.filters.range.last30Days', { defaultValue: 'Last 30 days' })}</SelectItem>
-                  </SelectContent>
-                </Select>
-                {scope !== 'global' ? (
-                  <Select
-                    value={tenantSelectValue}
-                    onValueChange={(value) => {
-                      setSelectedTenantId(value === '__none__' ? '' : value)
-                      setSelectedApiKeyId('')
-                    }}
-                  >
-                    <SelectTrigger
-                      className={cn('w-full sm:col-span-2 2xl:col-span-1', dashboardSelectTriggerClassName)}
-                      aria-label={t('dashboard.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">
-                        {t('dashboard.filters.tenantPlaceholder', { defaultValue: 'Select tenant' })}
-                      </SelectItem>
-                      {tenants.map((tenant) => (
-                        <SelectItem key={tenant.id} value={tenant.id} title={`${tenant.name} (${tenant.id})`}>
-                          {tenant.name} ({compactTenantId(tenant.id)})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
-                {scope === 'api_key' ? (
-                  <Select
-                    value={apiKeySelectValue}
-                    onValueChange={(value) => setSelectedApiKeyId(value === '__none__' ? '' : value)}
-                  >
-                    <SelectTrigger
-                      className={cn('w-full sm:col-span-2 2xl:col-span-1', dashboardSelectTriggerClassName)}
-                      aria-label={t('dashboard.filters.apiKeyAriaLabel', { defaultValue: 'API key' })}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">
-                        {t('dashboard.filters.apiKeyPlaceholder', { defaultValue: 'Select API key' })}
-                      </SelectItem>
-                      {filteredApiKeys.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.name} ({item.key_prefix})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
-              </div>
-            </section>
+    <PageContent className="space-y-10">
+      <DockedPageIntro
+        archetype="workspace"
+        title={t('dashboard.title')}
+        description={t('dashboard.subtitle')}
+      />
 
-            <section className="space-y-3">
-              <SectionHeader
-                eyebrow={t('dashboard.overview.eyebrow', { defaultValue: 'Pulse' })}
-                title={t('dashboard.overview.title', { defaultValue: 'Operational pulse' })}
-                description={t('dashboard.overview.description', {
-                  defaultValue: 'A quick read on alert pressure, pipeline health, and managed inventory before you dive into charts.',
-                })}
-              />
-              <div
-                className={cn(
-                  'overflow-hidden rounded-[0.95rem] border border-border/70',
-                  overviewLayout.pulseTreatment === 'annotated-list' && 'divide-y divide-border/70',
-                )}
-              >
-                {operationalPulseItems.map((item) => (
-                  <div key={item.id} className="space-y-1.5 bg-background/70 px-4 py-3.5 dark:bg-card/72">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
-                        {item.label}
-                      </p>
-                      <p className={cn('text-[15px] font-semibold tracking-[-0.02em]', item.tone)}>
-                        {item.value}
-                      </p>
-                    </div>
-                    <p className="text-[12px] leading-5 text-muted-foreground">
-                      {item.meta}
-                    </p>
+      {/* ── Pool 数据概览（紧凑分组） ── */}
+      <div className="space-y-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {overviewMetrics.map((metric) => (
+            <Card
+              key={metric.title}
+              className="border-small border-default-200 bg-content1 shadow-small"
+            >
+              <CardBody className="space-y-2 p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {metric.title}
+                </div>
+                <div className="text-[clamp(1.8rem,4vw,2.5rem)] font-semibold leading-none tracking-[-0.04em] text-foreground tabular-nums">
+                  <SpringKpiValue rawValue={metric.rawValue} format={metric.format} />
+                </div>
+                <p className="text-sm leading-6 text-default-600">
+                  {metric.description}
+                </p>
+              </CardBody>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('dashboard.poolOverview.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('dashboard.poolOverview.description')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="flex gap-6 px-5 pb-5 pt-1">
+            {/* 弧形分布图：仅在 lg+ 宽度显示 */}
+            <div className="hidden lg:flex lg:w-[120px] lg:shrink-0 lg:flex-col lg:items-center lg:gap-3 lg:pt-1">
+              <div className="relative">
+                <PoolArcChart segments={poolArcSegments} size={108} thickness={16} />
+                <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
+                  <span className="text-[11px] text-default-400">
+                    {t('dashboard.poolOverview.totalLabel', { defaultValue: '总计' })}
+                  </span>
+                  <span className="tabular-nums text-lg font-semibold text-foreground">
+                    {totalManagedPool}
+                  </span>
+                </div>
+              </div>
+              <div className="w-full space-y-1.5">
+                {poolOverviewMetrics.map((metric) => (
+                  <div key={metric.title} className="flex items-center gap-1.5 text-[11px] text-default-500">
+                    <span className={cn('h-2 w-2 shrink-0 rounded-full', {
+                      'bg-primary': metric.tone === 'brand',
+                      'bg-success': metric.tone === 'success',
+                      'bg-warning': metric.tone === 'warning',
+                      'bg-danger': metric.tone === 'danger',
+                    })} />
+                    <span className="truncate">{metric.title}</span>
                   </div>
                 ))}
               </div>
-            </section>
-          </>
-        )}
-      >
-        <DashboardMetricGrid className="xl:grid-cols-4">
-          {metrics.map((metric) => (
-            <DashboardMetricCard
-              key={metric.id}
-              title={metric.title}
-              value={metric.value}
-              valueTitle={isLoading ? undefined : metric.exactValue}
-              description={metric.change}
-              loading={isLoading}
-              icon={<metric.icon className="h-4 w-4" />}
-            />
-          ))}
-        </DashboardMetricGrid>
-
-        <PagePanel className="space-y-4">
-          <SectionHeader
-            eyebrow={t('dashboard.poolOverview.eyebrow', { defaultValue: 'Pool overview' })}
-            title={t('dashboard.poolOverview.title', { defaultValue: 'Inventory and runtime pool' })}
-            description={t('dashboard.poolOverview.description', {
-              defaultValue:
-                'Read vault admission and runtime pool counts together so you can spot activation pressure before it shows up as request failures.',
-            })}
-          />
-          <DashboardMetricGrid className="xl:grid-cols-4 2xl:grid-cols-4">
-            {poolOverviewMetrics.map((metric) => (
-              <DashboardMetricCard
-                key={metric.id}
-                title={metric.title}
-                value={formatDashboardCount(metric.value)}
-                valueTitle={formatExactCount(metric.value)}
-                description={metric.description}
-                icon={<metric.icon className="h-4 w-4" />}
-              />
-            ))}
-          </DashboardMetricGrid>
-        </PagePanel>
-
-        <PagePanel className="space-y-4">
-          <SectionHeader
-            eyebrow={t('dashboard.healthSignals.eyebrow', { defaultValue: 'Health signals' })}
-            title={t('dashboard.healthSignals.title', { defaultValue: 'Reason distribution' })}
-            description={t('dashboard.healthSignals.description', {
-              defaultValue:
-                'See why accounts are healthy, cooling, or pending delete without decoding runtime and inventory states separately.',
-            })}
-          />
-          <DashboardMetricGrid className="xl:grid-cols-5 2xl:grid-cols-5">
-            {poolReasonMetrics.map((metric) => (
-              <DashboardMetricCard
-                key={metric.id}
-                title={metric.title}
-                value={formatDashboardCount(metric.value)}
-                valueTitle={formatExactCount(metric.value)}
-                description={metric.description}
-                icon={<metric.icon className="h-4 w-4" />}
-              />
-            ))}
-          </DashboardMetricGrid>
-        </PagePanel>
-
-        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
-          <PagePanel className="space-y-5">
-            <SectionHeader
-              title={t('dashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}
-              description={t('dashboard.tokenTrend.description', {
-                defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
-              })}
-              actions={(
-                <div className="flex flex-wrap gap-2">
-                  {tokenBreakdownRows.map((row) => (
-                    <ToggleBadgeButton
-                      key={row.key}
-                      variant="outline"
-                      pressed={tokenComponents[row.key]}
-                      className={toggleBadgeButtonClassName(tokenComponents[row.key])}
-                      title={formatExactCount(row.value)}
-                      onClick={() => setTokenComponents((prev) => toggleTokenComponent(prev, row.key))}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="size-2 shrink-0 rounded-full border border-background/70"
-                        style={{ backgroundColor: row.color }}
-                      />
-                      <span>{row.label}: {formatDashboardTokenCount(row.value)}</span>
-                    </ToggleBadgeButton>
-                  ))}
-                </div>
-              )}
-            />
-            <ChartAccessibility
-              summaryId="admin-dashboard-token-trend-a11y"
-              summary={tokenTrendA11ySummary}
-              tableLabel={t('dashboard.tokenTrend.a11y.tableLabel', {
-                defaultValue: 'Token usage trend data table',
-              })}
-              columns={tokenTrendA11yColumns}
-              rows={tokenTrendA11yRows}
-            />
-            {isLoading ? (
-              <div className="h-[320px] w-full animate-pulse rounded-2xl bg-slate-200/70 dark:bg-slate-800/70" />
-            ) : tokenTrendData.length === 0 ? (
-              <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-slate-300/80 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                {t('dashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
-              </div>
-            ) : (
-              <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
-                <ResponsiveContainer width="100%" height={320}>
-                  <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                    <XAxis
-                      dataKey="timestamp"
-                      tickFormatter={(value) =>
-                        new Intl.DateTimeFormat(undefined, {
-                          month: '2-digit',
-                          day: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: false,
-                        }).format(new Date(value))
-                      }
-                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                      tickFormatter={(value) =>
-                        typeof value === 'number'
-                          ? formatDashboardTokenCount(value)
-                          : String(value ?? '')
-                      }
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      labelFormatter={(label) => formatDashboardTrendTimestampLabel(label)}
-                      formatter={(value) =>
-                        typeof value === 'number'
-                          ? formatDashboardTokenCount(value)
-                          : String(value ?? '')
-                      }
-                    />
-                    {tokenComponents.input ? (
-                      <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.input} fill={TOKEN_COMPONENT_CHART_COLORS.input} fillOpacity={0.6} name={t('dashboard.tokenComponents.input', { defaultValue: 'Input' })} />
-                    ) : null}
-                    {tokenComponents.cached ? (
-                      <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.cached} fill={TOKEN_COMPONENT_CHART_COLORS.cached} fillOpacity={0.6} name={t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
-                    ) : null}
-                    {tokenComponents.output ? (
-                      <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.output} fill={TOKEN_COMPONENT_CHART_COLORS.output} fillOpacity={0.6} name={t('dashboard.tokenComponents.output', { defaultValue: 'Output' })} />
-                    ) : null}
-                    {tokenComponents.reasoning ? (
-                      <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke={TOKEN_COMPONENT_CHART_COLORS.reasoning} fill={TOKEN_COMPONENT_CHART_COLORS.reasoning} fillOpacity={0.6} name={t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
-                    ) : null}
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </PagePanel>
-
-          <PagePanel className="space-y-5">
-            <SectionHeader
-              title={t('dashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}
-              description={t('dashboard.modelDistribution.description', {
-                defaultValue: 'Top models by request count or token usage.',
-              })}
-              actions={(
-                <div className="flex gap-2">
-                  <ToggleBadgeButton
-                    variant="outline"
-                    pressed={modelMode === 'requests'}
-                    className={toggleBadgeButtonClassName(modelMode === 'requests')}
-                    onClick={() => setModelMode('requests')}
-                  >
-                    {t('dashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' })}
-                  </ToggleBadgeButton>
-                  <ToggleBadgeButton
-                    variant="outline"
-                    pressed={modelMode === 'tokens'}
-                    className={toggleBadgeButtonClassName(modelMode === 'tokens')}
-                    onClick={() => setModelMode('tokens')}
-                  >
-                    {t('dashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
-                  </ToggleBadgeButton>
-                </div>
-              )}
-            />
-            <ChartAccessibility
-              summaryId="admin-dashboard-model-distribution-a11y"
-              summary={modelDistributionA11ySummary}
-              tableLabel={t('dashboard.modelDistribution.a11y.tableLabel', {
-                defaultValue: 'Model distribution data table',
-              })}
-              columns={modelDistributionA11yColumns}
-              rows={modelDistributionData}
-            />
-            {isLoading ? (
-              <div className="h-[320px] w-full animate-pulse rounded-2xl bg-slate-200/70 dark:bg-slate-800/70" />
-            ) : modelDistributionData.length === 0 ? (
-              <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-slate-300/80 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                {t('dashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
-              </div>
-            ) : (
-              <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={modelDistributionData} layout="vertical" margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-                    <XAxis
-                      type="number"
-                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                      tickFormatter={(value) =>
-                        typeof value === 'number'
-                          ? (modelMode === 'tokens'
-                              ? formatDashboardTokenCount(value)
-                              : formatDashboardCount(value))
-                          : String(value ?? '')
-                      }
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="model"
-                      width={110}
-                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                      tickFormatter={(value) =>
-                        value === 'other'
-                          ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
-                          : String(value)
-                      }
-                    />
-                    <Tooltip
-                      formatter={(value) =>
-                        typeof value === 'number'
-                          ? (modelMode === 'tokens'
-                              ? formatDashboardTokenCount(value)
-                              : formatDashboardCount(value))
-                          : String(value ?? '')
-                      }
-                      labelFormatter={(label) =>
-                        label === 'other'
-                          ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
-                          : String(label)
-                      }
-                    />
-                    <Bar dataKey="value" fill={MODEL_DISTRIBUTION_BAR_COLOR} radius={[0, 8, 8, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </PagePanel>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-7">
-          <PagePanel className="xl:col-span-4">
-            <SectionHeader
-              title={t('dashboard.alerts.title')}
-              description={t('dashboard.alerts.subtitle')}
-              actions={
-                openAlertCount > 0 ? (
-                  <Badge variant="destructive" className="rounded-full px-2">
-                    {openAlertCount}
-                  </Badge>
-                ) : null
-              }
-            />
-            <div className="mt-5 h-[320px] min-h-0">
-              {isLoading ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 6 }).map((_, index) => (
-                    <div key={index} className="h-9 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
-                  ))}
-                </div>
-              ) : (
-                <StandardDataTable
-                  columns={alertColumns}
-                  data={alerts}
-                  density="compact"
-                  defaultPageSize={6}
-                  pageSizeOptions={[6, 12, 24, 48]}
-                  className="h-full"
-                  emptyText={t('dashboard.alerts.empty')}
-                  searchPlaceholder={t('dashboard.alerts.searchPlaceholder')}
-                  searchFn={(row, keyword) =>
-                    `${row.message} ${row.source} ${row.severity} ${row.status}`
-                      .toLowerCase()
-                      .includes(keyword)
-                  }
-                />
-              )}
             </div>
-          </PagePanel>
+            {/* 4 张明细卡 */}
+            <div className="flex-1 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+            {poolOverviewMetrics.map((metric) => {
+            const ratio = totalManagedPool > 0
+              ? Math.round((metric.value / totalManagedPool) * 100)
+              : 0
 
-          <PagePanel className="xl:col-span-3">
-            <SectionHeader
-              title={t('dashboard.topApiKeys.title', { defaultValue: 'Top API Keys' })}
-              description={t('dashboard.topApiKeys.scopeDescription', {
-                defaultValue: 'Scope: {{scope}} / selected time window',
-                scope: scopeLabel(scope),
-              })}
-            />
-            <div className="mt-5 h-[320px] min-h-0">
-              {isLoadingLeaderboard ? (
+            return (
+              <div
+                key={metric.title}
+                className="flex h-full flex-col gap-5 rounded-large border-small border-default-200 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div
+                    className={cn(
+                      'flex h-11 w-11 shrink-0 items-center justify-center rounded-large border-small',
+                      POOL_TONE_CLASS_NAMES[metric.tone],
+                    )}
+                  >
+                    {metric.icon}
+                  </div>
+                  <Dropdown placement="bottom-end">
+                    <DropdownTrigger>
+                      <Button
+                        isIconOnly
+                        aria-label={t('dashboard.actions.openMenu', { defaultValue: 'Open actions menu' })}
+                        radius="full"
+                        size="sm"
+                        variant="light"
+                      >
+                        <Icon icon="solar:menu-dots-bold" className="text-lg text-default-500" />
+                      </Button>
+                    </DropdownTrigger>
+                    <DropdownMenu aria-label={metric.title} onAction={handlePoolOverviewAction}>
+                      <DropdownItem key="accounts">
+                        {t('dashboard.actions.viewAccounts', { defaultValue: 'View accounts' })}
+                      </DropdownItem>
+                      <DropdownItem key="logs">
+                        {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
+                      </DropdownItem>
+                      <DropdownItem key="imports">
+                        {t('dashboard.actions.viewImports', { defaultValue: 'View imports' })}
+                      </DropdownItem>
+                    </DropdownMenu>
+                  </Dropdown>
+                </div>
+
                 <div className="space-y-2">
-                  {Array.from({ length: 6 }).map((_, index) => (
-                    <div key={index} className="h-8 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
-                  ))}
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-default-500">
+                    {metric.title}
+                  </div>
+                  <div className="text-[clamp(2rem,4vw,2.8rem)] font-semibold leading-none tracking-[-0.045em] text-foreground">
+                    {formatNumber(metric.value)}
+                  </div>
+                  <p className="text-sm leading-6 text-default-600">
+                    {metric.description}
+                  </p>
                 </div>
-              ) : (
-                <StandardDataTable
-                  columns={topKeyColumns}
-                  data={topKeyRows}
-                  density="compact"
-                  defaultPageSize={8}
-                  pageSizeOptions={[8, 16, 32]}
-                  emptyText={t('dashboard.topApiKeys.empty', { defaultValue: 'No ranking data yet' })}
-                />
-              )}
+
+                <div className="mt-auto space-y-2">
+                  <div className="flex items-center justify-between gap-3 text-xs font-medium text-default-500">
+                    <span>{t('dashboard.poolOverview.shareOfPool')}</span>
+                    <span>{ratio}%</span>
+                  </div>
+                  <Progress
+                    aria-label={metric.title}
+                    color={POOL_PROGRESS_COLORS[metric.tone]}
+                    radius="full"
+                    size="sm"
+                    value={ratio}
+                  />
+                </div>
+              </div>
+            )
+          })}
             </div>
-          </PagePanel>
-        </div>
-      </DashboardShell>
-    </div>
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* ── 监控区域 ── */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('dashboard.healthSignals.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('dashboard.healthSignals.description')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="grid gap-3 px-5 pb-5 pt-1 md:grid-cols-2 xl:grid-cols-5">
+            {healthSignalMetrics.map((metric) => (
+              <div
+                key={metric.title}
+                className="rounded-large border border-default-200 bg-content2/55 px-4 py-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-large bg-content1">
+                    {metric.icon}
+                  </div>
+                  <Chip size="sm" variant="flat">
+                    {formatNumber(metric.value)}
+                  </Chip>
+                </div>
+                <div className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {metric.title}
+                </div>
+                <p className="mt-2 text-sm leading-6 text-default-600">
+                  {metric.description}
+                </p>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+
+        <Card className="border-small border-warning/20 bg-warning/[0.04] shadow-small dark:bg-warning/[0.07]">
+          <CardHeader className="flex items-start justify-between gap-4 px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('dashboard.alerts.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {alerts.length > 0
+                  ? t('dashboard.overview.attentionNeeded')
+                  : t('dashboard.overview.stable')}
+              </p>
+            </div>
+            <Chip
+              color={alerts.length > 0 ? 'warning' : 'success'}
+              size="sm"
+              variant="flat"
+            >
+              {alerts.length}
+            </Chip>
+          </CardHeader>
+          <CardBody className="gap-3 px-5 pb-5 pt-1">
+            {alerts.length > 0 ? (
+              alerts.map((alert, index) => (
+                <div key={alert.id}>
+                  <div className="flex items-start gap-3 rounded-large bg-content1/85 px-3 py-3">
+                    <div className={cn(
+                      'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-large',
+                      alert.severity === 'warning' ? 'bg-warning/10 text-warning' : 'bg-danger/10 text-danger',
+                    )}
+                    >
+                      <AlertTriangle aria-hidden="true" className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Chip
+                          color={alert.severity === 'warning' ? 'warning' : 'danger'}
+                          size="sm"
+                          variant="flat"
+                        >
+                          {t(`dashboard.alerts.severity.${alert.severity}`, {
+                            defaultValue: alert.severity,
+                          })}
+                        </Chip>
+                        <Chip
+                          color={alert.status === 'open' ? 'warning' : 'success'}
+                          size="sm"
+                          variant="flat"
+                        >
+                          {t(`dashboard.alerts.status.${alert.status}`, {
+                            defaultValue: alert.status,
+                          })}
+                        </Chip>
+                      </div>
+                      <div className="text-sm leading-6 text-foreground">{alert.message}</div>
+                    </div>
+                  </div>
+                  {index < alerts.length - 1 ? <div className="h-2" /> : null}
+                </div>
+              ))
+            ) : (
+              <div className="rounded-large border border-dashed border-default-200 bg-content1/85 px-4 py-6 text-sm text-default-600">
+                {t('dashboard.alerts.emptyDescription', {
+                  defaultValue: 'No active infrastructure or usage pipeline alerts are visible in the current window.',
+                })}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('dashboard.trafficChart.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('dashboard.trafficChart.subtitle')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="px-5 pb-5 pt-1">
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart key={chartAnimKey.traffic} data={trafficData}>
+                <defs>
+                  <linearGradient id="successGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--heroui-success))" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="hsl(var(--heroui-success))" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="dangerGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--heroui-danger))" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="hsl(var(--heroui-danger))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis dataKey="hour" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={chartTooltipStyle} />
+                <Area type="monotone" dataKey="accounts" stroke="hsl(var(--heroui-success))" fill="url(#successGradient)" strokeWidth={2} isAnimationActive={!prefersReducedMotion} animationDuration={1000} animationEasing="ease-out" animationBegin={0} />
+                <Area type="monotone" dataKey="apiKeys" stroke="hsl(var(--heroui-danger))" fill="url(#dangerGradient)" strokeWidth={2} isAnimationActive={!prefersReducedMotion} animationDuration={1000} animationEasing="ease-out" animationBegin={120} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardBody>
+        </Card>
+
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('dashboard.tokenTrend.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('dashboard.tokenTrend.description')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="px-5 pb-5 pt-1">
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart key={chartAnimKey.token} data={tokenTrend}>
+                <defs>
+                  <linearGradient id="inputGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART_SERIES_COLORS.input} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={CHART_SERIES_COLORS.input} stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="outputGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART_SERIES_COLORS.output} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={CHART_SERIES_COLORS.output} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis dataKey="hour" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatNumber(v)} />
+                <Tooltip
+                  contentStyle={chartTooltipStyle}
+                  formatter={(value: number | string | readonly (number | string)[] | undefined) =>
+                    formatNumber(Number(Array.isArray(value) ? value[0] ?? 0 : value ?? 0))}
+                />
+                <Area type="monotone" dataKey="input" stroke={CHART_SERIES_COLORS.input} fill="url(#inputGradient)" strokeWidth={2} isAnimationActive={!prefersReducedMotion} animationDuration={1100} animationEasing="ease-out" animationBegin={0} />
+                <Area type="monotone" dataKey="cached" stroke={CHART_SERIES_COLORS.cached} fill="none" strokeWidth={1.5} strokeDasharray="4 4" isAnimationActive={!prefersReducedMotion} animationDuration={1100} animationEasing="ease-out" animationBegin={100} />
+                <Area type="monotone" dataKey="output" stroke={CHART_SERIES_COLORS.output} fill="url(#outputGradient)" strokeWidth={2} isAnimationActive={!prefersReducedMotion} animationDuration={1100} animationEasing="ease-out" animationBegin={200} />
+                <Area type="monotone" dataKey="reasoning" stroke={CHART_SERIES_COLORS.reasoning} fill="none" strokeWidth={1.5} isAnimationActive={!prefersReducedMotion} animationDuration={1100} animationEasing="ease-out" animationBegin={300} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('dashboard.modelDistribution.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('dashboard.modelDistribution.description')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="px-5 pb-5 pt-1">
+            {modelDistribution.length === 0 ? (
+              <div className="flex h-[280px] items-center justify-center text-sm text-default-600">
+                {t('dashboard.modelDistribution.empty')}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart key={chartAnimKey.model} data={modelDistribution} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} horizontal={false} />
+                  <XAxis type="number" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatNumber(v)} />
+                  <YAxis type="category" dataKey="model" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} width={120} />
+                  <Tooltip
+                    contentStyle={chartTooltipStyle}
+                    formatter={(value: number | string | readonly (number | string)[] | undefined) =>
+                      formatNumber(Number(Array.isArray(value) ? value[0] ?? 0 : value ?? 0))}
+                  />
+                  <Bar dataKey="requests" fill="hsl(var(--heroui-primary))" radius={[0, 6, 6, 0]} barSize={20} isAnimationActive={!prefersReducedMotion} animationDuration={900} animationEasing="ease-out" animationBegin={0} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('dashboard.topApiKeys.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('dashboard.topApiKeys.scopeDescription', {
+                  scope: t('dashboard.scope.global'),
+                })}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="flex flex-col gap-3 px-5 pb-5 pt-1">
+            {topApiKeys.length === 0 ? (
+              <div className="flex h-[280px] items-center justify-center text-sm text-default-600">
+                {t('dashboard.topApiKeys.empty')}
+              </div>
+            ) : (
+              topApiKeys.map((key, index) => {
+                const progressValue = topApiKeysMax > 0 ? (key.requests / topApiKeysMax) * 100 : 0
+
+                return (
+                  <div key={key.apiKeyId} className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-default-100 text-xs font-semibold text-default-600">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {key.apiKeyId}
+                        </div>
+                        <div className="text-xs text-default-500">{key.tenantId}</div>
+                      </div>
+                      <Chip color="primary" size="sm" variant="flat">
+                        {formatNumber(key.requests)}
+                      </Chip>
+                    </div>
+                    <div className="mt-3">
+                      <Progress
+                        aria-label={key.apiKeyId}
+                        color="primary"
+                        radius="full"
+                        size="sm"
+                        value={progressValue}
+                      />
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </CardBody>
+        </Card>
+      </div>
+      </div>
+    </PageContent>
   )
 }

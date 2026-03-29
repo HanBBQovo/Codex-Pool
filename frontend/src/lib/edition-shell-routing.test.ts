@@ -4,8 +4,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { resolveAppShellTarget } from './edition-shell-routing.ts'
+import type { SystemCapabilitiesResponse } from '../api/types.ts'
 
-const personalCapabilities = {
+const personalCapabilities: SystemCapabilitiesResponse = {
   edition: 'personal',
   billing_mode: 'cost_report_only',
   features: {
@@ -16,9 +17,9 @@ const personalCapabilities = {
     credit_billing: false,
     cost_reports: true,
   },
-} as const
+}
 
-const businessCapabilities = {
+const businessCapabilities: SystemCapabilitiesResponse = {
   edition: 'business',
   billing_mode: 'credit_enforced',
   features: {
@@ -29,16 +30,17 @@ const businessCapabilities = {
     credit_billing: true,
     cost_reports: true,
   },
-} as const
+}
 
-test('resolveAppShellTarget only blocks when the initial path needs capability gating to avoid a wrong first render', () => {
-  assert.equal(resolveAppShellTarget('/api-keys', undefined), 'loading')
+test('resolveAppShellTarget 仅在需要 capability 判定的初始路径上返回 loading', () => {
+  assert.equal(resolveAppShellTarget('/admin-api-keys', undefined), 'loading')
   assert.equal(resolveAppShellTarget('/access-keys', undefined), 'loading')
   assert.equal(resolveAppShellTarget('/tenants', undefined), 'loading')
+  assert.equal(resolveAppShellTarget('/tenant/dashboard', undefined), 'loading')
   assert.equal(resolveAppShellTarget('/dashboard', undefined), 'admin')
 })
 
-test('resolveAppShellTarget enters tenant app only when the tenant portal capability is enabled', () => {
+test('resolveAppShellTarget 只在 tenant_portal 开启时进入 tenant shell', () => {
   assert.equal(resolveAppShellTarget('/tenant/dashboard', businessCapabilities), 'tenant')
   assert.equal(resolveAppShellTarget('/tenant/auth/login', businessCapabilities), 'tenant')
   assert.equal(resolveAppShellTarget('/tenant/dashboard', personalCapabilities), 'admin')
@@ -46,8 +48,8 @@ test('resolveAppShellTarget enters tenant app only when the tenant portal capabi
   assert.equal(resolveAppShellTarget('/tenants', businessCapabilities), 'admin')
 })
 
-test('resolveAppShellTarget routes non-tenant paths to the admin shell once capabilities are known', () => {
-  assert.equal(resolveAppShellTarget('/api-keys', personalCapabilities), 'admin')
+test('resolveAppShellTarget 在已知 capability 后将非 tenant 路径交给 admin shell', () => {
+  assert.equal(resolveAppShellTarget('/admin-api-keys', personalCapabilities), 'admin')
   assert.equal(resolveAppShellTarget('/access-keys', personalCapabilities), 'admin')
   assert.equal(resolveAppShellTarget('/dashboard', businessCapabilities), 'admin')
 })

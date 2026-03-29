@@ -1,80 +1,55 @@
-/* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from 'react'
 
-export type Theme = "light" | "dark" | "colorful" | "aurora" | "system"
+import { ThemeContext } from './theme-context'
+import { getSystemTheme, readStoredTheme, resolveTheme, type Theme } from '@/lib/theme-preferences'
 
-type ThemeProviderProps = {
-    children: React.ReactNode
-    defaultTheme?: Theme
-    storageKey?: string
+interface ThemeProviderProps {
+  children: React.ReactNode
+  defaultTheme?: Theme
+  storageKey?: string
 }
-
-type ThemeProviderState = {
-    theme: Theme
-    setTheme: (theme: Theme) => void
-}
-
-const initialState: ThemeProviderState = {
-    theme: "system",
-    setTheme: () => null,
-}
-
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
 
 export function ThemeProvider({
-    children,
-    defaultTheme = "system",
-    storageKey = "codex-ui-theme",
-    ...props
+  children,
+  defaultTheme = 'system',
+  storageKey = 'codex-ui-theme',
 }: ThemeProviderProps) {
-    const [theme, setTheme] = useState<Theme>(
-        () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-    )
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return defaultTheme
+    return readStoredTheme(localStorage.getItem(storageKey), defaultTheme)
+  })
 
-    useEffect(() => {
-        const root = window.document.documentElement
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(() => getSystemTheme())
+  const resolvedTheme = useMemo(() => resolveTheme(theme, systemTheme), [theme, systemTheme])
 
-        const applyThemeClass = (effectiveTheme: Exclude<Theme, "system">) => {
-            // Remove all previous themes
-            root.classList.remove("light", "dark", "colorful", "aurora")
-            root.classList.add(effectiveTheme)
-        }
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove('light', 'dark')
+    root.classList.add(resolvedTheme)
+    root.dataset.theme = resolvedTheme
+    root.dataset.themeMode = theme
+    root.style.colorScheme = resolvedTheme
+  }, [resolvedTheme, theme])
 
-        if (theme !== "system") {
-            applyThemeClass(theme)
-            return
-        }
-
-        const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
-        const syncSystemTheme = () => {
-            applyThemeClass(mediaQuery.matches ? "dark" : "light")
-        }
-
-        syncSystemTheme()
-        mediaQuery.addEventListener("change", syncSystemTheme)
-        return () => mediaQuery.removeEventListener("change", syncSystemTheme)
-    }, [theme])
-
-    const value = {
-        theme,
-        setTheme: (theme: Theme) => {
-            localStorage.setItem(storageKey, theme)
-            setTheme(theme)
-        },
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemTheme(e.matches ? 'dark' : 'light')
     }
 
-    return (
-        <ThemeProviderContext.Provider {...props} value={value}>
-            {children}
-        </ThemeProviderContext.Provider>
-    )
-}
+    mediaQuery.addEventListener('change', handler)
+    return () => mediaQuery.removeEventListener('change', handler)
+  }, [])
 
-export const useTheme = () => {
-    const context = useContext(ThemeProviderContext)
+  const setTheme = (newTheme: Theme) => {
+    setThemeState(newTheme)
+    localStorage.setItem(storageKey, newTheme)
+  }
 
-    if (context === undefined)
-        throw new Error("useTheme must be used within a ThemeProvider")
-
-    return context
+  return (
+    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  )
 }

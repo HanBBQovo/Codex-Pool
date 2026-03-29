@@ -1,10 +1,12 @@
 import {
   createAuthApiClient,
-  extractApiErrorCodeFrom,
-  extractApiErrorMessageFrom,
-  extractApiErrorStatusFrom,
+  extractApiErrorCodeFrom as extractApiErrorCodeFromHttp,
+  extractApiErrorMessageFrom as extractApiErrorMessageFromHttp,
+  extractApiErrorStatusFrom as extractApiErrorStatusFromHttp,
 } from './httpClient'
 import { getAdminAccessToken } from '@/lib/admin-session'
+
+export type { ApiErrorBody } from './httpClient'
 
 export const AUTH_REQUIRED_EVENT = 'cp:auth-required'
 export const SESSION_EXPIRED_REASON = 'session-expired'
@@ -23,7 +25,7 @@ function isAuthEndpoint(url?: string): boolean {
 
 export const apiClient = createAuthApiClient({
   baseURL: '/api/v1',
-  timeout: 10000,
+  timeout: 10_000,
   getAccessToken: getAdminAccessToken,
   isAuthEndpoint,
   isLoginEndpoint: (url) => Boolean(url?.includes('/admin/auth/login')),
@@ -31,17 +33,21 @@ export const apiClient = createAuthApiClient({
   loginFailedEvent: LOGIN_FAILED_EVENT,
   authRequiredDetail: { reason: SESSION_EXPIRED_REASON },
   logDevErrors: true,
+  unwrapResponseData: false,
 })
 
 export function extractApiErrorMessage(error: unknown): string | null {
-  return extractApiErrorMessageFrom(error)
+  return extractApiErrorMessageFromHttp(error)
 }
 
 export function extractApiErrorCode(error: unknown): string | null {
-  return extractApiErrorCodeFrom(error)
+  return extractApiErrorCodeFromHttp(error)
 }
 
 export function extractApiErrorStatus(error: unknown): number | null {
-  return extractApiErrorStatusFrom(error)
+  return extractApiErrorStatusFromHttp(error)
 }
 
+export const extractApiErrorMessageFrom = extractApiErrorMessage
+export const extractApiErrorCodeFrom = extractApiErrorCode
+export const extractApiErrorStatusFrom = extractApiErrorStatus

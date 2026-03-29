@@ -23,28 +23,92 @@ const DEFAULT_DURATION_MS = 4200
 function variantClasses(variant: NotificationVariant): string {
   switch (variant) {
     case 'success':
-      return 'border-success/30 bg-success-muted text-success-foreground'
+      return 'border-success/25 bg-content1/95 text-foreground'
     case 'warning':
-      return 'border-warning/30 bg-warning-muted text-warning-foreground'
+      return 'border-warning/25 bg-content1/95 text-foreground'
     case 'error':
-      return 'border-destructive/30 bg-destructive/10 text-destructive'
+      return 'border-destructive/25 bg-content1/95 text-foreground'
     case 'info':
     default:
-      return 'border-border/60 bg-card/95 text-foreground'
+      return 'border-default-200/60 bg-content1/95 text-foreground'
   }
 }
 
-function VariantIcon({ variant }: { variant: NotificationVariant }) {
+function progressColorClass(variant: NotificationVariant): string {
+  switch (variant) {
+    case 'success':
+      return 'bg-success/60'
+    case 'warning':
+      return 'bg-warning/60'
+    case 'error':
+      return 'bg-destructive/50'
+    case 'info':
+    default:
+      return 'bg-default-400/50'
+  }
+}
+
+/**
+ * success 图标：入场时有满足感的描边动画 + 轻微弹跳缩放。
+ * warning / error 使用标准 CircleAlert，无额外动效。
+ */
+function VariantIcon({
+  variant,
+  reducedMotion,
+}: {
+  variant: NotificationVariant
+  reducedMotion: boolean | null
+}) {
   if (variant === 'success') {
-    return <CircleCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+    return (
+      <motion.span
+        initial={reducedMotion ? false : { scale: 0.5, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1], delay: 0.06 }}
+        className="relative flex shrink-0 items-center justify-center text-success"
+        aria-hidden="true"
+      >
+        <CircleCheck className="h-4 w-4" />
+      </motion.span>
+    )
   }
   if (variant === 'warning') {
-    return <CircleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+    return <CircleAlert className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
   }
   if (variant === 'error') {
-    return <CircleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+    return <CircleAlert className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
   }
-  return <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+  return <Info className="h-4 w-4 shrink-0 text-default-500" aria-hidden="true" />
+}
+
+/**
+ * 线性计时进度条：随通知自动倒计时，在消失前最后一刻淡出。
+ * 仅在 `!reducedMotion` 时渲染，尊重无障碍偏好。
+ */
+function DismissTimer({
+  durationMs,
+  reducedMotion,
+  variant,
+}: {
+  durationMs: number
+  reducedMotion: boolean | null
+  variant: NotificationVariant
+}) {
+  if (reducedMotion) return null
+
+  return (
+    <div className="absolute bottom-0 left-0 right-0 h-[2px] overflow-hidden rounded-b-large">
+      <motion.div
+        className={cn('h-full', progressColorClass(variant))}
+        initial={{ scaleX: 1, originX: 0 }}
+        animate={{ scaleX: 0 }}
+        transition={{
+          duration: durationMs / 1000,
+          ease: 'linear',
+        }}
+      />
+    </div>
+  )
 }
 
 export function NotificationCenter() {
@@ -123,13 +187,13 @@ export function NotificationCenter() {
               layout: layoutTransition,
             }}
             className={cn(
-              'pointer-events-auto rounded-[1rem] border px-3.5 py-3 shadow-[0_18px_36px_rgba(30,41,59,0.12)] backdrop-blur-md dark:shadow-[0_20px_38px_rgba(2,8,16,0.3)]',
-              variantClasses(item.variant)
+              'pointer-events-auto relative overflow-hidden rounded-large border-small px-3.5 py-3 shadow-medium backdrop-blur-md',
+              variantClasses(item.variant),
             )}
             role="status"
           >
             <div className="flex items-start gap-2">
-              <VariantIcon variant={item.variant} />
+              <VariantIcon variant={item.variant} reducedMotion={prefersReducedMotion} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium leading-5">{item.title}</p>
                 {item.description ? (
@@ -147,6 +211,13 @@ export function NotificationCenter() {
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
+
+            {/* 倒计时进度条 */}
+            <DismissTimer
+              durationMs={item.durationMs}
+              reducedMotion={prefersReducedMotion}
+              variant={item.variant}
+            />
           </motion.div>
         ))}
       </AnimatePresence>

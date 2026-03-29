@@ -1,15 +1,13 @@
 import type { TFunction } from 'i18next'
 
 import type {
+  AccountPoolOperatorState,
   OAuthAccountStatusResponse,
-  OAuthInventoryFailureStage,
-  OAuthInventoryStatus,
-  OAuthRateLimitRefreshJobSummary,
   OAuthRateLimitSnapshot,
+  OAuthRateLimitRefreshJobSummary,
   OAuthRateLimitWindow,
   UpstreamAccount,
 } from '@/api/accounts'
-import { formatRelativeTime } from '@/lib/time'
 
 import {
   MAX_RECENT_IMPORT_JOBS,
@@ -24,16 +22,6 @@ import {
 
 export function isSessionMode(mode: string) {
   return SESSION_MODES.has(mode)
-}
-
-export function getLiveResultStatusLabel(status: 'ok' | 'failed' | undefined, t: TFunction) {
-  if (status === 'ok') {
-    return t('accounts.liveResult.ok', { defaultValue: 'OK' })
-  }
-  if (status === 'failed') {
-    return t('accounts.liveResult.failed', { defaultValue: 'Failed' })
-  }
-  return '-'
 }
 
 export function clampPercent(value: number | undefined) {
@@ -57,17 +45,6 @@ export function formatAbsoluteDateTime(value: string | Date) {
     return '-'
   }
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
-}
-
-function normalizeRelativeForReset(relative: string, locale: string) {
-  const lowered = locale.toLowerCase()
-  if (lowered.startsWith('zh-tw') || lowered.startsWith('zh-hk') || lowered.startsWith('zh-hant')) {
-    return relative.replace(/\s+/g, '').replace(/內$/, '後')
-  }
-  if (lowered.startsWith('zh')) {
-    return relative.replace(/\s+/g, '').replace(/内$/, '后')
-  }
-  return relative
 }
 
 export function resolveCredentialKindShort(
@@ -214,6 +191,62 @@ export function statusSortValue(status?: OAuthAccountStatusResponse) {
   return 3
 }
 
+export function resolveLegacyAccountOperatorState(
+  status?: OAuthAccountStatusResponse,
+  fallbackEnabled = false,
+): AccountPoolOperatorState {
+  if (status?.operator_state) {
+    return status.operator_state
+  }
+  if (status?.pool_state === 'pending_purge' || status?.pending_purge_at) {
+    return 'pending_delete'
+  }
+  if (status?.pool_state === 'quarantine') {
+    return 'cooling'
+  }
+  if (status?.route_eligible || status?.pool_state === 'active' || fallbackEnabled) {
+    return 'routable'
+  }
+  return 'inventory'
+}
+
+export function isLegacyAccountRouteEligible(
+  status?: OAuthAccountStatusResponse,
+  fallbackEnabled = false,
+) {
+  if (typeof status?.route_eligible === 'boolean') {
+    return status.route_eligible
+  }
+  return resolveLegacyAccountOperatorState(status, fallbackEnabled) === 'routable'
+}
+
+export function getAccountPoolStateLabel(
+  state: AccountPoolOperatorState,
+  t: TFunction,
+) {
+  if (state === 'pending_delete') {
+    return t('accountPool.state.pendingDelete', { defaultValue: 'Pending delete' })
+  }
+  return t(`accountPool.state.${state}`, {
+    defaultValue: state,
+  })
+}
+
+export function getAccountPoolStateBadgeVariant(
+  state: AccountPoolOperatorState,
+): 'success' | 'secondary' | 'warning' | 'destructive' {
+  if (state === 'routable') {
+    return 'success'
+  }
+  if (state === 'cooling') {
+    return 'warning'
+  }
+  if (state === 'pending_delete') {
+    return 'destructive'
+  }
+  return 'secondary'
+}
+
 export function addRecentImportJobId(jobId: string) {
   const normalized = jobId.trim()
   if (!normalized) {
@@ -268,11 +301,9 @@ export function bucketBarClass(bucket: RateLimitBucket) {
 
 export function formatRateLimitResetText({
   resetsAt,
-  locale,
   t,
 }: {
   resetsAt?: string
-  locale: string
   t: TFunction
 }) {
   if (!resetsAt) {
@@ -283,12 +314,9 @@ export function formatRateLimitResetText({
     return t('accounts.rateLimits.noReset')
   }
   const absolute = formatAbsoluteDateTime(date)
-  const relativeRaw = formatRelativeTime(date, locale, true)
-  const relative = normalizeRelativeForReset(relativeRaw, locale)
   return t('accounts.rateLimits.resetAt', {
     absolute,
-    relative,
-    defaultValue: `${absolute} (${relative}) reset`,
+    defaultValue: absolute,
   })
 }
 
@@ -327,7 +355,7 @@ export function getPlanLabel(plan: string | undefined, t: TFunction) {
   if (value === PLAN_UNKNOWN_VALUE) {
     return t('accounts.filters.planUnknown', { defaultValue: 'Not Reported' })
   }
-  return value
+  return t(`accounts.planValues.${value}`, { defaultValue: value })
 }
 
 export function getRefreshStatusLabel(
@@ -358,112 +386,4 @@ export function getSourceTypeLabel(sourceType: string | undefined, t: TFunction)
     return t('accounts.oauth.sourceType.codex', { defaultValue: 'Codex' })
   }
   return t('accounts.oauth.sourceType.unknown', { defaultValue: 'Unknown source' })
-}
-
-export function getPoolStateLabel(
-  poolState: OAuthAccountStatusResponse['pool_state'] | undefined,
-  t: TFunction,
-) {
-  if (poolState === 'active') {
-    return t('accounts.runtimePool.active', { defaultValue: 'Active' })
-  }
-  if (poolState === 'quarantine') {
-    return t('accounts.runtimePool.quarantine', { defaultValue: 'Quarantine' })
-  }
-  if (poolState === 'pending_purge') {
-    return t('accounts.runtimePool.pendingPurge', { defaultValue: 'Pending purge' })
-  }
-  return t('accounts.runtimePool.unknown', { defaultValue: 'Unknown' })
-}
-
-export function getPoolStateBadgeVariant(
-  poolState: OAuthAccountStatusResponse['pool_state'] | undefined,
-): 'success' | 'warning' | 'destructive' | 'secondary' {
-  if (poolState === 'active') {
-    return 'success'
-  }
-  if (poolState === 'quarantine') {
-    return 'warning'
-  }
-  if (poolState === 'pending_purge') {
-    return 'destructive'
-  }
-  return 'secondary'
-}
-
-export function getRefreshCredentialStateLabel(
-  credentialState: OAuthAccountStatusResponse['refresh_credential_state'] | undefined,
-  t: TFunction,
-) {
-  if (credentialState === 'healthy') {
-    return t('accounts.refreshCredentialState.healthy', { defaultValue: 'Healthy' })
-  }
-  if (credentialState === 'degraded') {
-    return t('accounts.refreshCredentialState.degraded', { defaultValue: 'Degraded' })
-  }
-  if (credentialState === 'invalid') {
-    return t('accounts.refreshCredentialState.invalid', { defaultValue: 'Invalid' })
-  }
-  if (credentialState === 'missing') {
-    return t('accounts.refreshCredentialState.missing', { defaultValue: 'Missing' })
-  }
-  return t('accounts.refreshCredentialState.unknown', { defaultValue: 'Unknown' })
-}
-
-export function getInventoryStatusLabel(status: OAuthInventoryStatus | undefined, t: TFunction) {
-  if (status === 'queued') {
-    return t('inventory.status.queued', { defaultValue: 'Queued' })
-  }
-  if (status === 'ready') {
-    return t('inventory.status.ready', { defaultValue: 'Ready' })
-  }
-  if (status === 'needs_refresh') {
-    return t('inventory.status.needsRefresh', { defaultValue: 'Needs refresh' })
-  }
-  if (status === 'no_quota') {
-    return t('inventory.status.noQuota', { defaultValue: 'No quota' })
-  }
-  if (status === 'failed') {
-    return t('inventory.status.failed', { defaultValue: 'Failed' })
-  }
-  return t('inventory.status.unknown', { defaultValue: 'Unknown' })
-}
-
-export function getInventoryStatusBadgeVariant(
-  status: OAuthInventoryStatus | undefined,
-): 'success' | 'warning' | 'destructive' | 'secondary' | 'info' {
-  if (status === 'ready') {
-    return 'success'
-  }
-  if (status === 'needs_refresh') {
-    return 'warning'
-  }
-  if (status === 'no_quota') {
-    return 'info'
-  }
-  if (status === 'failed') {
-    return 'destructive'
-  }
-  return 'secondary'
-}
-
-export function getInventoryFailureStageLabel(
-  stage: OAuthInventoryFailureStage | undefined,
-  t: TFunction,
-) {
-  if (stage === 'admission_probe') {
-    return t('inventory.failureStage.admissionProbe', { defaultValue: 'Admission probe' })
-  }
-  if (stage === 'activation_refresh') {
-    return t('inventory.failureStage.activationRefresh', { defaultValue: 'Activation refresh' })
-  }
-  if (stage === 'activation_rate_limits') {
-    return t('inventory.failureStage.activationRateLimits', {
-      defaultValue: 'Activation rate-limit check',
-    })
-  }
-  if (stage === 'runtime_refresh') {
-    return t('inventory.failureStage.runtimeRefresh', { defaultValue: 'Runtime refresh' })
-  }
-  return t('inventory.failureStage.unknown', { defaultValue: 'Unknown stage' })
 }

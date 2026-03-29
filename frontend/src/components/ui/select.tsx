@@ -1,180 +1,220 @@
 "use client"
 
 import * as React from "react"
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
-import { Select as SelectPrimitive } from "radix-ui"
+import {
+  Select as HeroSelect,
+  SelectItem as HeroSelectItem,
+  type SelectProps as HeroSelectProps,
+  type Selection,
+} from "@heroui/react"
 
 import { cn } from "@/lib/utils"
 
-function Select({
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Root>) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />
-}
-
-function SelectGroup({
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Group>) {
-  return <SelectPrimitive.Group data-slot="select-group" {...props} />
-}
-
-function SelectValue({
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Value>) {
-  return <SelectPrimitive.Value data-slot="select-value" {...props} />
-}
-
-function SelectTrigger({
-  className,
-  size = "default",
-  children,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
+type SelectTriggerProps = {
+  className?: string
   size?: "sm" | "default"
-}) {
-  return (
-    <SelectPrimitive.Trigger
-      data-slot="select-trigger"
-      data-size={size}
-      className={cn(
-        "border-input data-[placeholder]:text-muted-foreground/90 [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive flex w-fit items-center justify-between gap-2 rounded-[10px] border bg-background/88 px-3.5 py-2 text-sm whitespace-nowrap shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] transition-[border-color,box-shadow,background-color,transform] duration-180 ease-[cubic-bezier(0.16,1,0.3,1)] outline-none hover:border-border hover:bg-background/94 focus-visible:ring-[3px] focus-visible:ring-ring/24 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.045] dark:hover:bg-white/[0.055] motion-reduce:transform-none data-[size=default]:h-10 data-[size=sm]:h-9 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
-      {...props}
-    >
-      {children}
-      <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="size-4 opacity-50" />
-      </SelectPrimitive.Icon>
-    </SelectPrimitive.Trigger>
-  )
+  children?: React.ReactNode
+  "aria-label"?: string
 }
 
-function SelectContent({
-  className,
+type SelectValueProps = {
+  placeholder?: string
+}
+
+type SelectContentProps = {
+  className?: string
+  children?: React.ReactNode
+}
+
+type SelectItemProps = {
+  value?: string
+  disabled?: boolean
+  className?: string
+  children?: React.ReactNode
+}
+
+type SelectProps = Omit<
+  HeroSelectProps,
+  "children" | "selectedKeys" | "defaultSelectedKeys" | "onSelectionChange"
+> & {
+  value?: string
+  defaultValue?: string
+  onValueChange?: (value: string) => void
+  children?: React.ReactNode
+}
+
+type ParsedSelectItem = {
+  key: string
+  className?: string
+  disabled?: boolean
+  children?: React.ReactNode
+}
+
+const SELECT_TRIGGER_MARKER = Symbol("cp.select.trigger")
+const SELECT_VALUE_MARKER = Symbol("cp.select.value")
+const SELECT_CONTENT_MARKER = Symbol("cp.select.content")
+const SELECT_ITEM_MARKER = Symbol("cp.select.item")
+
+type MarkerComponent<P> = React.FC<P> & { __marker: symbol }
+
+function createMarker<P>(marker: symbol) {
+  const Component = ((() => null) as unknown) as MarkerComponent<P>
+  Component.__marker = marker
+  return Component
+}
+
+const SelectTrigger = createMarker<SelectTriggerProps>(SELECT_TRIGGER_MARKER)
+const SelectValue = createMarker<SelectValueProps>(SELECT_VALUE_MARKER)
+const SelectContent = createMarker<SelectContentProps>(SELECT_CONTENT_MARKER)
+const SelectItem = createMarker<SelectItemProps>(SELECT_ITEM_MARKER)
+
+function isMarkerElement<P>(
+  node: React.ReactNode,
+  marker: symbol,
+): node is React.ReactElement<P> {
+  return React.isValidElement(node) && (node.type as MarkerComponent<P>).__marker === marker
+}
+
+function visitNodes(
+  children: React.ReactNode,
+  visitor: (node: React.ReactNode) => void,
+) {
+  React.Children.forEach(children, (child) => {
+    if (React.isValidElement(child) && child.type === React.Fragment) {
+      visitNodes((child.props as { children?: React.ReactNode }).children, visitor)
+      return
+    }
+    visitor(child)
+  })
+}
+
+function parseSelectChildren(children: React.ReactNode) {
+  let triggerProps: SelectTriggerProps | undefined
+  let valueProps: SelectValueProps | undefined
+  let contentProps: SelectContentProps | undefined
+  const items: ParsedSelectItem[] = []
+
+  visitNodes(children, (node) => {
+    if (isMarkerElement<SelectTriggerProps>(node, SELECT_TRIGGER_MARKER)) {
+      triggerProps = node.props
+      visitNodes(node.props.children, (triggerChild) => {
+        if (isMarkerElement<SelectValueProps>(triggerChild, SELECT_VALUE_MARKER)) {
+          valueProps = triggerChild.props
+        }
+      })
+      return
+    }
+
+    if (isMarkerElement<SelectContentProps>(node, SELECT_CONTENT_MARKER)) {
+      contentProps = node.props
+      visitNodes(node.props.children, (contentChild) => {
+        if (isMarkerElement<SelectItemProps>(contentChild, SELECT_ITEM_MARKER)) {
+          const key =
+            contentChild.props.value ??
+            (contentChild.key === null ? undefined : String(contentChild.key))
+
+          if (key) {
+            items.push({
+              key,
+              disabled: contentChild.props.disabled,
+              className: contentChild.props.className,
+              children: contentChild.props.children,
+            })
+          }
+        }
+      })
+    }
+  })
+
+  return { triggerProps, valueProps, contentProps, items }
+}
+
+function extractSingleSelection(selection: Selection) {
+  if (selection === "all") {
+    return ""
+  }
+
+  const [first] = Array.from(selection)
+  return first === undefined ? "" : String(first)
+}
+
+function Select({
   children,
-  position = "item-aligned",
-  align = "center",
+  value,
+  defaultValue,
+  onValueChange,
+  className,
+  classNames,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+}: SelectProps) {
+  const { triggerProps, valueProps, contentProps, items } = React.useMemo(
+    () => parseSelectChildren(children),
+    [children],
+  )
+  const [internalValue, setInternalValue] = React.useState(defaultValue ?? "")
+  const selectedValue = value ?? internalValue
+
   return (
-    <SelectPrimitive.Portal>
-      <SelectPrimitive.Content
-        data-slot="select-content"
-        className={cn(
-          "bg-popover/98 text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-[12px] border border-border/70 p-1 shadow-[0_12px_24px_rgba(15,23,42,0.12)] dark:border-white/10 dark:bg-[rgba(20,27,31,0.96)] dark:shadow-[0_16px_28px_rgba(2,8,16,0.28)]",
-          position === "popper" &&
-            "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
-          className
-        )}
-        position={position}
-        align={align}
-        {...props}
-      >
-        <SelectScrollUpButton />
-        <SelectPrimitive.Viewport
-          className={cn(
-            "p-1",
-            position === "popper" &&
-              "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
-          )}
+    <HeroSelect
+      aria-label={triggerProps?.["aria-label"]}
+      placeholder={valueProps?.placeholder}
+      selectedKeys={selectedValue ? [selectedValue] : []}
+      disallowEmptySelection={false}
+      size={triggerProps?.size === "sm" ? "sm" : "md"}
+      variant="bordered"
+      radius="sm"
+      className={cn(triggerProps?.className, className)}
+      classNames={{
+        trigger: cn(
+          "border-small border-default-200 bg-content1 shadow-small",
+          "data-[hover=true]:border-default-300 data-[hover=true]:bg-content2",
+          "data-[open=true]:border-primary data-[open=true]:bg-content1",
+          classNames?.trigger,
+        ),
+        value: cn("text-sm text-foreground", classNames?.value),
+        selectorIcon: cn("text-default-400", classNames?.selectorIcon),
+        popoverContent: cn(
+          "border-small border-default-200 bg-content1 shadow-medium",
+          contentProps?.className,
+          classNames?.popoverContent,
+        ),
+        listboxWrapper: cn("p-1", classNames?.listboxWrapper),
+        innerWrapper: classNames?.innerWrapper,
+        base: classNames?.base,
+        label: classNames?.label,
+        mainWrapper: classNames?.mainWrapper,
+        helperWrapper: classNames?.helperWrapper,
+        description: classNames?.description,
+        errorMessage: classNames?.errorMessage,
+      }}
+      onSelectionChange={(selection) => {
+        const nextValue = extractSingleSelection(selection)
+        if (value === undefined) {
+          setInternalValue(nextValue)
+        }
+        onValueChange?.(nextValue)
+      }}
+      {...props}
+    >
+      {items.map((item) => (
+        <HeroSelectItem
+          key={item.key}
+          className={item.className}
+          isDisabled={item.disabled}
+          textValue={typeof item.children === "string" ? item.children : item.key}
         >
-          {children}
-        </SelectPrimitive.Viewport>
-        <SelectScrollDownButton />
-      </SelectPrimitive.Content>
-    </SelectPrimitive.Portal>
+          {item.children}
+        </HeroSelectItem>
+      ))}
+    </HeroSelect>
   )
 }
 
-function SelectLabel({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Label>) {
-  return (
-    <SelectPrimitive.Label
-      data-slot="select-label"
-      className={cn("text-muted-foreground px-2 py-1.5 text-xs", className)}
-      {...props}
-    />
-  )
-}
-
-function SelectItem({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Item>) {
-  return (
-    <SelectPrimitive.Item
-      data-slot="select-item"
-      className={cn(
-        "focus:bg-accent/66 focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex w-full cursor-default items-center gap-2 rounded-[8px] py-2 pr-8 pl-2.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
-        className
-      )}
-      {...props}
-    >
-      <span
-        data-slot="select-item-indicator"
-        className="absolute right-2 flex size-3.5 items-center justify-center"
-      >
-        <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
-        </SelectPrimitive.ItemIndicator>
-      </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-    </SelectPrimitive.Item>
-  )
-}
-
-function SelectSeparator({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Separator>) {
-  return (
-    <SelectPrimitive.Separator
-      data-slot="select-separator"
-      className={cn("bg-border pointer-events-none -mx-1 my-1 h-px", className)}
-      {...props}
-    />
-  )
-}
-
-function SelectScrollUpButton({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.ScrollUpButton>) {
-  return (
-    <SelectPrimitive.ScrollUpButton
-      data-slot="select-scroll-up-button"
-      className={cn(
-        "flex cursor-default items-center justify-center py-1",
-        className
-      )}
-      {...props}
-    >
-      <ChevronUpIcon className="size-4" />
-    </SelectPrimitive.ScrollUpButton>
-  )
-}
-
-function SelectScrollDownButton({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.ScrollDownButton>) {
-  return (
-    <SelectPrimitive.ScrollDownButton
-      data-slot="select-scroll-down-button"
-      className={cn(
-        "flex cursor-default items-center justify-center py-1",
-        className
-      )}
-      {...props}
-    >
-      <ChevronDownIcon className="size-4" />
-    </SelectPrimitive.ScrollDownButton>
-  )
-}
+const SelectGroup = ({ children }: { children?: React.ReactNode }) => <>{children}</>
+const SelectLabel = ({ children }: { children?: React.ReactNode }) => <>{children}</>
+const SelectSeparator = () => null
+const SelectScrollUpButton = () => null
+const SelectScrollDownButton = () => null
 
 export {
   Select,

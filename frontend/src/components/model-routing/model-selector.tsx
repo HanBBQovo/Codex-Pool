@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
+import { Button } from '@heroui/react'
 import { ArrowDown, ArrowUp, Plus, Search, X } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { SurfaceCard, SurfaceCardBody, SurfaceInset } from '@/components/ui/surface'
 import { cn } from '@/lib/utils'
 
 import {
@@ -118,86 +119,88 @@ export function ModelSelector({
     <div className={cn('space-y-3', className)}>
       <div className="space-y-2">
         {selectedItems.length === 0 ? (
-          <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+          <SurfaceInset tone="muted" className="px-3 py-4 text-sm text-muted-foreground">
             {labels.emptySelection}
-          </div>
+          </SurfaceInset>
         ) : (
           selectedItems.map((item, index) => (
-            <div
-              key={item.id}
-              className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-background/70 px-3 py-3"
-            >
-              <div className="min-w-0 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{item.id}</span>
-                  <Badge variant={availabilityBadgeVariant(item.availabilityStatus)}>
-                    {availabilityLabel(item.availabilityStatus, labels)}
-                  </Badge>
-                  {item.missingFromCatalog ? (
-                    <Badge variant="outline">{labels.unknownModel}</Badge>
+            <SurfaceCard key={item.id} tone="muted" shadow="none">
+              <SurfaceCardBody className="flex items-start justify-between gap-3 p-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{item.id}</span>
+                    <Badge variant={availabilityBadgeVariant(item.availabilityStatus)}>
+                      {availabilityLabel(item.availabilityStatus, labels)}
+                    </Badge>
+                    {item.missingFromCatalog ? (
+                      <Badge variant="outline">{labels.unknownModel}</Badge>
+                    ) : null}
+                  </div>
+                  {item.title ? (
+                    <div className="text-sm text-muted-foreground">{item.title}</div>
+                  ) : null}
+                  <div className="text-xs text-muted-foreground">{item.priceSummary}</div>
+                  {item.contextSummary ? (
+                    <div className="text-xs text-muted-foreground">{item.contextSummary}</div>
                   ) : null}
                 </div>
-                {item.title ? (
-                  <div className="text-sm text-muted-foreground">{item.title}</div>
-                ) : null}
-                <div className="text-xs text-muted-foreground">{item.priceSummary}</div>
-                {item.contextSummary ? (
-                  <div className="text-xs text-muted-foreground">{item.contextSummary}</div>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {reorderable ? (
-                  <>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => moveModel(index, -1)}
-                      disabled={disabled || index === 0}
-                      aria-label={labels.moveUp}
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => moveModel(index, 1)}
-                      disabled={disabled || index === selectedItems.length - 1}
-                      aria-label={labels.moveDown}
-                    >
-                      <ArrowDown className="h-4 w-4" />
-                    </Button>
-                  </>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => removeModel(item.id)}
-                  disabled={disabled}
-                  aria-label={labels.remove}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {reorderable ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="light"
+                        size="sm"
+                        isIconOnly
+                        className="h-8 w-8 min-w-8"
+                        onClick={() => moveModel(index, -1)}
+                        disabled={disabled || index === 0}
+                        aria-label={labels.moveUp}
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="light"
+                        size="sm"
+                        isIconOnly
+                        className="h-8 w-8 min-w-8"
+                        onClick={() => moveModel(index, 1)}
+                        disabled={disabled || index === selectedItems.length - 1}
+                        aria-label={labels.moveDown}
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="light"
+                    size="sm"
+                    isIconOnly
+                    className="h-8 w-8 min-w-8"
+                    onClick={() => removeModel(item.id)}
+                    disabled={disabled}
+                    aria-label={labels.remove}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </SurfaceCardBody>
+            </SurfaceCard>
           ))
         )}
       </div>
 
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" disabled={disabled}>
+          <Button type="button" variant="bordered" disabled={disabled}>
             <Plus className="mr-2 h-4 w-4" />
             {labels.addModel}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[420px] p-0">
-          <div className="border-b border-border/60 p-3">
+          <div className="border-b border-default-200/70 p-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -210,21 +213,22 @@ export function ModelSelector({
           </div>
           <div className="max-h-80 overflow-y-auto p-2">
             {catalogItems.length === 0 ? (
-              <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+              <SurfaceInset tone="muted" className="px-3 py-4 text-sm text-muted-foreground">
                 {labels.emptyCatalog}
-              </div>
+              </SurfaceInset>
             ) : availableItems.length === 0 ? (
-              <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+              <SurfaceInset tone="muted" className="px-3 py-4 text-sm text-muted-foreground">
                 {labels.noMatches}
-              </div>
+              </SurfaceInset>
             ) : (
               <div className="space-y-2">
                 {availableItems.map((item) => (
-                  <button
+                  <Button
                     key={item.id}
                     type="button"
+                    variant="light"
                     onClick={() => appendModel(item.id)}
-                    className="w-full rounded-lg border border-border/60 bg-background px-3 py-3 text-left transition hover:bg-muted/40"
+                    className="h-auto w-full justify-start px-3 py-3 text-left"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{item.id}</span>
@@ -239,7 +243,7 @@ export function ModelSelector({
                     {item.contextSummary ? (
                       <div className="mt-1 text-xs text-muted-foreground">{item.contextSummary}</div>
                     ) : null}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}

@@ -1,49 +1,89 @@
 /* eslint-disable react-refresh/only-export-components */
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import { Slot } from "radix-ui"
+import { Chip, type ChipProps } from "@heroui/react"
 
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
   {
     variants: {
       variant: {
-        default:
-          "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80",
-        secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
-        outline: "text-foreground",
-        success: "border-transparent bg-success-muted text-success-foreground hover:bg-success-muted/80",
-        warning: "border-transparent bg-warning-muted text-warning-foreground hover:bg-warning-muted/80",
-        info: "border-transparent bg-info-muted text-info-foreground hover:bg-info-muted/80",
+        default: "",
+        secondary: "",
+        destructive: "",
+        outline: "",
+        success: "",
+        warning: "",
+        info: "",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  }
+  },
 )
+
+type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>
+
+export type BadgeProps = Omit<ChipProps, "variant" | "color"> &
+  VariantProps<typeof badgeVariants> & {
+    asChild?: boolean
+  }
+
+function resolveBadgeTone(variant: BadgeVariant) {
+  switch (variant) {
+    case "destructive":
+      return { variant: "flat" as const, color: "danger" as const }
+    case "outline":
+      return { variant: "bordered" as const, color: "default" as const }
+    case "success":
+      return { variant: "flat" as const, color: "success" as const }
+    case "warning":
+      return { variant: "flat" as const, color: "warning" as const }
+    case "info":
+      return { variant: "flat" as const, color: "secondary" as const }
+    case "secondary":
+      return { variant: "flat" as const, color: "default" as const }
+    case "default":
+    default:
+      return { variant: "solid" as const, color: "primary" as const }
+  }
+}
 
 function Badge({
   className,
-  variant = "default",
-  asChild = false,
+  variant: rawVariant = "default",
+  asChild,
+  children,
   ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot.Root : "span"
+}: BadgeProps) {
+  const variant = rawVariant ?? "default"
+
+  if (asChild && React.isValidElement<{ className?: string }>(children)) {
+    return React.cloneElement(children, {
+      className: cn(badgeVariants({ variant }), className, children.props.className),
+    })
+  }
+
+  const tone = resolveBadgeTone(variant)
 
   return (
-    <Comp
-      data-slot="badge"
-      data-variant={variant}
-      className={cn(badgeVariants({ variant }), className)}
+    <Chip
+      radius="sm"
+      size="sm"
+      color={tone.color}
+      variant={tone.variant}
+      className={cn(
+        badgeVariants({ variant }),
+        "max-w-full border border-transparent font-medium",
+        className,
+      )}
       {...props}
-    />
+    >
+      {children}
+    </Chip>
   )
 }
 

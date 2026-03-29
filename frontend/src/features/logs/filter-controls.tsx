@@ -47,7 +47,7 @@ export function LogsFilterGrid({ children, className }: LogsFilterGridProps) {
 export function LogsFilterField({ label, children, className }: LogsFilterFieldProps) {
   return (
     <div className={cn('space-y-2', className)}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </p>
       {children}

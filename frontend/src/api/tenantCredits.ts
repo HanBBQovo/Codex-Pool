@@ -41,14 +41,25 @@ export interface TenantDailyCheckinResponse {
 }
 
 export const tenantCreditsApi = {
-  balance: () => tenantApiClient.get<TenantCreditBalanceResponse>('/credits/balance'),
+  balance: async () => {
+    const response = await tenantApiClient.get<TenantCreditBalanceResponse>('/credits/balance')
+    return response.data
+  },
 
-  summary: () => tenantApiClient.get<TenantCreditSummaryResponse>('/credits/summary'),
+  summary: async () => {
+    const response = await tenantApiClient.get<TenantCreditSummaryResponse>('/credits/summary')
+    return response.data
+  },
 
-  ledger: (limit = 100) =>
-    tenantApiClient.get<TenantCreditLedgerResponse>('/credits/ledger', {
+  ledger: async (limit = 100) => {
+    const response = await tenantApiClient.get<TenantCreditLedgerResponse>('/credits/ledger', {
       params: { limit },
-    }),
+    })
+    return response.data
+  },
 
-  checkin: () => tenantApiClient.post<TenantDailyCheckinResponse>('/credits/checkin'),
+  checkin: async () => {
+    const response = await tenantApiClient.post<TenantDailyCheckinResponse>('/credits/checkin')
+    return response.data
+  },
 }

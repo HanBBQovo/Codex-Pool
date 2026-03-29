@@ -103,14 +103,27 @@ export interface ApiKeyGroupModelPolicyUpsertRequest {
 }
 
 export const groupsApi = {
-  adminList: () => apiClient.get<ApiKeyGroupAdminListResponse>('/admin/api-key-groups'),
-  adminUpsert: (payload: ApiKeyGroupUpsertRequest) =>
-    apiClient.post<ApiKeyGroupItem>('/admin/api-key-groups', payload),
+  adminList: async () => {
+    const response = await apiClient.get<ApiKeyGroupAdminListResponse>('/admin/api-key-groups')
+    return response.data
+  },
+  adminUpsert: async (payload: ApiKeyGroupUpsertRequest) => {
+    const response = await apiClient.post<ApiKeyGroupItem>('/admin/api-key-groups', payload)
+    return response.data
+  },
   adminDelete: (groupId: string) =>
     apiClient.delete<void>(`/admin/api-key-groups/${groupId}`),
-  adminUpsertPolicy: (payload: ApiKeyGroupModelPolicyUpsertRequest) =>
-    apiClient.post<ApiKeyGroupModelPolicyItem>('/admin/api-key-group-model-policies', payload),
+  adminUpsertPolicy: async (payload: ApiKeyGroupModelPolicyUpsertRequest) => {
+    const response = await apiClient.post<ApiKeyGroupModelPolicyItem>(
+      '/admin/api-key-group-model-policies',
+      payload,
+    )
+    return response.data
+  },
   adminDeletePolicy: (policyId: string) =>
     apiClient.delete<void>(`/admin/api-key-group-model-policies/${policyId}`),
-  tenantList: () => tenantApiClient.get<ApiKeyGroupItem[]>('/api-key-groups'),
+  tenantList: async () => {
+    const response = await tenantApiClient.get<ApiKeyGroupItem[]>('/api-key-groups')
+    return response.data
+  },
 }

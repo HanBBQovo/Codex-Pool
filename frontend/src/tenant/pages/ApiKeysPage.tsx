@@ -1,17 +1,30 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
+import { Button } from '@heroui/react'
 import { useTranslation } from 'react-i18next'
 
 import { groupsApi, type ApiKeyGroupItem } from '@/api/groups'
 import { tenantKeysApi, type TenantApiKeyRecord } from '@/api/tenantKeys'
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { notify } from '@/lib/notification'
+import {
+  DockedPageIntro,
+  PageContent,
+  PagePanel,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { SurfaceInset } from '@/components/ui/surface'
+import { DataTable } from '@/components/DataTable'
 import { Textarea } from '@/components/ui/textarea'
 import { splitAllowlist } from '@/tenant/lib/format'
 
@@ -20,9 +33,15 @@ function formatMicrocredits(value?: number | null) {
   return (value / 1_000_000).toFixed(4)
 }
 
-function pricingLine(groupModel: ApiKeyGroupItem['models'][number]) {
-  const finalLine = `in ${formatMicrocredits(groupModel.final_input_price_microcredits)} · cached ${formatMicrocredits(groupModel.final_cached_input_price_microcredits)} · out ${formatMicrocredits(groupModel.final_output_price_microcredits)}`
-  const formulaLine = `in ${formatMicrocredits(groupModel.formula_input_price_microcredits)} · cached ${formatMicrocredits(groupModel.formula_cached_input_price_microcredits)} · out ${formatMicrocredits(groupModel.formula_output_price_microcredits)}`
+function pricingLine(
+  groupModel: ApiKeyGroupItem['models'][number],
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  const inputLabel = t('common.tokenSegments.input')
+  const cachedLabel = t('common.tokenSegments.cached')
+  const outputLabel = t('common.tokenSegments.output')
+  const finalLine = `${inputLabel} ${formatMicrocredits(groupModel.final_input_price_microcredits)} · ${cachedLabel} ${formatMicrocredits(groupModel.final_cached_input_price_microcredits)} · ${outputLabel} ${formatMicrocredits(groupModel.final_output_price_microcredits)}`
+  const formulaLine = `${inputLabel} ${formatMicrocredits(groupModel.formula_input_price_microcredits)} · ${cachedLabel} ${formatMicrocredits(groupModel.formula_cached_input_price_microcredits)} · ${outputLabel} ${formatMicrocredits(groupModel.formula_output_price_microcredits)}`
   return { finalLine, formulaLine }
 }
 
@@ -185,25 +204,32 @@ export function TenantApiKeysPage() {
           const selectedGroupId = pendingGroups[key.id] ?? key.group_id
           return (
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                className="flex h-9 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              <Select
                 value={selectedGroupId}
-                onChange={(event) =>
+                onValueChange={(value) =>
                   setPendingGroups((prev) => ({
                     ...prev,
-                    [key.id]: event.target.value,
+                    [key.id]: value,
                   }))
                 }
               >
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  className="w-[180px]"
+                  size="sm"
+                  aria-label={t('tenantApiKeys.columns.group', { defaultValue: 'Group' })}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 type="button"
-                variant="outline"
                 size="sm"
                 onClick={() => changeGroupMutation.mutate({ id: key.id, group_id: selectedGroupId })}
                 disabled={changeGroupMutation.isPending || !selectedGroupId || selectedGroupId === key.group_id}
@@ -212,7 +238,6 @@ export function TenantApiKeysPage() {
               </Button>
               <Button
                 type="button"
-                variant="outline"
                 size="sm"
                 onClick={() =>
                   toggleMutation.mutate({
@@ -228,7 +253,8 @@ export function TenantApiKeysPage() {
               </Button>
               <Button
                 type="button"
-                variant="destructive"
+                color="danger"
+                variant="light"
                 size="sm"
                 onClick={() => deleteMutation.mutate(key.id)}
                 disabled={deleteMutation.isPending}
@@ -243,25 +269,56 @@ export function TenantApiKeysPage() {
     [changeGroupMutation, deleteMutation, groups, pendingGroups, t, toggleMutation],
   )
 
+  const previewColumns = useMemo<ColumnDef<ApiKeyGroupItem['models'][number]>[]>(
+    () => [
+      {
+        id: 'model',
+        header: t('tenantApiKeys.preview.columns.model', { defaultValue: 'Model' }),
+        accessorFn: (row) => row.model.toLowerCase(),
+        cell: ({ row }) => <span className="font-mono text-xs">{row.original.model}</span>,
+      },
+      {
+        id: 'finalPrice',
+        header: t('tenantApiKeys.preview.columns.finalPrice', { defaultValue: 'Final price' }),
+        accessorFn: (row) => pricingLine(row, t).finalLine.toLowerCase(),
+        cell: ({ row }) => pricingLine(row.original, t).finalLine,
+      },
+      {
+        id: 'formulaPrice',
+        header: t('tenantApiKeys.preview.columns.formulaPrice', { defaultValue: 'Formula price' }),
+        accessorFn: (row) => pricingLine(row, t).formulaLine.toLowerCase(),
+        cell: ({ row }) => {
+          const line = pricingLine(row.original, t)
+          return (
+            <span className="text-default-500">
+              {row.original.uses_absolute_pricing ? (
+                <span className="line-through">{line.formulaLine}</span>
+              ) : (
+                line.formulaLine
+              )}
+            </span>
+          )
+        },
+      },
+    ],
+    [t],
+  )
+
   const createGroupId = form.group_id || groups.find((item) => item.is_default)?.id || groups[0]?.id || ''
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
-      <div>
-        <h2 className="text-3xl font-semibold tracking-tight">{t('nav.apiKeys')}</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          {t('tenantApiKeys.subtitle', { defaultValue: 'Manage API keys and bind each key to a pricing and model group.' })}
-        </p>
-      </div>
+    <PageContent className="space-y-6">
+      <DockedPageIntro
+        title={t('nav.apiKeys')}
+        description={t('tenantApiKeys.subtitle', { defaultValue: 'Manage API keys and bind each key to a pricing and model group.' })}
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('tenantApiKeys.create.title', { defaultValue: 'Create API key' })}</CardTitle>
-          <CardDescription>
-            {t('tenantApiKeys.create.description', { defaultValue: 'Create a key, set its IP allowlist, and choose which group pricing it uses.' })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <PagePanel>
+        <SectionHeader
+          title={t('tenantApiKeys.create.title', { defaultValue: 'Create API key' })}
+          description={t('tenantApiKeys.create.description', { defaultValue: 'Create a key, set its IP allowlist, and choose which group pricing it uses.' })}
+        />
+        <div className="pt-4">
           <form
             className="space-y-4"
             onSubmit={(event) => {
@@ -293,42 +350,48 @@ export function TenantApiKeysPage() {
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('tenantApiKeys.create.groupLabel', { defaultValue: 'API key group' })}
                 </label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
                   value={createGroupId}
-                  onChange={(event) => setForm((prev) => ({ ...prev, group_id: event.target.value }))}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, group_id: value }))}
                 >
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    className="w-full"
+                    aria-label={t('tenantApiKeys.create.groupLabel', { defaultValue: 'API key group' })}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((group) => (
+                      <SelectItem key={group.id} value={group.id}>
+                        {group.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            <Button type="submit" disabled={createMutation.isPending || !groups.length}>
+            <Button color="primary" type="submit" disabled={createMutation.isPending || !groups.length}>
               {t('tenantApiKeys.create.submit', { defaultValue: 'Submit' })}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </PagePanel>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('tenantApiKeys.preview.title', { defaultValue: 'Selected group preview' })}</CardTitle>
-          <CardDescription>
-            {selectedCreateGroup
+      <PagePanel className="space-y-3">
+        <SectionHeader
+          title={t('tenantApiKeys.preview.title')}
+          description={
+            selectedCreateGroup
               ? t('tenantApiKeys.preview.description', {
-                  defaultValue: 'Current group: {{name}} · in {{input}} · cached {{cached}} · out {{output}}',
                   name: selectedCreateGroup.name,
                   input: formatMicrocredits(selectedCreateGroup.models[0]?.final_input_price_microcredits),
                   cached: formatMicrocredits(selectedCreateGroup.models[0]?.final_cached_input_price_microcredits),
                   output: formatMicrocredits(selectedCreateGroup.models[0]?.final_output_price_microcredits),
                 })
-              : t('tenantApiKeys.preview.empty', { defaultValue: 'No group available yet.' })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+              : t('tenantApiKeys.preview.empty')
+          }
+        />
+        <div className="space-y-3">
           {selectedCreateGroup ? (
             <div className="space-y-2">
               <div className="text-sm text-muted-foreground">
@@ -336,50 +399,35 @@ export function TenantApiKeysPage() {
                   ? t('tenantApiKeys.preview.allowAllModels', { defaultValue: 'All catalog models are available in this group.' })
                   : t('tenantApiKeys.preview.modelCount', { defaultValue: '{{count}} models are configured in this group.', count: selectedCreateGroup.model_count })}
               </div>
-              <div className="max-h-[260px] overflow-auto rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2">{t('tenantApiKeys.preview.columns.model', { defaultValue: 'Model' })}</th>
-                      <th className="px-3 py-2">{t('tenantApiKeys.preview.columns.finalPrice', { defaultValue: 'Final price' })}</th>
-                      <th className="px-3 py-2">{t('tenantApiKeys.preview.columns.formulaPrice', { defaultValue: 'Formula price' })}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedCreateGroup.models.slice(0, 12).map((model) => {
-                      const line = pricingLine(model)
-                      return (
-                        <tr key={model.model} className="border-t align-top">
-                          <td className="px-3 py-2 font-mono text-xs">{model.model}</td>
-                          <td className="px-3 py-2 text-xs">{line.finalLine}</td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {model.uses_absolute_pricing ? <span className="line-through">{line.formulaLine}</span> : line.formulaLine}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <SurfaceInset className="max-h-[260px] overflow-auto">
+                <DataTable
+                  columns={previewColumns}
+                  data={selectedCreateGroup.models.slice(0, 12)}
+                  density="compact"
+                  enableSearch={false}
+                  showToolbar={false}
+                  showPageControls={false}
+                  className="border-0 bg-transparent shadow-none"
+                  emptyText={t('tenantApiKeys.preview.empty', { defaultValue: 'No group available yet.' })}
+                />
+              </SurfaceInset>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{t('tenantApiKeys.preview.empty', { defaultValue: 'No group available yet.' })}</p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </PagePanel>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('tenantApiKeys.list.title', { defaultValue: 'API key list' })}</CardTitle>
-          <CardDescription>
-            {t('tenantApiKeys.list.description', { defaultValue: 'Review API keys, update their group assignment, and manage enabled state.' })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <PagePanel className="space-y-4">
+        <SectionHeader
+          title={t('tenantApiKeys.list.title', { defaultValue: 'API key list' })}
+          description={t('tenantApiKeys.list.description', { defaultValue: 'Review API keys, update their group assignment, and manage enabled state.' })}
+        />
+        <div>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : (
-            <StandardDataTable
+            <DataTable
               columns={columns}
               data={keys}
               searchPlaceholder={t('tenantApiKeys.list.searchPlaceholder', {
@@ -391,8 +439,8 @@ export function TenantApiKeysPage() {
               emptyText={t('tenantApiKeys.list.empty', { defaultValue: 'No API keys' })}
             />
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </PagePanel>
+    </PageContent>
   )
 }

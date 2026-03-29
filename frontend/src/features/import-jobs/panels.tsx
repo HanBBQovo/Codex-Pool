@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
+import { Button } from '@heroui/react'
 import type { TFunction } from 'i18next'
 import {
   FileText,
@@ -15,9 +16,8 @@ import { useTranslation } from 'react-i18next'
 
 import { importJobsApi, type OAuthImportItemStatus, type OAuthImportJobItem } from '@/api/importJobs'
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
+import { PagePanel, SectionHeader } from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -25,7 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { SurfaceInset } from '@/components/ui/surface'
+import { DataTable } from '@/components/DataTable'
 
 import type { ConfirmAction } from './types'
 import {
@@ -111,11 +112,9 @@ export function LiveProgressPanel({
 
   if (!jobId) {
     return (
-      <Card className="border-border/60 shadow-sm">
-        <CardContent className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">
+      <PagePanel className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
           {t('importJobs.progress.noJobSelected')}
-        </CardContent>
-      </Card>
+      </PagePanel>
     )
   }
 
@@ -126,25 +125,21 @@ export function LiveProgressPanel({
       t('importJobs.messages.unknownError'),
     )
     return (
-      <Card className="border-border/60 shadow-sm">
-        <CardContent className="h-[200px] flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+      <PagePanel className="flex h-[200px] flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
           <div>{t('importJobs.messages.queryFailed', { defaultValue: 'Query Failed' })}</div>
           <div
             className="max-w-[520px] text-center text-xs text-destructive"
-            title={errorDisplay.tooltip}
           >
             {errorDisplay.label}
           </div>
           <Button
-            variant="outline"
             size="sm"
             className="cursor-pointer"
             onClick={() => queryClient.invalidateQueries({ queryKey: ['jobSummary', jobId] })}
           >
             {t('importJobs.detail.retryQuery')}
           </Button>
-        </CardContent>
-      </Card>
+      </PagePanel>
     )
   }
 
@@ -159,25 +154,20 @@ export function LiveProgressPanel({
         : 'warning'
 
   return (
-    <Card className="border-border/60 shadow-sm">
-      <CardHeader className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <CardTitle className="text-lg">{t('importJobs.progress.title')}</CardTitle>
-            <CardDescription className="mt-1 font-mono text-xs">
-              {t('importJobs.progress.jobIdLabel', {
-                defaultValue: 'Job ID: {{jobId}}',
-                jobId,
-              })}
-            </CardDescription>
-          </div>
-          {summary ? (
-            <Badge variant={statusVariant} className="uppercase text-[10px]">
-              {getImportStatusLabel(t, summary.status)}
-            </Badge>
-          ) : null}
-        </div>
-
+    <PagePanel className="space-y-4">
+      <SectionHeader
+        title={t('importJobs.progress.title')}
+        description={t('importJobs.progress.jobIdLabel', {
+          defaultValue: 'Job ID: {{jobId}}',
+          jobId,
+        })}
+        actions={summary ? (
+          <Badge variant={statusVariant} className="uppercase text-[10px]">
+            {getImportStatusLabel(t, summary.status)}
+          </Badge>
+        ) : null}
+      />
+      <div className="space-y-3">
         {summary ? (
           <>
             <div className="space-y-2">
@@ -219,20 +209,20 @@ export function LiveProgressPanel({
             </div>
 
             {errorSummary.length > 0 ? (
-              <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+              <SurfaceInset className="space-y-1 text-xs text-muted-foreground">
                 <div className="font-medium text-foreground">{t('importJobs.progress.topErrors')}</div>
                 {errorSummary.slice(0, 3).map((entry) => (
                   <div
                     key={`${entry.error_code}-${entry.count}`}
                     className="flex items-center justify-between gap-2"
                   >
-                    <span className="truncate" title={entry.error_code}>
+                    <span className="truncate">
                       {localizeImportErrorCode(entry.error_code, t)}
                     </span>
                     <span>{entry.count}</span>
                   </div>
                 ))}
-              </div>
+              </SurfaceInset>
             ) : null}
           </>
         ) : isLoading ? (
@@ -241,13 +231,12 @@ export function LiveProgressPanel({
             {t('importJobs.detail.summaryLoading')}
           </div>
         ) : null}
-      </CardHeader>
+      </div>
 
-      <CardContent>
+      <div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            variant="outline"
             className="cursor-pointer"
             onClick={() => queryClient.invalidateQueries({ queryKey: ['jobSummary', jobId] })}
           >
@@ -256,7 +245,6 @@ export function LiveProgressPanel({
           </Button>
           <Button
             size="sm"
-            variant="outline"
             className="cursor-pointer"
             onClick={() => retryMutation.mutate()}
             disabled={(summary?.failed_count ?? 0) <= 0 || retryMutation.isPending}
@@ -266,7 +254,8 @@ export function LiveProgressPanel({
           </Button>
           <Button
             size="sm"
-            variant="outline"
+            variant="light"
+            color="danger"
             className="cursor-pointer"
             disabled={!running || cancelMutation.isPending}
             onClick={() => {
@@ -289,8 +278,8 @@ export function LiveProgressPanel({
             {t('importJobs.actions.cancelJob')}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </PagePanel>
   )
 }
 
@@ -371,7 +360,7 @@ export function JobDetailPanel({
               {row.original.label}
             </div>
             {row.original.email ? (
-              <div className="mt-1 truncate text-[11px] text-muted-foreground" title={row.original.email}>
+              <div className="mt-1 truncate text-xs text-muted-foreground" title={row.original.email}>
                 {row.original.email}
               </div>
             ) : null}
@@ -453,11 +442,9 @@ export function JobDetailPanel({
 
   if (!jobId) {
     return (
-      <Card className="border-border/60 shadow-sm min-h-[360px]">
-        <CardContent className="h-full flex items-center justify-center text-sm text-muted-foreground">
+      <PagePanel className="flex min-h-[360px] items-center justify-center text-sm text-muted-foreground">
           {t('importJobs.detail.selectHint')}
-        </CardContent>
-      </Card>
+      </PagePanel>
     )
   }
 
@@ -468,25 +455,21 @@ export function JobDetailPanel({
       t('importJobs.messages.unknownError'),
     )
     return (
-      <Card className="border-border/60 shadow-sm min-h-[360px]">
-        <CardContent className="h-full flex flex-col items-center justify-center text-sm text-muted-foreground gap-3">
+      <PagePanel className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
           <div>{t('importJobs.messages.queryFailed', { defaultValue: 'Query Failed' })}</div>
           <div
             className="max-w-[520px] text-center text-xs text-destructive"
-            title={errorDisplay.tooltip}
           >
             {errorDisplay.label}
           </div>
           <Button
-            variant="outline"
             size="sm"
             className="cursor-pointer"
             onClick={() => queryClient.invalidateQueries({ queryKey: ['jobSummary', jobId] })}
           >
             {t('importJobs.detail.retryQuery')}
           </Button>
-        </CardContent>
-      </Card>
+      </PagePanel>
     )
   }
 
@@ -494,25 +477,22 @@ export function JobDetailPanel({
   const summaryProgress = calcProgress(summary)
 
   return (
-    <Card className="border-border/60 shadow-sm min-h-[360px]">
-      <CardHeader className="pb-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              {t('importJobs.detail.title')}
-            </CardTitle>
-            <CardDescription className="mt-1 font-mono text-xs">
-              {t('importJobs.detail.jobIdLabel', {
-                defaultValue: 'Job ID: {{jobId}}',
-                jobId,
-              })}
-            </CardDescription>
-          </div>
+    <PagePanel className="min-h-[360px] space-y-4">
+      <SectionHeader
+        title={(
+          <span className="inline-flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            {t('importJobs.detail.title')}
+          </span>
+        )}
+        description={t('importJobs.detail.jobIdLabel', {
+          defaultValue: 'Job ID: {{jobId}}',
+          jobId,
+        })}
+        actions={(
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
-              variant="outline"
               className="cursor-pointer"
               onClick={() => itemsQuery.refetch()}
               disabled={itemsQuery.isFetching}
@@ -522,7 +502,6 @@ export function JobDetailPanel({
             </Button>
             <Button
               size="sm"
-              variant="outline"
               className="cursor-pointer"
               onClick={() => retryMutation.mutate()}
               disabled={(summary?.failed_count ?? 0) <= 0 || retryMutation.isPending}
@@ -532,7 +511,8 @@ export function JobDetailPanel({
             </Button>
             <Button
               size="sm"
-              variant="outline"
+              variant="light"
+              color="danger"
               className="cursor-pointer"
               disabled={!running || cancelMutation.isPending}
               onClick={() => {
@@ -554,13 +534,14 @@ export function JobDetailPanel({
               <XCircle className="h-3.5 w-3.5 mr-1" />
               {t('importJobs.actions.cancelJob')}
             </Button>
-            <Button size="sm" variant="outline" className="cursor-pointer" onClick={exportFailedAsJsonl}>
+            <Button size="sm" variant="bordered" className="cursor-pointer" onClick={exportFailedAsJsonl}>
               <HardDriveDownload className="h-3.5 w-3.5 mr-1" />
               {t('importJobs.actions.exportFailed')}
             </Button>
           </div>
-        </div>
-
+        )}
+      />
+      <div className="space-y-3">
         {summary ? (
           <div className="space-y-3 mt-2">
             <div className="space-y-2">
@@ -602,11 +583,11 @@ export function JobDetailPanel({
         ) : summaryLoading ? (
           <div className="text-sm text-muted-foreground mt-2">{t('importJobs.detail.summaryLoading')}</div>
         ) : null}
-      </CardHeader>
+      </div>
 
-      <CardContent className="space-y-3 min-h-0">
+      <div className="space-y-3 min-h-0">
         <div className="h-[340px]">
-          <StandardDataTable
+          <DataTable
             columns={itemColumns}
             data={allItems}
             density="compact"
@@ -656,7 +637,6 @@ export function JobDetailPanel({
             {t('importJobs.detail.loadedCount', { count: allItems.length })}
           </div>
           <Button
-            variant="outline"
             size="sm"
             className="cursor-pointer"
             disabled={!itemsQuery.hasNextPage || itemsQuery.isFetchingNextPage}
@@ -675,16 +655,16 @@ export function JobDetailPanel({
             )}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </PagePanel>
   )
 }
 
 function MiniMetric({ title, value }: { title: string; value: string | number }) {
   return (
-    <div className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">
+    <SurfaceInset className="space-y-1">
       <div className="text-[10px] uppercase text-muted-foreground">{title}</div>
-      <div className="text-sm font-semibold mt-1 tabular-nums">{value}</div>
-    </div>
+      <div className="text-sm font-semibold tabular-nums">{value}</div>
+    </SurfaceInset>
   )
 }

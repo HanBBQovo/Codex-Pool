@@ -21,15 +21,15 @@ function isTenantAuthEndpoint(url?: string): boolean {
 
 export const tenantApiClient = createAuthApiClient({
   baseURL: '/api/v1/tenant',
-  timeout: 30000,
+  timeout: 30_000,
   getAccessToken: getTenantAccessToken,
   isAuthEndpoint: isTenantAuthEndpoint,
   isLoginEndpoint: (url) => Boolean(url?.includes('/auth/login')),
   authRequiredEvent: TENANT_AUTH_REQUIRED_EVENT,
   loginFailedEvent: TENANT_LOGIN_FAILED_EVENT,
+  unwrapResponseData: false,
 })
 
 export function extractTenantApiErrorMessage(error: unknown): string | null {
   return extractApiErrorMessageFrom(error)
 }
-

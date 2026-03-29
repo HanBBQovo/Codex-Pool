@@ -68,7 +68,9 @@ export function resolvePageEnterMotion(reducedMotion: boolean | null | undefined
   }
 }
 
-export function resolvePanelRevealMotion(reducedMotion: boolean | null | undefined): PanelRevealMotion {
+export function resolvePanelRevealMotion(
+  reducedMotion: boolean | null | undefined,
+): PanelRevealMotion {
   if (reducedMotion) {
     return {
       distance: 0,

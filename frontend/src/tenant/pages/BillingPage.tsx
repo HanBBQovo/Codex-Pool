@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button } from '@heroui/react'
 import type { TFunction } from 'i18next'
 import { Coins, Download, Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -9,7 +10,8 @@ import { useSearchParams } from 'react-router-dom'
 import { billingApi } from '@/api/billing'
 import { localizeApiErrorDisplay, localizeHttpStatusDisplay } from '@/api/errorI18n'
 import {
-  PageIntro,
+  DockedPageIntro,
+  PageContent,
   PagePanel,
   ReportMetricCard,
   ReportMetricGrid,
@@ -31,7 +33,6 @@ import { formatNumber, resolveLocale } from '@/lib/i18n-format'
 import { notify } from '@/lib/notification'
 import { formatTokenCount } from '@/lib/token-format'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
@@ -40,7 +41,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { SurfaceInset } from '@/components/ui/surface'
+import { DataTable } from '@/components/DataTable'
 import { TrendChart } from '@/components/ui/trend-chart'
 import { formatDateTime, formatMicrocredits } from '@/tenant/lib/format'
 import { TenantCostReportPage } from '@/features/billing/tenant-cost-report'
@@ -80,6 +82,15 @@ function formatMicrocreditsSummary(value: number | undefined, locale?: string) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
+}
+
+function formatPricingSummary(
+  t: ReturnType<typeof useTranslation>['t'],
+  input: number | null | undefined,
+  cached: number | null | undefined,
+  output: number | null | undefined,
+) {
+  return `${t('common.tokenSegments.input')} ${formatMicrocredits(input ?? undefined)} · ${t('common.tokenSegments.cached')} ${formatMicrocredits(cached ?? undefined)} · ${t('common.tokenSegments.output')} ${formatMicrocredits(output ?? undefined)}`
 }
 
 function bucketKey(date: Date, granularity: BillingGranularity) {
@@ -976,19 +987,11 @@ function TenantBusinessBillingPage() {
 
   const trendPanel = (
     <PagePanel className="space-y-5">
-      <SectionHeader
-        title={t('tenantBilling.trend.title')}
-        description={t('tenantBilling.trend.description', {
-          granularity:
-            granularity === 'day'
-              ? t('tenantBilling.filters.dayShort')
-              : t('tenantBilling.filters.monthShort'),
-        })}
-      />
+      <SectionHeader title={t('tenantBilling.trend.title')} />
       {chartData.length === 0 ? (
-        <div className="flex h-[300px] items-center justify-center rounded-[1.2rem] border border-dashed border-border/60 bg-muted/20 text-sm text-muted-foreground">
+        <SurfaceInset className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
           {t('tenantBilling.trend.empty')}
-        </div>
+        </SurfaceInset>
       ) : (
         <TrendChart
           data={chartData}
@@ -1009,12 +1012,9 @@ function TenantBusinessBillingPage() {
 
   const groupPricingPanel = (
     <PagePanel tone="secondary" className="space-y-5">
-      <SectionHeader
-        title={t('tenantBilling.groupPricing.title')}
-        description={t('tenantBilling.groupPricing.description')}
-      />
+      <SectionHeader title={t('tenantBilling.groupPricing.title')} />
       <div className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {t('tenantBilling.groupPricing.apiKeyAriaLabel')}
         </p>
         <Select value={billingApiKeyId} onValueChange={setBillingApiKeyId}>
@@ -1031,14 +1031,14 @@ function TenantBusinessBillingPage() {
       </div>
       {selectedBillingApiKey && selectedBillingGroup ? (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-950/60">
-            <div className="font-medium text-slate-900 dark:text-slate-50">
+          <SurfaceInset className="space-y-3 text-sm">
+            <div className="font-medium text-foreground">
               {selectedBillingApiKey.name}
             </div>
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-300">
+            <div className="text-xs text-default-500">
               {selectedBillingGroup.name}
             </div>
-            <div className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+            <div className="text-xs leading-5 text-default-500">
               {selectedBillingApiKey.group.deleted
                 ? t('tenantBilling.groupPricing.invalidGroup')
                 : t('tenantBilling.groupPricing.groupSummary', {
@@ -1046,39 +1046,43 @@ function TenantBusinessBillingPage() {
                     allowAll: selectedBillingGroup.allow_all_models ? t('common.yes') : t('common.no'),
                   })}
             </div>
-          </div>
+          </SurfaceInset>
           <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
             {selectedBillingGroup.models.slice(0, 10).map((item) => (
-              <div
-                key={item.model}
-                className="rounded-2xl border border-slate-200/75 bg-white/75 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60"
-              >
-                <div className="text-sm font-medium text-slate-900 dark:text-slate-50">{item.model}</div>
-                <div className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                  {t('tenantBilling.groupPricing.columns.finalPrice')}: in {formatMicrocredits(item.final_input_price_microcredits ?? undefined)} · cached {formatMicrocredits(item.final_cached_input_price_microcredits ?? undefined)} · out {formatMicrocredits(item.final_output_price_microcredits ?? undefined)}
+              <SurfaceInset key={item.model} className="space-y-2.5">
+                <div className="text-sm font-medium text-foreground">{item.model}</div>
+                <div className="text-xs leading-5 text-default-500">
+                  {t('tenantBilling.groupPricing.columns.finalPrice')}: {formatPricingSummary(
+                    t,
+                    item.final_input_price_microcredits,
+                    item.final_cached_input_price_microcredits,
+                    item.final_output_price_microcredits,
+                  )}
                 </div>
-                <div className="mt-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
-                  {t('tenantBilling.groupPricing.columns.formulaPrice')}: in {formatMicrocredits(item.formula_input_price_microcredits ?? undefined)} · cached {formatMicrocredits(item.formula_cached_input_price_microcredits ?? undefined)} · out {formatMicrocredits(item.formula_output_price_microcredits ?? undefined)}
+                <div className="text-xs leading-5 text-default-400">
+                  {t('tenantBilling.groupPricing.columns.formulaPrice')}: {formatPricingSummary(
+                    t,
+                    item.formula_input_price_microcredits,
+                    item.formula_cached_input_price_microcredits,
+                    item.formula_output_price_microcredits,
+                  )}
                 </div>
-              </div>
+              </SurfaceInset>
             ))}
           </div>
         </div>
       ) : (
         <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
           {keys.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-2xl border border-slate-200/75 bg-white/75 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60"
-            >
-              <div className="text-sm font-medium text-slate-900 dark:text-slate-50">{item.name}</div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.group.name}</div>
-              <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            <SurfaceInset key={item.id} className="space-y-2">
+              <div className="text-sm font-medium text-foreground">{item.name}</div>
+              <div className="text-xs text-default-500">{item.group.name}</div>
+              <div className="text-xs text-default-500">
                 {item.group.deleted
                   ? t('tenantBilling.groupPricing.state.invalid')
                   : t('tenantBilling.groupPricing.state.active')}
               </div>
-            </div>
+            </SurfaceInset>
           ))}
         </div>
       )}
@@ -1087,16 +1091,8 @@ function TenantBusinessBillingPage() {
 
   const snapshotPanel = (
     <PagePanel tone="secondary" className="space-y-5">
-      <SectionHeader
-        title={t('tenantBilling.snapshot.title')}
-        description={t('tenantBilling.snapshot.description', {
-          granularity:
-            granularity === 'day'
-              ? t('tenantBilling.filters.dayShort')
-              : t('tenantBilling.filters.monthShort'),
-        })}
-      />
-      <StandardDataTable
+      <SectionHeader title={t('tenantBilling.snapshot.title')} />
+      <DataTable
         columns={snapshotColumns}
         data={snapshotRows}
         defaultPageSize={20}
@@ -1112,7 +1108,6 @@ function TenantBusinessBillingPage() {
     <PagePanel className="space-y-5">
       <SectionHeader
         title={t('tenantBilling.ledger.title')}
-        description={t('tenantBilling.ledger.description')}
         actions={(
           <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
             <Checkbox
@@ -1124,7 +1119,7 @@ function TenantBusinessBillingPage() {
           </label>
         )}
       />
-      <StandardDataTable
+      <DataTable
         columns={columns}
         data={rows}
         defaultPageSize={20}
@@ -1137,10 +1132,10 @@ function TenantBusinessBillingPage() {
   )
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8">
+    <PageContent>
       <ReportShell
         intro={(
-          <PageIntro
+          <DockedPageIntro
             archetype="detail"
             title={t('tenantBilling.title')}
             description={t('tenantBilling.subtitle')}
@@ -1150,7 +1145,7 @@ function TenantBusinessBillingPage() {
           <PagePanel tone="secondary">
             <div className="grid gap-4 xl:grid-cols-[minmax(0,0.5fr)_auto_auto]">
               <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   {t('tenantBilling.filters.granularityAriaLabel')}
                 </p>
                 <Select value={granularity} onValueChange={(value) => setGranularity(value as BillingGranularity)}>
@@ -1165,7 +1160,6 @@ function TenantBusinessBillingPage() {
               </div>
               <div className="flex items-end">
                 <Button
-                  variant="outline"
                   onClick={() => checkinMutation.mutate()}
                   disabled={checkinMutation.isPending}
                 >
@@ -1173,7 +1167,7 @@ function TenantBusinessBillingPage() {
                 </Button>
               </div>
               <div className="flex items-end">
-                <Button variant="outline" onClick={handleExportLedgerCsv} disabled={!rows.length}>
+                <Button variant="bordered" onClick={handleExportLedgerCsv} disabled={!rows.length}>
                   <Download className="mr-2 h-4 w-4" />
                   {t('tenantBilling.actions.exportCsv')}
                 </Button>
@@ -1210,6 +1204,6 @@ function TenantBusinessBillingPage() {
           </>
         )}
       </ReportShell>
-    </div>
+    </PageContent>
   )
 }

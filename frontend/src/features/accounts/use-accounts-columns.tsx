@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
+import { Button } from '@heroui/react'
 import {
   Eye,
   MoreHorizontal,
@@ -13,7 +14,6 @@ import { useTranslation } from 'react-i18next'
 import type { OAuthAccountStatusResponse, UpstreamAccount } from '@/api/accounts'
 import { localizeOAuthErrorCodeDisplay } from '@/api/errorI18n'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
@@ -30,8 +30,8 @@ import { formatRelativeTime } from '@/lib/time'
 import { RateLimitCell } from './rate-limit-cell'
 import type { ToggleAccountPayload } from './types'
 import {
-  getPoolStateBadgeVariant,
-  getPoolStateLabel,
+  getAccountPoolStateBadgeVariant,
+  getAccountPoolStateLabel,
   getCredentialKindShortLabel,
   getModeLabel,
   getPlanLabel,
@@ -39,6 +39,7 @@ import {
   isSessionMode,
   normalizePlanValue,
   rateLimitSortValue,
+  resolveLegacyAccountOperatorState,
   resolveCredentialKindShort,
   statusSortValue,
 } from './utils'
@@ -142,7 +143,7 @@ export function useAccountsColumns({
                 <div className="mt-1">
                   <Badge
                     variant="secondary"
-                    className="max-w-full truncate text-[11px] font-normal"
+                    className="max-w-full truncate text-xs font-normal"
                     title={workspaceName}
                   >
                     {workspaceName}
@@ -216,7 +217,7 @@ export function useAccountsColumns({
                 <Badge variant="destructive" className="w-fit max-w-full truncate" title={statusLabel}>
                   {statusLabel}
                 </Badge>
-                <div className="max-w-full truncate text-[11px] text-muted-foreground" title={errorDisplay.tooltip}>
+                <div className="max-w-full truncate text-xs text-muted-foreground">
                   {errorDisplay.label}
                 </div>
               </div>
@@ -229,65 +230,6 @@ export function useAccountsColumns({
               <Badge variant="success" className="w-fit max-w-full truncate" title={statusLabel}>
                 {statusLabel}
               </Badge>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'runtimePool',
-        accessorFn: (row) => {
-          const poolState = oauthStatusMap.get(row.id)?.pool_state
-          if (poolState === 'active') return 3
-          if (poolState === 'quarantine') return 2
-          if (poolState === 'pending_purge') return 1
-          return 0
-        },
-        header: t('accounts.columns.runtimePool', { defaultValue: 'Runtime Pool' }),
-        cell: ({ row }) => {
-          const cellClass = 'min-w-[136px] max-w-[168px] h-[40px]'
-          const isSession = isSessionMode(row.original.mode)
-          if (!isSession) {
-            return (
-              <div className={cn(cellClass, 'flex items-center')}>
-                <span className="text-xs text-muted-foreground">
-                  {t('accounts.oauth.notApplicable')}
-                </span>
-              </div>
-            )
-          }
-          if (isOAuthStatusRefreshing) {
-            return (
-              <div className={cn(cellClass, 'flex items-center')}>
-                <Skeleton className="h-5 w-20" />
-              </div>
-            )
-          }
-          const status = oauthStatusMap.get(row.original.id)
-          if (!status) {
-            return (
-              <div className={cn(cellClass, 'flex items-center')}>
-                <span className="text-xs text-muted-foreground">{t('accounts.oauth.loading')}</span>
-              </div>
-            )
-          }
-
-          const detail =
-            status.pool_state === 'quarantine'
-              ? status.quarantine_reason
-              : status.pool_state === 'pending_purge'
-                ? status.pending_purge_reason
-                : undefined
-
-          return (
-            <div className={cn(cellClass, 'flex flex-col items-start justify-center gap-0.5')}>
-              <Badge variant={getPoolStateBadgeVariant(status.pool_state)}>
-                {getPoolStateLabel(status.pool_state, t)}
-              </Badge>
-              {detail ? (
-                <div className="max-w-full truncate text-[11px] text-muted-foreground" title={detail}>
-                  {detail}
-                </div>
-              ) : null}
             </div>
           )
         },
@@ -350,17 +292,26 @@ export function useAccountsColumns({
       },
       {
         id: 'health',
-        accessorFn: (row) => (oauthStatusMap.get(row.id)?.effective_enabled ?? row.enabled ? 1 : 0),
+        accessorFn: (row) => {
+          const operatorState = resolveLegacyAccountOperatorState(
+            oauthStatusMap.get(row.id),
+            row.enabled,
+          )
+          if (operatorState === 'routable') return 4
+          if (operatorState === 'cooling') return 3
+          if (operatorState === 'inventory') return 2
+          return 1
+        },
         header: t('accounts.columns.health'),
         cell: ({ row }) => {
           if (isSessionMode(row.original.mode) && isOAuthStatusRefreshing) {
             return <Skeleton className="h-5 w-16" />
           }
           const status = oauthStatusMap.get(row.original.id)
-          const enabled = status?.effective_enabled ?? row.original.enabled
+          const operatorState = resolveLegacyAccountOperatorState(status, row.original.enabled)
           return (
-            <Badge variant={enabled ? 'success' : 'warning'}>
-              {enabled ? t('accounts.status.active') : t('accounts.status.disabled')}
+            <Badge variant={getAccountPoolStateBadgeVariant(operatorState)}>
+              {getAccountPoolStateLabel(operatorState, t)}
             </Badge>
           )
         },
@@ -401,7 +352,13 @@ export function useAccountsColumns({
           return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0" aria-label={t('common.openMenu')}>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="light"
+                  className="h-8 w-8 min-w-8 p-0"
+                  aria-label={t('common.openMenu')}
+                >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>

@@ -1,5 +1,7 @@
 import { resolveLocale } from '@/lib/i18n-format'
 
+import { formatDurationMs } from './duration-format'
+
 const DASHBOARD_UNITS = ['', 'K', 'M', 'B', 'T'] as const
 const DASHBOARD_FRACTION_DIGITS = 2
 
@@ -68,7 +70,10 @@ export function formatDashboardDurationSeconds(value: number | null | undefined,
     return '--'
   }
 
-  return `${formatDashboardExactNumber(value, locale)}s`
+  return formatDurationMs(value * 1_000, {
+    locale,
+    fallback: '--',
+  })
 }
 
 export function formatDashboardTrendTimestampLabel(

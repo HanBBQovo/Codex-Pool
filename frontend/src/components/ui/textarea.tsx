@@ -1,20 +1,61 @@
-import * as React from 'react'
+import * as React from "react"
+import { Textarea as HeroTextarea, type TextAreaProps as HeroTextareaProps } from "@heroui/react"
 
-import { cn } from '@/lib/utils'
+import { cn } from "@/lib/utils"
 
-function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {
+export type TextareaProps = Omit<HeroTextareaProps, "spellCheck" | "minRows" | "maxRows"> & {
+  spellCheck?: boolean
+  rows?: number
+  minRows?: number
+  maxRows?: number
+}
+
+const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  {
+    className,
+    classNames,
+    variant = "bordered",
+    radius = "sm",
+    rows,
+    minRows,
+    maxRows,
+    spellCheck,
+    ...props
+  },
+  ref,
+) {
   return (
-    <textarea
-      data-slot="textarea"
-      className={cn(
-        'border-input placeholder:text-muted-foreground/90 selection:bg-primary selection:text-primary-foreground min-h-24 w-full rounded-[10px] border bg-background/84 px-3.5 py-2.5 text-[0.95rem] shadow-none transition-[border-color,box-shadow,background-color] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] md:text-sm',
-        'focus-visible:border-ring focus-visible:bg-background focus-visible:ring-[3px] focus-visible:ring-ring/24 dark:focus-visible:bg-white/[0.06]',
-        'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
-        className,
-      )}
+    <HeroTextarea
+      ref={ref}
+      variant={variant}
+      radius={radius}
+      minRows={rows ?? minRows ?? 4}
+      maxRows={rows ?? maxRows}
+      spellCheck={
+        spellCheck === undefined
+          ? undefined
+          : (spellCheck ? "true" : "false")
+      }
+      className={className}
+      classNames={{
+        inputWrapper: cn(
+          "border-small border-default-200 bg-content1 shadow-small transition-[border-color,background-color]",
+          "group-data-[focus=true]:border-primary group-data-[focus=true]:bg-content1",
+          "group-data-[hover=true]:border-default-300 group-data-[hover=true]:bg-content2",
+          classNames?.inputWrapper,
+        ),
+        input: cn("text-sm text-foreground placeholder:text-default-400", classNames?.input),
+        label: cn("text-sm font-medium text-foreground/82", classNames?.label),
+        description: cn("text-xs text-default-500", classNames?.description),
+        errorMessage: cn("text-xs", classNames?.errorMessage),
+        base: classNames?.base,
+        mainWrapper: classNames?.mainWrapper,
+        innerWrapper: classNames?.innerWrapper,
+        helperWrapper: classNames?.helperWrapper,
+      }}
       {...props}
     />
   )
-}
+})
 
 export { Textarea }

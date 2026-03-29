@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { type HTMLAttributes, type ReactNode, useCallback, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button } from '@heroui/react'
 import {
   Ban,
   Check,
@@ -42,20 +43,21 @@ import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { ModelSelector } from '@/components/model-routing/model-selector'
 import { getPublishedVersionWindow } from '@/components/model-routing/model-selector-utils'
 import {
-  PageIntro,
+  AntigravityDialogActions,
+  AntigravityDialogBody,
+  AntigravityDialogPanel,
+  AntigravityDialogShell,
+} from '@/components/layout/dialog-archetypes'
+import {
+  DockedPageIntro,
+  PageContent,
   PagePanel,
   SectionHeader,
 } from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { LoadingOverlay } from '@/components/ui/loading-overlay'
@@ -66,8 +68,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  SurfaceCard as BaseSurfaceCard,
+  SurfaceCardBody,
+  SurfaceCode,
+  SurfaceInset,
+  SurfaceNotice,
+} from '@/components/ui/surface'
 import { Textarea } from '@/components/ui/textarea'
-import { POOL_SECTION_CLASS_NAME } from '@/lib/pool-styles'
+import { cn } from '@/lib/utils'
 
 type ProfileFormState = {
   id?: string
@@ -153,7 +162,7 @@ const DEFAULT_POLICY_FORM: PolicyFormState = {
   priority: '100',
 }
 
-const ERROR_TEMPLATE_LOCALES: SupportedErrorTemplateLocale[] = ['en', 'zh-CN', 'zh-TW', 'ja', 'ru']
+const ERROR_TEMPLATE_LOCALES: SupportedErrorTemplateLocale[] = ['en', 'zh-CN']
 
 const ERROR_TEMPLATE_ACTIONS: UpstreamErrorAction[] = [
   'return_failure',
@@ -280,9 +289,6 @@ function createUpstreamErrorTemplateDraft(
     templates: {
       en: template.templates.en ?? '',
       'zh-CN': template.templates['zh-CN'] ?? '',
-      'zh-TW': template.templates['zh-TW'] ?? '',
-      ja: template.templates.ja ?? '',
-      ru: template.templates.ru ?? '',
     },
   }
 }
@@ -294,9 +300,6 @@ function createBuiltinErrorTemplateDraft(
     templates: {
       en: template.templates.en ?? '',
       'zh-CN': template.templates['zh-CN'] ?? '',
-      'zh-TW': template.templates['zh-TW'] ?? '',
-      ja: template.templates.ja ?? '',
-      ru: template.templates.ru ?? '',
     },
   }
 }
@@ -305,9 +308,6 @@ function createLocalizedErrorTemplatesPayload(templates: TemplateLocaleDraft): L
   return {
     en: templates.en.trim() || null,
     'zh-CN': templates['zh-CN'].trim() || null,
-    'zh-TW': templates['zh-TW'].trim() || null,
-    ja: templates.ja.trim() || null,
-    ru: templates.ru.trim() || null,
   }
 }
 
@@ -358,9 +358,6 @@ function upstreamErrorRetryScopeLabel(
 
 function localeLabel(locale: SupportedErrorTemplateLocale, t: ReturnType<typeof useTranslation>['t']) {
   if (locale === 'zh-CN') return t('modelRoutingPage.errorLearning.locales.zhCN')
-  if (locale === 'zh-TW') return t('modelRoutingPage.errorLearning.locales.zhTW')
-  if (locale === 'ja') return t('modelRoutingPage.errorLearning.locales.ja')
-  if (locale === 'ru') return t('modelRoutingPage.errorLearning.locales.ru')
   return t('modelRoutingPage.errorLearning.locales.en')
 }
 
@@ -376,6 +373,36 @@ function builtinErrorTemplateKindLabel(
 
 function builtinErrorTemplateKey(template: BuiltinErrorTemplateRecord) {
   return `${template.kind}:${template.code}`
+}
+
+function SurfaceCard({
+  className,
+  contentClassName,
+  children,
+}: {
+  className?: string
+  contentClassName?: string
+  children: ReactNode
+}) {
+  return (
+    <BaseSurfaceCard tone="muted" shadow="none" className={className}>
+      <SurfaceCardBody className={cn('space-y-3 p-4', contentClassName)}>
+        {children}
+      </SurfaceCardBody>
+    </BaseSurfaceCard>
+  )
+}
+
+function EmptyState({
+  className,
+  children,
+  ...props
+}: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <SurfaceInset className={cn('px-4 py-4 text-sm text-muted-foreground', className)} {...props}>
+      {children}
+    </SurfaceInset>
+  )
 }
 
 export default function ModelRouting() {
@@ -870,18 +897,17 @@ export default function ModelRouting() {
     resetBuiltinTemplateMutation.isPending
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+    <PageContent className="overflow-y-auto">
       <LoadingOverlay show={isLoading} title={t('common.loading')} />
 
       <div className="space-y-4 md:space-y-5">
-        <PageIntro
+        <DockedPageIntro
           archetype="workspace"
           title={t('modelRoutingPage.title')}
           description={t('modelRoutingPage.subtitle')}
           actions={(
             <>
               <Button
-                variant="outline"
                 onClick={() => {
                   queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
                   queryClient.invalidateQueries({ queryKey: ['models'] })
@@ -891,26 +917,18 @@ export default function ModelRouting() {
                 <RotateCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
                 {t('modelRoutingPage.actions.refresh')}
               </Button>
-              <Button variant="outline" onClick={openCreateProfileDialog}>
+                      <Button variant="flat" onClick={openCreateProfileDialog}>
                 {t('modelRoutingPage.actions.createProfile')}
               </Button>
-              <Button onClick={openCreatePolicyDialog}>
+              <Button color="primary" onClick={openCreatePolicyDialog}>
                 {t('modelRoutingPage.actions.createPolicy')}
               </Button>
             </>
           )}
         />
 
-        {error ? (
-          <PagePanel tone="secondary" className="border-destructive/25 bg-destructive/8 text-sm text-destructive">
-            {error}
-          </PagePanel>
-        ) : null}
-        {notice ? (
-          <PagePanel tone="secondary" className="border-success/25 bg-success-muted text-sm text-success-foreground">
-            {notice}
-          </PagePanel>
-        ) : null}
+        {error ? <SurfaceNotice tone="danger">{error}</SurfaceNotice> : null}
+        {notice ? <SurfaceNotice tone="success">{notice}</SurfaceNotice> : null}
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.28fr)_minmax(18rem,0.72fr)]">
           <PagePanel className="relative overflow-hidden space-y-5">
@@ -939,7 +957,7 @@ export default function ModelRouting() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <label className={POOL_SECTION_CLASS_NAME}>
+              <SurfaceCard contentClassName="p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-medium">{t('modelRoutingPage.settings.enabled')}</div>
@@ -957,9 +975,9 @@ export default function ModelRouting() {
                     }
                   />
                 </div>
-              </label>
+              </SurfaceCard>
 
-              <label className={POOL_SECTION_CLASS_NAME}>
+              <SurfaceCard contentClassName="p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-medium">{t('modelRoutingPage.settings.autoPublish')}</div>
@@ -977,9 +995,9 @@ export default function ModelRouting() {
                     }
                   />
                 </div>
-              </label>
+              </SurfaceCard>
 
-              <label className={POOL_SECTION_CLASS_NAME}>
+              <SurfaceCard contentClassName="p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-medium">{t('modelRoutingPage.settings.killSwitch')}</div>
@@ -997,9 +1015,9 @@ export default function ModelRouting() {
                     }
                   />
                 </div>
-              </label>
+              </SurfaceCard>
 
-              <div className={POOL_SECTION_CLASS_NAME}>
+              <SurfaceCard contentClassName="p-4">
                 <div className="mb-2 font-medium">{t('modelRoutingPage.settings.triggerMode')}</div>
                 <Select
                   value={settingsDraft?.triggerMode ?? 'hybrid'}
@@ -1021,10 +1039,10 @@ export default function ModelRouting() {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </SurfaceCard>
             </div>
 
-            <div className={POOL_SECTION_CLASS_NAME}>
+            <SurfaceCard contentClassName="p-4">
               <label className="mb-2 block font-medium">
                 {t('modelRoutingPage.settings.plannerModelChain')}
               </label>
@@ -1043,10 +1061,10 @@ export default function ModelRouting() {
               <p className="mt-2 text-xs text-muted-foreground">
                 {t('modelRoutingPage.settings.plannerModelChainHint')}
               </p>
-            </div>
+            </SurfaceCard>
 
             <div className="flex justify-end">
-              <Button onClick={() => saveSettingsMutation.mutate()} disabled={saveSettingsMutation.isPending}>
+              <Button color="primary" onClick={() => saveSettingsMutation.mutate()} disabled={saveSettingsMutation.isPending}>
                 <Save className="mr-2 h-4 w-4" />
                 {t('modelRoutingPage.actions.saveSettings')}
               </Button>
@@ -1059,16 +1077,16 @@ export default function ModelRouting() {
               description={t('modelRoutingPage.versions.description')}
             />
             {versions.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              <EmptyState>
                 {t('modelRoutingPage.versions.empty')}
-              </div>
+              </EmptyState>
             ) : (
               <>
                 <div className={versionsExpanded ? 'max-h-[30rem] space-y-3 overflow-y-auto pr-2' : 'space-y-3'}>
                   {visibleVersions.visibleItems.map((version) => {
                     const reason = version.reason || version.compiled_plan.trigger_reason
                     return (
-                      <div key={version.id} className={POOL_SECTION_CLASS_NAME}>
+                      <SurfaceCard key={version.id} contentClassName="space-y-3 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="font-medium">{formatDateTime(version.published_at)}</div>
                           <Badge variant="outline">{version.id.slice(0, 8)}</Badge>
@@ -1088,7 +1106,7 @@ export default function ModelRouting() {
                             })}
                           </span>
                         </div>
-                      </div>
+                      </SurfaceCard>
                     )
                   })}
                 </div>
@@ -1096,7 +1114,7 @@ export default function ModelRouting() {
                   <div className="flex justify-end">
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="light"
                       size="sm"
                       onClick={() => setVersionsExpanded((current) => !current)}
                     >
@@ -1119,12 +1137,12 @@ export default function ModelRouting() {
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.25fr)]">
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>{t('modelRoutingPage.errorLearning.settings.title')}</CardTitle>
-            <CardDescription>{t('modelRoutingPage.errorLearning.settings.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        <PagePanel className="space-y-6">
+          <SectionHeader
+            title={t('modelRoutingPage.errorLearning.settings.title')}
+            description={t('modelRoutingPage.errorLearning.settings.description')}
+          />
+          <div className="space-y-6">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={errorLearningSettings?.enabled ? 'success' : 'secondary'}>
                 {errorLearningSettings?.enabled
@@ -1138,24 +1156,26 @@ export default function ModelRouting() {
               </Badge>
             </div>
 
-            <div className="space-y-5 rounded-xl bg-muted/20 p-4">
-              <div className="flex items-start justify-between gap-3 rounded-lg bg-background/80 px-4 py-3">
-                <div>
-                  <div className="font-medium">{t('modelRoutingPage.errorLearning.settings.enabled')}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {t('modelRoutingPage.errorLearning.settings.enabledHint')}
+            <SurfaceCard contentClassName="space-y-5 p-4">
+              <SurfaceCard contentClassName="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium">{t('modelRoutingPage.errorLearning.settings.enabled')}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {t('modelRoutingPage.errorLearning.settings.enabledHint')}
+                    </div>
                   </div>
+                  <Checkbox
+                    checked={errorLearningSettingsDraft?.enabled ?? false}
+                    onCheckedChange={(checked) =>
+                      updateErrorLearningDraft((prev) => ({
+                        ...prev,
+                        enabled: checked === true,
+                      }))
+                    }
+                  />
                 </div>
-                <Checkbox
-                  checked={errorLearningSettingsDraft?.enabled ?? false}
-                  onCheckedChange={(checked) =>
-                    updateErrorLearningDraft((prev) => ({
-                      ...prev,
-                      enabled: checked === true,
-                    }))
-                  }
-                />
-              </div>
+              </SurfaceCard>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
@@ -1196,10 +1216,11 @@ export default function ModelRouting() {
                   </p>
                 </div>
               </div>
-            </div>
+            </SurfaceCard>
 
             <div className="flex justify-end">
               <Button
+                color="primary"
                 onClick={() => saveErrorLearningSettingsMutation.mutate()}
                 disabled={saveErrorLearningSettingsMutation.isPending}
               >
@@ -1207,25 +1228,23 @@ export default function ModelRouting() {
                 {t('modelRoutingPage.errorLearning.actions.saveSettings')}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </PagePanel>
 
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>{t('modelRoutingPage.errorLearning.templates.title')}</CardTitle>
-            <CardDescription>{t('modelRoutingPage.errorLearning.templates.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <PagePanel className="space-y-4">
+          <SectionHeader
+            title={t('modelRoutingPage.errorLearning.templates.title')}
+            description={t('modelRoutingPage.errorLearning.templates.description')}
+          />
+          <div className="space-y-4">
             {upstreamErrorTemplates.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                {t('modelRoutingPage.errorLearning.templates.empty')}
-              </div>
+              <EmptyState>{t('modelRoutingPage.errorLearning.templates.empty')}</EmptyState>
             ) : (
               upstreamErrorTemplates.map((template) => {
                 const isEditing = editingTemplateId === template.id && editingTemplateDraft !== null
 
                 return (
-                  <div key={template.id} className={POOL_SECTION_CLASS_NAME}>
+                  <SurfaceCard key={template.id} contentClassName="space-y-4 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -1247,14 +1266,13 @@ export default function ModelRouting() {
                         <div className="text-xs text-muted-foreground">
                           {t('modelRoutingPage.errorLearning.templates.fingerprint')}
                         </div>
-                        <code className="block overflow-x-auto rounded bg-muted/50 px-3 py-2 text-xs">
+                        <SurfaceCode>
                           {template.fingerprint}
-                        </code>
+                        </SurfaceCode>
                       </div>
 
                       <div className="flex flex-wrap gap-2">
                         <Button
-                          variant="outline"
                           size="sm"
                           onClick={() => openTemplateEditor(template)}
                           disabled={anyTemplateMutationPending}
@@ -1263,7 +1281,6 @@ export default function ModelRouting() {
                           {t('modelRoutingPage.actions.edit')}
                         </Button>
                         <Button
-                          variant="outline"
                           size="sm"
                           onClick={() => rewriteTemplateMutation.mutate(template.id)}
                           disabled={anyTemplateMutationPending}
@@ -1272,7 +1289,6 @@ export default function ModelRouting() {
                           {t('modelRoutingPage.errorLearning.actions.rewrite')}
                         </Button>
                         <Button
-                          variant="outline"
                           size="sm"
                           onClick={() => approveTemplateMutation.mutate(template.id)}
                           disabled={anyTemplateMutationPending || template.status === 'approved'}
@@ -1281,7 +1297,8 @@ export default function ModelRouting() {
                           {t('modelRoutingPage.errorLearning.actions.approve')}
                         </Button>
                         <Button
-                          variant="destructive"
+                          color="danger"
+                          variant="light"
                           size="sm"
                           onClick={() => rejectTemplateMutation.mutate(template.id)}
                           disabled={anyTemplateMutationPending || template.status === 'rejected'}
@@ -1405,18 +1422,17 @@ export default function ModelRouting() {
                         {t('modelRoutingPage.errorLearning.templates.representativeSamples')}
                       </div>
                       {template.representative_samples.length === 0 ? (
-                        <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                        <EmptyState className="px-3 py-3">
                           {t('modelRoutingPage.errorLearning.templates.samplesEmpty')}
-                        </div>
+                        </EmptyState>
                       ) : (
                         <div className="space-y-2">
                           {template.representative_samples.map((sample, index) => (
-                            <code
+                            <SurfaceCode
                               key={`${template.id}-sample-${index}`}
-                              className="block overflow-x-auto rounded bg-muted/50 px-3 py-2 text-xs"
                             >
                               {sample}
-                            </code>
+                            </SurfaceCode>
                           ))}
                         </div>
                       )}
@@ -1447,10 +1463,10 @@ export default function ModelRouting() {
                                 }
                               />
                             ) : (
-                              <div className="min-h-24 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
+                              <SurfaceCode className="min-h-24">
                                 {template.templates[key]?.trim() ||
                                   t('modelRoutingPage.errorLearning.templates.localeEmpty')}
-                              </div>
+                              </SurfaceCode>
                             )}
                           </div>
                         ))}
@@ -1460,7 +1476,6 @@ export default function ModelRouting() {
                     {isEditing ? (
                       <div className="flex flex-wrap justify-end gap-2">
                         <Button
-                          variant="outline"
                           size="sm"
                           onClick={cancelTemplateEditor}
                           disabled={updateTemplateMutation.isPending}
@@ -1470,6 +1485,7 @@ export default function ModelRouting() {
                         </Button>
                         <Button
                           size="sm"
+                          color="primary"
                           onClick={() => {
                             if (!editingTemplateDraft) {
                               return
@@ -1494,25 +1510,21 @@ export default function ModelRouting() {
                         </Button>
                       </div>
                     ) : null}
-                  </div>
+                  </SurfaceCard>
                 )
               })
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </PagePanel>
 
-        <Card className="border-border/60 xl:col-span-2">
-          <CardHeader>
-            <CardTitle>{t('modelRoutingPage.errorLearning.builtinTemplates.title')}</CardTitle>
-            <CardDescription>
-              {t('modelRoutingPage.errorLearning.builtinTemplates.description')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <PagePanel className="space-y-4 xl:col-span-2">
+          <SectionHeader
+            title={t('modelRoutingPage.errorLearning.builtinTemplates.title')}
+            description={t('modelRoutingPage.errorLearning.builtinTemplates.description')}
+          />
+          <div className="space-y-4">
             {builtinErrorTemplates.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                {t('modelRoutingPage.errorLearning.builtinTemplates.empty')}
-              </div>
+              <EmptyState>{t('modelRoutingPage.errorLearning.builtinTemplates.empty')}</EmptyState>
             ) : (
               <>
                 <div
@@ -1528,7 +1540,7 @@ export default function ModelRouting() {
                       editingBuiltinTemplateKey === templateKey && editingBuiltinTemplateDraft !== null
 
                     return (
-                      <div key={templateKey} className={POOL_SECTION_CLASS_NAME}>
+                      <SurfaceCard key={templateKey} contentClassName="space-y-4 p-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center gap-2">
@@ -1551,7 +1563,6 @@ export default function ModelRouting() {
 
                           <div className="flex flex-wrap gap-2">
                             <Button
-                              variant="outline"
                               size="sm"
                               onClick={() => openBuiltinTemplateEditor(template)}
                               disabled={anyBuiltinTemplateMutationPending}
@@ -1560,7 +1571,6 @@ export default function ModelRouting() {
                               {t('modelRoutingPage.actions.edit')}
                             </Button>
                             <Button
-                              variant="outline"
                               size="sm"
                               onClick={() =>
                                 rewriteBuiltinTemplateMutation.mutate({
@@ -1574,7 +1584,6 @@ export default function ModelRouting() {
                               {t('modelRoutingPage.errorLearning.actions.rewrite')}
                             </Button>
                             <Button
-                              variant="outline"
                               size="sm"
                               onClick={() =>
                                 resetBuiltinTemplateMutation.mutate({
@@ -1665,10 +1674,10 @@ export default function ModelRouting() {
                                     }
                                   />
                                 ) : (
-                                  <div className="min-h-24 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
+                                  <SurfaceCode className="min-h-24">
                                     {template.templates[key]?.trim() ||
                                       t('modelRoutingPage.errorLearning.templates.localeEmpty')}
-                                  </div>
+                                  </SurfaceCode>
                                 )}
                               </div>
                             ))}
@@ -1685,10 +1694,10 @@ export default function ModelRouting() {
                                 <div className="text-xs font-medium text-muted-foreground">
                                   {localeLabel(key, t)}
                                 </div>
-                                <div className="min-h-24 whitespace-pre-wrap rounded-lg border border-dashed bg-muted/20 p-3 text-sm text-foreground">
+                                <SurfaceCode className="min-h-24">
                                   {template.default_templates[key]?.trim() ||
                                     t('modelRoutingPage.errorLearning.templates.localeEmpty')}
-                                </div>
+                                </SurfaceCode>
                               </div>
                             ))}
                           </div>
@@ -1697,7 +1706,6 @@ export default function ModelRouting() {
                         {isEditing ? (
                           <div className="flex flex-wrap justify-end gap-2">
                             <Button
-                              variant="outline"
                               size="sm"
                               onClick={cancelBuiltinTemplateEditor}
                               disabled={updateBuiltinTemplateMutation.isPending}
@@ -1707,6 +1715,7 @@ export default function ModelRouting() {
                             </Button>
                             <Button
                               size="sm"
+                              color="primary"
                               onClick={() =>
                                 updateBuiltinTemplateMutation.mutate({
                                   kind: template.kind,
@@ -1725,7 +1734,7 @@ export default function ModelRouting() {
                             </Button>
                           </div>
                         ) : null}
-                      </div>
+                      </SurfaceCard>
                     )
                   })}
                 </div>
@@ -1733,7 +1742,7 @@ export default function ModelRouting() {
                   <div className="flex justify-end">
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="light"
                       size="sm"
                       onClick={() => setBuiltinTemplatesExpanded((current) => !current)}
                     >
@@ -1752,24 +1761,22 @@ export default function ModelRouting() {
                 ) : null}
               </>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </PagePanel>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>{t('modelRoutingPage.profiles.title')}</CardTitle>
-            <CardDescription>{t('modelRoutingPage.profiles.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <PagePanel className="space-y-3">
+          <SectionHeader
+            title={t('modelRoutingPage.profiles.title')}
+            description={t('modelRoutingPage.profiles.description')}
+          />
+          <div className="space-y-3">
             {profiles.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                {t('modelRoutingPage.profiles.empty')}
-              </div>
+              <EmptyState>{t('modelRoutingPage.profiles.empty')}</EmptyState>
             ) : (
               profiles.map((profile) => (
-                <div key={profile.id} className={POOL_SECTION_CLASS_NAME}>
+                <SurfaceCard key={profile.id} contentClassName="space-y-3 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1791,12 +1798,13 @@ export default function ModelRouting() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEditProfileDialog(profile)}>
+                      <Button variant="flat" size="sm" onClick={() => openEditProfileDialog(profile)}>
                         <SquarePen className="mr-2 h-4 w-4" />
                         {t('modelRoutingPage.actions.edit')}
                       </Button>
                       <Button
-                        variant="outline"
+                        color="danger"
+                        variant="light"
                         size="sm"
                         onClick={() => deleteProfileMutation.mutate(profile.id)}
                       >
@@ -1823,25 +1831,23 @@ export default function ModelRouting() {
                       </span>
                     ) : null}
                   </div>
-                </div>
+                </SurfaceCard>
               ))
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </PagePanel>
 
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>{t('modelRoutingPage.policies.title')}</CardTitle>
-            <CardDescription>{t('modelRoutingPage.policies.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <PagePanel className="space-y-3">
+          <SectionHeader
+            title={t('modelRoutingPage.policies.title')}
+            description={t('modelRoutingPage.policies.description')}
+          />
+          <div className="space-y-3">
             {policies.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                {t('modelRoutingPage.policies.empty')}
-              </div>
+              <EmptyState>{t('modelRoutingPage.policies.empty')}</EmptyState>
             ) : (
               policies.map((policy) => (
-                <div key={policy.id} className={POOL_SECTION_CLASS_NAME}>
+                <SurfaceCard key={policy.id} contentClassName="space-y-3 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1870,12 +1876,13 @@ export default function ModelRouting() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEditPolicyDialog(policy)}>
+                      <Button variant="flat" size="sm" onClick={() => openEditPolicyDialog(policy)}>
                         <SquarePen className="mr-2 h-4 w-4" />
                         {t('modelRoutingPage.actions.edit')}
                       </Button>
                       <Button
-                        variant="outline"
+                        color="danger"
+                        variant="light"
                         size="sm"
                         onClick={() => deletePolicyMutation.mutate(policy.id)}
                       >
@@ -1898,82 +1905,108 @@ export default function ModelRouting() {
                       </Badge>
                     ) : null}
                   </div>
-                </div>
+                </SurfaceCard>
               ))
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </PagePanel>
       </div>
 
         <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {profileForm.id
-                ? t('modelRoutingPage.dialogs.editProfile')
-                : t('modelRoutingPage.dialogs.createProfile')}
-            </DialogTitle>
-            <DialogDescription>{t('modelRoutingPage.dialogs.profileDescription')}</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium">{t('modelRoutingPage.form.name')}</label>
-              <Input
-                value={profileForm.name}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({ ...prev, name: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium">{t('modelRoutingPage.form.description')}</label>
-              <Textarea
-                value={profileForm.description}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({ ...prev, description: event.target.value }))
-                }
-                rows={3}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('modelRoutingPage.form.priority')}</label>
-              <Input
-                type="number"
-                value={profileForm.priority}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({ ...prev, priority: event.target.value }))
-                }
-              />
-            </div>
-            <label className={POOL_SECTION_CLASS_NAME}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="font-medium">{t('modelRoutingPage.form.enabled')}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {t('modelRoutingPage.form.enabledHint')}
-                  </div>
-                </div>
-                <Checkbox
-                  checked={profileForm.enabled}
-                  onCheckedChange={(checked) =>
-                    setProfileForm((prev) => ({ ...prev, enabled: checked === true }))
+        <AntigravityDialogShell
+          size="lg"
+          title={
+            profileForm.id
+              ? t('modelRoutingPage.dialogs.editProfile')
+              : t('modelRoutingPage.dialogs.createProfile')
+          }
+          description={t('modelRoutingPage.dialogs.profileDescription')}
+          footer={(
+            <AntigravityDialogActions className="justify-between">
+              {profileForm.id ? (
+                <Button
+                  color="danger"
+                  variant="light"
+                  onClick={() => deleteProfileMutation.mutate(profileForm.id!)}
+                  disabled={deleteProfileMutation.isPending}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {t('modelRoutingPage.actions.deleteProfile')}
+                </Button>
+              ) : (
+                <div />
+              )}
+              <Button color="primary" onClick={() => upsertProfileMutation.mutate()} disabled={upsertProfileMutation.isPending}>
+                <Save className="mr-2 h-4 w-4" />
+                {t('modelRoutingPage.actions.saveProfile')}
+              </Button>
+            </AntigravityDialogActions>
+          )}
+        >
+          <AntigravityDialogBody className="grid gap-4 md:grid-cols-2">
+            <AntigravityDialogPanel className="space-y-4 md:col-span-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('modelRoutingPage.form.name')}</label>
+                <Input
+                  value={profileForm.name}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({ ...prev, name: event.target.value }))
                   }
                 />
               </div>
-            </label>
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium">{t('modelRoutingPage.form.planTypes')}</label>
-              <Input
-                value={profileForm.planTypes}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({ ...prev, planTypes: event.target.value }))
-                }
-                placeholder={t('modelRoutingPage.form.planTypesPlaceholder')}
-              />
-            </div>
-            <div className="space-y-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('modelRoutingPage.form.description')}</label>
+                <Textarea
+                  value={profileForm.description}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({ ...prev, description: event.target.value }))
+                  }
+                  rows={3}
+                />
+              </div>
+              <div className="grid gap-4 md:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)]">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">{t('modelRoutingPage.form.priority')}</label>
+                  <Input
+                    type="number"
+                    value={profileForm.priority}
+                    onChange={(event) =>
+                      setProfileForm((prev) => ({ ...prev, priority: event.target.value }))
+                    }
+                  />
+                </div>
+                <SurfaceCard contentClassName="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{t('modelRoutingPage.form.enabled')}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {t('modelRoutingPage.form.enabledHint')}
+                      </div>
+                    </div>
+                    <Checkbox
+                      checked={profileForm.enabled}
+                      onCheckedChange={(checked) =>
+                        setProfileForm((prev) => ({ ...prev, enabled: checked === true }))
+                      }
+                    />
+                  </div>
+                </SurfaceCard>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('modelRoutingPage.form.planTypes')}</label>
+                <Input
+                  value={profileForm.planTypes}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({ ...prev, planTypes: event.target.value }))
+                  }
+                  placeholder={t('modelRoutingPage.form.planTypesPlaceholder')}
+                />
+              </div>
+            </AntigravityDialogPanel>
+
+            <AntigravityDialogPanel>
               <div className="text-sm font-medium">{t('modelRoutingPage.form.modes')}</div>
-              <div className="space-y-2 rounded-lg border p-3">
+              <SurfaceCard contentClassName="space-y-2 p-3">
                 {modeOptions.map((mode) => (
                   <label key={mode} className="flex items-center justify-between gap-3 text-sm">
                     <span>{modeLabel(mode, t)}</span>
@@ -1988,11 +2021,12 @@ export default function ModelRouting() {
                     />
                   </label>
                 ))}
-              </div>
-            </div>
-            <div className="space-y-2">
+              </SurfaceCard>
+            </AntigravityDialogPanel>
+
+            <AntigravityDialogPanel>
               <div className="text-sm font-medium">{t('modelRoutingPage.form.authProviders')}</div>
-              <div className="space-y-2 rounded-lg border p-3">
+              <SurfaceCard contentClassName="space-y-2 p-3">
                 {authProviderOptions.map((provider) => (
                   <label key={provider} className="flex items-center justify-between gap-3 text-sm">
                     <span>{authProviderLabel(provider, t)}</span>
@@ -2007,69 +2041,79 @@ export default function ModelRouting() {
                     />
                   </label>
                 ))}
+              </SurfaceCard>
+            </AntigravityDialogPanel>
+
+            <AntigravityDialogPanel>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('modelRoutingPage.form.includeAccounts')}</label>
+                <Textarea
+                  value={profileForm.includeAccountIds}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({
+                      ...prev,
+                      includeAccountIds: event.target.value,
+                    }))
+                  }
+                  rows={4}
+                  placeholder={t('modelRoutingPage.form.includeAccountsPlaceholder')}
+                />
               </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('modelRoutingPage.form.includeAccounts')}</label>
-              <Textarea
-                value={profileForm.includeAccountIds}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({
-                    ...prev,
-                    includeAccountIds: event.target.value,
-                  }))
-                }
-                rows={4}
-                placeholder={t('modelRoutingPage.form.includeAccountsPlaceholder')}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('modelRoutingPage.form.excludeAccounts')}</label>
-              <Textarea
-                value={profileForm.excludeAccountIds}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({
-                    ...prev,
-                    excludeAccountIds: event.target.value,
-                  }))
-                }
-                rows={4}
-                placeholder={t('modelRoutingPage.form.excludeAccountsPlaceholder')}
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            {profileForm.id ? (
-              <Button
-                variant="outline"
-                onClick={() => deleteProfileMutation.mutate(profileForm.id!)}
-                disabled={deleteProfileMutation.isPending}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                {t('modelRoutingPage.actions.deleteProfile')}
-              </Button>
-            ) : (
-              <div />
-            )}
-            <Button onClick={() => upsertProfileMutation.mutate()} disabled={upsertProfileMutation.isPending}>
-              <Save className="mr-2 h-4 w-4" />
-              {t('modelRoutingPage.actions.saveProfile')}
-            </Button>
-          </div>
-        </DialogContent>
+            </AntigravityDialogPanel>
+
+            <AntigravityDialogPanel>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('modelRoutingPage.form.excludeAccounts')}</label>
+                <Textarea
+                  value={profileForm.excludeAccountIds}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({
+                      ...prev,
+                      excludeAccountIds: event.target.value,
+                    }))
+                  }
+                  rows={4}
+                  placeholder={t('modelRoutingPage.form.excludeAccountsPlaceholder')}
+                />
+              </div>
+            </AntigravityDialogPanel>
+          </AntigravityDialogBody>
+        </AntigravityDialogShell>
         </Dialog>
 
         <Dialog open={policyDialogOpen} onOpenChange={setPolicyDialogOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {policyForm.id
-                ? t('modelRoutingPage.dialogs.editPolicy')
-                : t('modelRoutingPage.dialogs.createPolicy')}
-            </DialogTitle>
-            <DialogDescription>{t('modelRoutingPage.dialogs.policyDescription')}</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 md:grid-cols-2">
+        <AntigravityDialogShell
+          size="lg"
+          title={
+            policyForm.id
+              ? t('modelRoutingPage.dialogs.editPolicy')
+              : t('modelRoutingPage.dialogs.createPolicy')
+          }
+          description={t('modelRoutingPage.dialogs.policyDescription')}
+          footer={(
+            <AntigravityDialogActions className="justify-between">
+              {policyForm.id ? (
+                <Button
+                  color="danger"
+                  variant="light"
+                  onClick={() => deletePolicyMutation.mutate(policyForm.id!)}
+                  disabled={deletePolicyMutation.isPending}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {t('modelRoutingPage.actions.deletePolicy')}
+                </Button>
+              ) : (
+                <div />
+              )}
+              <Button color="primary" onClick={() => upsertPolicyMutation.mutate()} disabled={upsertPolicyMutation.isPending}>
+                <Save className="mr-2 h-4 w-4" />
+                {t('modelRoutingPage.actions.savePolicy')}
+              </Button>
+            </AntigravityDialogActions>
+          )}
+        >
+          <AntigravityDialogBody className="grid gap-4 md:grid-cols-2">
+            <AntigravityDialogPanel className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('modelRoutingPage.form.name')}</label>
               <Input
@@ -2099,23 +2143,26 @@ export default function ModelRouting() {
                 }
               />
             </div>
-            <label className={POOL_SECTION_CLASS_NAME}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="font-medium">{t('modelRoutingPage.form.enabled')}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {t('modelRoutingPage.form.policyEnabledHint')}
+              <SurfaceCard contentClassName="p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium">{t('modelRoutingPage.form.enabled')}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {t('modelRoutingPage.form.policyEnabledHint')}
+                    </div>
                   </div>
+                  <Checkbox
+                    checked={policyForm.enabled}
+                    onCheckedChange={(checked) =>
+                      setPolicyForm((prev) => ({ ...prev, enabled: checked === true }))
+                    }
+                  />
                 </div>
-                <Checkbox
-                  checked={policyForm.enabled}
-                  onCheckedChange={(checked) =>
-                    setPolicyForm((prev) => ({ ...prev, enabled: checked === true }))
-                  }
-                />
-              </div>
-            </label>
-            <div className="space-y-2 md:col-span-2">
+              </SurfaceCard>
+            </AntigravityDialogPanel>
+
+            <AntigravityDialogPanel className="space-y-4 md:col-span-2">
+            <div className="space-y-2">
               <label className="text-sm font-medium">{t('modelRoutingPage.form.exactModels')}</label>
               <ModelSelector
                 catalog={availableModels}
@@ -2143,9 +2190,12 @@ export default function ModelRouting() {
                 {t('modelRoutingPage.form.modelPrefixesHint')}
               </p>
             </div>
-            <div className="space-y-2 md:col-span-2">
+            </AntigravityDialogPanel>
+
+            <AntigravityDialogPanel className="space-y-4 md:col-span-2">
+            <div className="space-y-2">
               <div className="text-sm font-medium">{t('modelRoutingPage.form.fallbackProfiles')}</div>
-              <div className="space-y-2 rounded-lg border p-3">
+              <SurfaceCard contentClassName="space-y-2 p-3">
                 {profiles.length === 0 ? (
                   <div className="text-sm text-muted-foreground">
                     {t('modelRoutingPage.form.noProfilesAvailable')}
@@ -2164,32 +2214,15 @@ export default function ModelRouting() {
                         }
                       />
                     </label>
-                  ))
+                    ))
                 )}
-              </div>
+              </SurfaceCard>
             </div>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            {policyForm.id ? (
-              <Button
-                variant="outline"
-                onClick={() => deletePolicyMutation.mutate(policyForm.id!)}
-                disabled={deletePolicyMutation.isPending}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                {t('modelRoutingPage.actions.deletePolicy')}
-              </Button>
-            ) : (
-              <div />
-            )}
-            <Button onClick={() => upsertPolicyMutation.mutate()} disabled={upsertPolicyMutation.isPending}>
-              <Save className="mr-2 h-4 w-4" />
-              {t('modelRoutingPage.actions.savePolicy')}
-            </Button>
-          </div>
-        </DialogContent>
+            </AntigravityDialogPanel>
+          </AntigravityDialogBody>
+        </AntigravityDialogShell>
         </Dialog>
       </div>
-    </div>
+    </PageContent>
   )
 }

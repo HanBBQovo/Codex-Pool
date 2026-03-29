@@ -22,17 +22,29 @@ export interface CreateApiKeyResponse {
 }
 
 export const apiKeysApi = {
-    listKeys: () =>
-        apiClient.get<ApiKey[]>('/admin/keys'),
+    listKeys: async () => {
+        const response = await apiClient.get<ApiKey[]>('/admin/keys')
+        return response.data
+    },
 
-    createKey: (name: string, tenant_name?: string, tenant_id?: string) =>
-        apiClient.post<CreateApiKeyResponse>('/admin/keys', { name, tenant_name, tenant_id }),
+    createKey: async (name: string, tenant_name?: string, tenant_id?: string) => {
+        const response = await apiClient.post<CreateApiKeyResponse>('/admin/keys', {
+            name,
+            tenant_name,
+            tenant_id,
+        })
+        return response.data
+    },
 
-    updateKeyEnabled: (keyId: string, enabled: boolean) =>
-        apiClient.patch<ApiKey>(`/admin/keys/${keyId}`, { enabled }),
+    updateKeyEnabled: async (keyId: string, enabled: boolean) => {
+        const response = await apiClient.patch<ApiKey>(`/admin/keys/${keyId}`, { enabled })
+        return response.data
+    },
 }
 
 export const adminApi = {
-    getSystemState: () =>
-        apiClient.get<AdminSystemStateResponse>('/admin/system/state'),
+    getSystemState: async () => {
+        const response = await apiClient.get<AdminSystemStateResponse>('/admin/system/state')
+        return response.data
+    },
 }

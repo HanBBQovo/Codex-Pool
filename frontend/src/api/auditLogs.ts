@@ -38,8 +38,10 @@ export const auditLogsApi = {
     apiClient.get<AuditLogsResponse>('/admin/audit-logs', {
       params,
     }),
-  tenantList: (params: Omit<AuditLogsQueryParams, 'tenant_id'>) =>
-    tenantApiClient.get<AuditLogsResponse>('/audit-logs', {
+  tenantList: async (params: Omit<AuditLogsQueryParams, 'tenant_id'>) => {
+    const response = await tenantApiClient.get<AuditLogsResponse>('/audit-logs', {
       params,
-    }),
+    })
+    return response.data
+  },
 }

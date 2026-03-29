@@ -31,24 +31,43 @@ export interface TenantMeResponse {
 }
 
 export const tenantAuthApi = {
-  register: (payload: TenantRegisterRequest) =>
-    tenantApiClient.post<TenantRegisterResponse>('/auth/register', payload),
+  register: async (payload: TenantRegisterRequest) => {
+    const response = await tenantApiClient.post<TenantRegisterResponse>('/auth/register', payload)
+    return response.data
+  },
 
-  verifyEmail: (email: string, code: string) =>
-    tenantApiClient.post<void>('/auth/verify-email', { email, code }),
+  verifyEmail: async (email: string, code: string) => {
+    await tenantApiClient.post<void>('/auth/verify-email', { email, code })
+  },
 
-  login: (email: string, password: string) =>
-    tenantApiClient.post<TenantLoginResponse>('/auth/login', { email, password }),
-
-  logout: () => tenantApiClient.post<void>('/auth/logout'),
-
-  me: () => tenantApiClient.get<TenantMeResponse>('/auth/me'),
-
-  forgotPassword: (email: string) =>
-    tenantApiClient.post<{ accepted: boolean; debug_code?: string }>('/auth/password/forgot', {
+  login: async (email: string, password: string) => {
+    const response = await tenantApiClient.post<TenantLoginResponse>('/auth/login', {
       email,
-    }),
+      password,
+    })
+    return response.data
+  },
 
-  resetPassword: (email: string, code: string, new_password: string) =>
-    tenantApiClient.post<void>('/auth/password/reset', { email, code, new_password }),
+  logout: async () => {
+    await tenantApiClient.post<void>('/auth/logout')
+  },
+
+  me: async () => {
+    const response = await tenantApiClient.get<TenantMeResponse>('/auth/me')
+    return response.data
+  },
+
+  forgotPassword: async (email: string) => {
+    const response = await tenantApiClient.post<{ accepted: boolean; debug_code?: string }>(
+      '/auth/password/forgot',
+      {
+        email,
+      },
+    )
+    return response.data
+  },
+
+  resetPassword: async (email: string, code: string, new_password: string) => {
+    await tenantApiClient.post<void>('/auth/password/reset', { email, code, new_password })
+  },
 }

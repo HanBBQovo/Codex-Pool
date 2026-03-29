@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
+import { Button } from '@heroui/react'
 import { motion } from 'framer-motion'
 import { Copy, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -15,23 +16,26 @@ import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { apiKeysApi, type ApiKey, type CreateApiKeyResponse } from '@/api/settings'
 import { systemApi, DEFAULT_SYSTEM_CAPABILITIES } from '@/api/system'
 import type { UsageSummaryQueryResponse } from '@/api/types'
-import { PageIntro } from '@/components/layout/page-archetypes'
+import {
+  AntigravityDialogActions,
+  AntigravityDialogBody,
+  AntigravityDialogPanel,
+  AntigravityDialogShell,
+} from '@/components/layout/dialog-archetypes'
+import { DockedPageIntro, PageContent, PagePanel, SectionHeader } from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { AccessibleTabList } from '@/components/ui/accessible-tabs'
 import {
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
 import {
-  POOL_ELEVATED_SECTION_CLASS_NAME,
-  POOL_TABLE_CONTAINER_CLASS_NAME,
-} from '@/lib/pool-styles'
+  SurfaceCode,
+  SurfaceDivider,
+  SurfaceInset,
+  SurfaceNotice,
+} from '@/components/ui/surface'
+import { DataTable } from '@/components/DataTable'
 import { TenantUsageSection } from '@/features/tenants/tenant-usage-section'
 import {
   LABEL_CLASS_NAME,
@@ -388,7 +392,7 @@ export default function Tenants() {
       }
       const endTs = Math.floor(Date.now() / 1000)
       const startTs = endTs - 24 * 60 * 60
-      return apiClient.get<UsageSummaryQueryResponse>('/usage/summary', {
+      const response = await apiClient.get<UsageSummaryQueryResponse>('/usage/summary', {
         params: {
           start_ts: startTs,
           end_ts: endTs,
@@ -399,6 +403,7 @@ export default function Tenants() {
               : effectiveUsageApiKeyFilter,
         },
       })
+      return response.data
     },
   })
 
@@ -482,13 +487,88 @@ export default function Tenants() {
         id: 'actions',
         header: t('tenants.list.columns.actions', { defaultValue: 'Actions' }),
         cell: ({ row }) => (
-          <Button size="sm" variant="outline" onClick={() => openTenantProfile(row.original.tenant)}>
+          <Button size="sm" variant="flat" onClick={() => openTenantProfile(row.original.tenant)}>
             {t('tenants.list.openProfile', { defaultValue: 'Open Tenant Profile' })}
           </Button>
         ),
       },
     ],
     [formatDateTime, openTenantProfile, t],
+  )
+
+  const tenantKeyColumns = useMemo<ColumnDef<ApiKey>[]>(
+    () => [
+      {
+        id: 'name',
+        header: t('tenants.keys.list.columns.name', { defaultValue: 'Name' }),
+        accessorFn: (row) => row.name.toLowerCase(),
+        cell: ({ row }) => row.original.name,
+      },
+      {
+        id: 'prefix',
+        header: t('tenants.keys.list.columns.prefix', { defaultValue: 'Prefix' }),
+        accessorFn: (row) => row.key_prefix.toLowerCase(),
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2 font-mono text-xs">
+            <span>{row.original.key_prefix}****************</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="light"
+              isIconOnly
+              onClick={() => copyText(row.original.key_prefix)}
+              aria-label={t('tenants.keys.list.copyPrefix', { defaultValue: 'Copy key prefix' })}
+              title={t('tenants.keys.list.copyPrefix', { defaultValue: 'Copy key prefix' })}
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ),
+      },
+      {
+        id: 'status',
+        header: t('tenants.keys.list.columns.status', { defaultValue: 'Status' }),
+        accessorFn: (row) => (row.enabled ? 'active' : 'revoked'),
+        cell: ({ row }) => (
+          <Badge variant={row.original.enabled ? 'success' : 'secondary'}>
+            {row.original.enabled
+              ? t('tenants.keys.list.status.active', { defaultValue: 'Active' })
+              : t('tenants.keys.list.status.revoked', { defaultValue: 'Revoked' })}
+          </Badge>
+        ),
+      },
+      {
+        id: 'createdAt',
+        header: t('tenants.keys.list.columns.createdAt', { defaultValue: 'Created At' }),
+        accessorFn: (row) => row.created_at ?? '',
+        cell: ({ row }) => formatDateTime(row.original.created_at),
+      },
+      {
+        id: 'actions',
+        header: t('tenants.keys.list.columns.actions', { defaultValue: 'Actions' }),
+        cell: ({ row }) => {
+          const isPending = pendingKeyId === row.original.id && toggleKeyMutation.isPending
+          return (
+            <Button
+              size="sm"
+              onClick={() =>
+                toggleKeyMutation.mutate({
+                  keyId: row.original.id,
+                  enabled: !row.original.enabled,
+                })
+              }
+              disabled={isPending}
+            >
+              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {row.original.enabled
+                ? t('tenants.keys.list.disable', { defaultValue: 'Disable' })
+                : t('tenants.keys.list.enable', { defaultValue: 'Enable' })}
+            </Button>
+          )
+        },
+      },
+    ],
+    [formatDateTime, pendingKeyId, t, toggleKeyMutation],
   )
 
   useEffect(() => {
@@ -502,76 +582,59 @@ export default function Tenants() {
   }, [lastImpersonation])
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="flex h-full flex-col overflow-hidden p-8"
-    >
+    <PageContent className="h-full overflow-hidden">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="flex h-full flex-col overflow-hidden"
+      >
       <div className="space-y-6 overflow-y-auto pr-1">
-        <PageIntro
+        <DockedPageIntro
           archetype="workspace"
           title={t('tenants.title', { defaultValue: 'Tenants' })}
           description={t('tenants.subtitle', {
             defaultValue: 'Check tenant availability and manage profiles, API keys, and usage.',
           })}
-          meta={(
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span>
-                {t('tenants.list.title', { defaultValue: 'Tenant Pool' })}: {tenantPoolRows.length}
-              </span>
-              <span className="text-slate-300 dark:text-slate-600">·</span>
-              <span>
-                {t('tenants.list.columns.apiKeys', { defaultValue: 'API Keys' })}: {keysQuery.data?.length ?? 0}
-              </span>
-            </div>
+          actions={(
+            <Button
+              size="sm"
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ['adminTenants'] })
+                queryClient.invalidateQueries({ queryKey: ['apiKeys'] })
+              }}
+              disabled={tenantsQuery.isFetching}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${tenantsQuery.isFetching ? 'animate-spin' : ''}`} />
+              {t('common.refresh')}
+            </Button>
           )}
         />
 
         {error ? (
-          <div
-            className="rounded-[0.9rem] border border-destructive/20 bg-destructive/6 px-4 py-3 text-sm text-destructive"
-            role="status"
-            aria-live="polite"
-          >
+          <SurfaceNotice tone="danger" role="status" aria-live="polite">
             {error}
-          </div>
+          </SurfaceNotice>
         ) : null}
         {notice ? (
-          <div
-            className="rounded-[0.9rem] border border-success/20 bg-success/8 px-4 py-3 text-sm text-success-foreground"
-            role="status"
-            aria-live="polite"
-          >
+          <SurfaceNotice tone="success" role="status" aria-live="polite">
             {notice}
-          </div>
+          </SurfaceNotice>
         ) : null}
 
-      <section className="space-y-4 border-b border-border/70 pb-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium">{t('tenants.create.title', { defaultValue: 'Create Tenant' })}</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ['adminTenants'] })
-              queryClient.invalidateQueries({ queryKey: ['apiKeys'] })
-            }}
-            disabled={tenantsQuery.isFetching}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${tenantsQuery.isFetching ? 'animate-spin' : ''}`} />
-            {t('common.refresh')}
-          </Button>
-        </div>
+      <PagePanel className="space-y-4">
+        <SectionHeader
+          title={t('tenants.create.title', { defaultValue: 'Create Tenant' })}
+        />
 
         <form
-          className="space-y-3"
+          className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]"
           onSubmit={(event) => {
             event.preventDefault()
             createTenantMutation.mutate()
           }}
         >
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1.5">
               <label htmlFor="create-tenant-name" className={LABEL_CLASS_NAME}>
                 {t('tenants.create.fields.name', { defaultValue: 'Tenant Name' })}
@@ -627,20 +690,22 @@ export default function Tenants() {
               />
             </div>
           </div>
-          <Button type="submit" disabled={createTenantMutation.isPending}>
-            {createTenantMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="mr-2 h-4 w-4" />
-            )}
-            {t('tenants.create.submit', { defaultValue: 'Create Tenant' })}
-          </Button>
+          <div className="flex items-end lg:justify-end">
+            <Button color="primary" type="submit" disabled={createTenantMutation.isPending} className="w-full lg:w-auto">
+              {createTenantMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="mr-2 h-4 w-4" />
+              )}
+              {t('tenants.create.submit', { defaultValue: 'Create Tenant' })}
+            </Button>
+          </div>
         </form>
-      </section>
+      </PagePanel>
 
-      <section className="space-y-4">
-        <h2 className="text-lg font-medium">{t('tenants.list.title', { defaultValue: 'Tenant Pool' })}</h2>
-        <StandardDataTable
+      <PagePanel className="space-y-4">
+        <SectionHeader title={t('tenants.list.title', { defaultValue: 'Tenant Pool' })} />
+        <DataTable
           columns={tenantPoolColumns}
           data={tenantPoolRows}
           defaultPageSize={20}
@@ -651,7 +716,7 @@ export default function Tenants() {
           })}
           emptyText={t('tenants.list.empty', { defaultValue: 'No tenant data' })}
         />
-      </section>
+      </PagePanel>
 
       <Dialog
         open={Boolean(profileTenant)}
@@ -667,23 +732,30 @@ export default function Tenants() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>
-              {profileTenant
-                ? t('tenants.profile.dialogTitleWithName', {
-                    defaultValue: 'Tenant Profile · {{name}}',
-                    name: profileTenant.name,
-                  })
-                : t('tenants.profile.dialogTitle', { defaultValue: 'Tenant Profile' })}
-            </DialogTitle>
-            <DialogDescription>
-              {t('tenants.profile.dialogDescription', { defaultValue: 'Manage profile, API keys, and usage in one dialog with tabs.' })}
-            </DialogDescription>
-          </DialogHeader>
+        <AntigravityDialogShell
+          size="xl"
+          title={
+            profileTenant
+              ? t('tenants.profile.dialogTitleWithName', {
+                  defaultValue: 'Tenant Profile · {{name}}',
+                  name: profileTenant.name,
+                })
+              : t('tenants.profile.dialogTitle', { defaultValue: 'Tenant Profile' })
+          }
+          description={t('tenants.profile.dialogDescription', {
+            defaultValue: 'Manage profile, API keys, and usage in one dialog with tabs.',
+          })}
+          footer={(
+            <AntigravityDialogActions>
+              <Button variant="flat" onClick={() => setProfileTenant(null)}>
+                {t('common.close')}
+              </Button>
+            </AntigravityDialogActions>
+          )}
+        >
 
           {profileTenant ? (
-            <div className="space-y-4">
+            <AntigravityDialogBody className="space-y-4">
               <AccessibleTabList
                 idBase="tenants-profile"
                 ariaLabel={t('tenants.profile.tabs.ariaLabel', { defaultValue: 'Tenant profile tabs' })}
@@ -713,7 +785,7 @@ export default function Tenants() {
                   aria-labelledby="tenants-profile-tab-profile"
                   className="grid gap-4 lg:grid-cols-2"
                 >
-                  <section className={POOL_ELEVATED_SECTION_CLASS_NAME}>
+                  <AntigravityDialogPanel as="section">
                     <h3 className="text-base font-medium">
                       {t('tenants.profile.section.title', { defaultValue: 'Tenant Profile' })}
                     </h3>
@@ -775,15 +847,15 @@ export default function Tenants() {
                       </div>
                     </div>
 
-                    <Button onClick={() => patchTenantMutation.mutate()} disabled={patchTenantMutation.isPending}>
+                    <Button color="primary" onClick={() => patchTenantMutation.mutate()} disabled={patchTenantMutation.isPending}>
                       {patchTenantMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : null}
                       {t('tenants.profile.save', { defaultValue: 'Save Profile' })}
                     </Button>
-                  </section>
+                  </AntigravityDialogPanel>
 
-                  <section className={POOL_ELEVATED_SECTION_CLASS_NAME}>
+                  <AntigravityDialogPanel as="section">
                     {capabilities.features.tenant_recharge ? (
                       <>
                         <h3 className="text-base font-medium">
@@ -822,14 +894,14 @@ export default function Tenants() {
                             />
                           </div>
                         </div>
-                        <Button onClick={() => rechargeMutation.mutate()} disabled={rechargeMutation.isPending}>
+                        <Button color="primary" onClick={() => rechargeMutation.mutate()} disabled={rechargeMutation.isPending}>
                           {rechargeMutation.isPending ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           ) : null}
                           {t('tenants.recharge.submit', { defaultValue: 'Apply Recharge' })}
                         </Button>
 
-                        <div className="h-px bg-border" />
+                        <SurfaceDivider />
                       </>
                     ) : null}
 
@@ -850,6 +922,7 @@ export default function Tenants() {
 
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
+                        color="primary"
                         onClick={() => impersonationMutation.mutate()}
                         disabled={impersonationMutation.isPending}
                       >
@@ -861,7 +934,6 @@ export default function Tenants() {
 
                       {lastImpersonation?.tenant_id === profileTenant.id ? (
                         <Button
-                          variant="outline"
                           onClick={() =>
                             revokeImpersonationMutation.mutate(lastImpersonation.session_id)
                           }
@@ -873,7 +945,7 @@ export default function Tenants() {
                     </div>
 
                     {lastImpersonation?.tenant_id === profileTenant.id ? (
-                      <div className="break-all space-y-1 rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
+                      <SurfaceInset className="break-all space-y-1 text-xs">
                         <p>
                           {t('tenants.impersonation.sessionIdLabel', { defaultValue: 'Session ID:' })}{' '}
                           <span className="font-mono">{lastImpersonation.session_id}</span>
@@ -884,16 +956,15 @@ export default function Tenants() {
                         </p>
                         <Button
                           type="button"
-                          variant="outline"
                           size="sm"
                           onClick={() => copyText(lastImpersonation.access_token)}
                         >
                           <Copy className="mr-2 h-4 w-4" />
                           {t('tenants.impersonation.copyToken', { defaultValue: 'Copy Token' })}
                         </Button>
-                      </div>
+                      </SurfaceInset>
                     ) : null}
-                  </section>
+                  </AntigravityDialogPanel>
                 </section>
               ) : null}
 
@@ -905,7 +976,7 @@ export default function Tenants() {
                   aria-labelledby="tenants-profile-tab-keys"
                   className="space-y-4"
                 >
-                  <section className={POOL_ELEVATED_SECTION_CLASS_NAME}>
+                  <AntigravityDialogPanel as="section">
                     <h3 className="text-base font-medium">
                       {t('tenants.keys.create.title', { defaultValue: 'Create API Key' })}
                     </h3>
@@ -925,6 +996,7 @@ export default function Tenants() {
                         />
                       </div>
                       <Button
+                        color="primary"
                         onClick={() => createKeyMutation.mutate()}
                         disabled={createKeyMutation.isPending}
                       >
@@ -938,115 +1010,43 @@ export default function Tenants() {
                     </div>
 
                     {createdKey?.record.tenant_id === profileTenant.id ? (
-                      <div className="space-y-2 rounded-lg border border-warning/30 bg-warning-muted p-3 text-warning-foreground">
+                      <SurfaceNotice tone="warning" className="space-y-2">
                         <div className="text-sm font-medium">
                           {t('tenants.keys.created.notice', { defaultValue: 'The plaintext key is shown only once. Save it now.' })}
                         </div>
-                        <div className="break-all rounded-md border bg-background/60 p-2 font-mono text-xs">
+                        <SurfaceCode className="break-all">
                           {createdKey.plaintext_key}
-                        </div>
+                        </SurfaceCode>
                         <Button
                           size="sm"
-                          variant="outline"
                           onClick={() => copyText(createdKey.plaintext_key)}
                         >
                           <Copy className="mr-2 h-4 w-4" />
                           {t('tenants.keys.created.copyPlaintext', { defaultValue: 'Copy Plaintext Key' })}
                         </Button>
-                      </div>
+                      </SurfaceNotice>
                     ) : null}
-                  </section>
+                  </AntigravityDialogPanel>
 
-                  <section className={POOL_ELEVATED_SECTION_CLASS_NAME}>
+                  <AntigravityDialogPanel as="section">
                     <h3 className="text-base font-medium">
                       {t('tenants.keys.list.title', { defaultValue: 'API Key List' })}
                     </h3>
-                    <div className={POOL_TABLE_CONTAINER_CLASS_NAME}>
-                      <table className="min-w-full text-sm">
-                        <caption className="sr-only">
-                          {t('tenants.keys.list.caption', { defaultValue: 'Tenant API key list' })}
-                        </caption>
-                        <thead>
-                          <tr className="border-b bg-muted/30 text-left">
-                            <th className="px-3 py-2">
-                              {t('tenants.keys.list.columns.name', { defaultValue: 'Name' })}
-                            </th>
-                            <th className="px-3 py-2">
-                              {t('tenants.keys.list.columns.prefix', { defaultValue: 'Prefix' })}
-                            </th>
-                            <th className="px-3 py-2">
-                              {t('tenants.keys.list.columns.status', { defaultValue: 'Status' })}
-                            </th>
-                            <th className="px-3 py-2">
-                              {t('tenants.keys.list.columns.createdAt', { defaultValue: 'Created At' })}
-                            </th>
-                            <th className="px-3 py-2">
-                              {t('tenants.keys.list.columns.actions', { defaultValue: 'Actions' })}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {keysForCurrentTenant.map((key: ApiKey) => {
-                            const isPending = pendingKeyId === key.id && toggleKeyMutation.isPending
-                            return (
-                              <tr key={key.id} className="border-b">
-                                <td className="px-3 py-2">{key.name}</td>
-                                <td className="px-3 py-2 font-mono text-xs">
-                                  <div className="flex items-center gap-2">
-                                    <span>{key.key_prefix}****************</span>
-                                    <button
-                                      type="button"
-                                      className="text-muted-foreground hover:text-foreground"
-                                      onClick={() => copyText(key.key_prefix)}
-                                      aria-label={t('tenants.keys.list.copyPrefix', { defaultValue: 'Copy key prefix' })}
-                                      title={t('tenants.keys.list.copyPrefix', { defaultValue: 'Copy key prefix' })}
-                                    >
-                                      <Copy className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <Badge variant={key.enabled ? 'success' : 'secondary'}>
-                                    {key.enabled
-                                      ? t('tenants.keys.list.status.active', { defaultValue: 'Active' })
-                                      : t('tenants.keys.list.status.revoked', { defaultValue: 'Revoked' })}
-                                  </Badge>
-                                </td>
-                                <td className="px-3 py-2">{formatDateTime(key.created_at)}</td>
-                                <td className="px-3 py-2">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() =>
-                                      toggleKeyMutation.mutate({
-                                        keyId: key.id,
-                                        enabled: !key.enabled,
-                                      })
-                                    }
-                                    disabled={isPending}
-                                  >
-                                    {isPending ? (
-                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    ) : null}
-                                    {key.enabled
-                                      ? t('tenants.keys.list.disable', { defaultValue: 'Disable' })
-                                      : t('tenants.keys.list.enable', { defaultValue: 'Enable' })}
-                                  </Button>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                          {keysForCurrentTenant.length === 0 ? (
-                            <tr>
-                              <td className="px-3 py-6 text-center text-muted-foreground" colSpan={5}>
-                                {t('tenants.keys.list.empty', { defaultValue: 'No API keys for this tenant' })}
-                              </td>
-                            </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
-                  </section>
+                    <DataTable
+                      columns={tenantKeyColumns}
+                      data={keysForCurrentTenant}
+                      density="compact"
+                      enableSearch={false}
+                      searchField="name"
+                      showToolbar={false}
+                      showPageControls={keysForCurrentTenant.length > 10}
+                      defaultPageSize={10}
+                      pageSizeOptions={[10, 20, 50]}
+                      className="border-0 bg-transparent shadow-none"
+                      emptyText={t('tenants.keys.list.empty', { defaultValue: 'No API keys for this tenant' })}
+                      title={t('tenants.keys.list.caption', { defaultValue: 'Tenant API key list' })}
+                    />
+                  </AntigravityDialogPanel>
                 </section>
               ) : null}
 
@@ -1074,11 +1074,12 @@ export default function Tenants() {
                   />
                 </section>
               ) : null}
-            </div>
+            </AntigravityDialogBody>
           ) : null}
-        </DialogContent>
+        </AntigravityDialogShell>
       </Dialog>
       </div>
-    </motion.div>
+      </motion.div>
+    </PageContent>
   )
 }

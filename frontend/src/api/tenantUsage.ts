@@ -8,18 +8,60 @@ import type {
 } from './types'
 
 export const tenantUsageApi = {
-  summary: (params: { start_ts: number; end_ts: number; api_key_id?: string }) =>
-    tenantApiClient.get<UsageSummaryQueryResponse>('/usage/summary', { params }),
+  summary: async (params: { start_ts: number; end_ts: number; api_key_id?: string }) => {
+    const response = await tenantApiClient.get<UsageSummaryQueryResponse>('/usage/summary', {
+      params,
+    })
+    return response.data
+  },
 
-  trendsHourly: (params: { start_ts: number; end_ts: number; limit?: number; api_key_id?: string }) =>
-    tenantApiClient.get<UsageHourlyTrendsResponse>('/usage/trends/hourly', { params }),
+  trendsHourly: async (params: {
+    start_ts: number
+    end_ts: number
+    limit?: number
+    api_key_id?: string
+  }) => {
+    const response = await tenantApiClient.get<UsageHourlyTrendsResponse>(
+      '/usage/trends/hourly',
+      { params },
+    )
+    return response.data
+  },
 
-  leaderboardTenants: (params: { start_ts: number; end_ts: number; limit?: number }) =>
-    tenantApiClient.get<TenantUsageLeaderboardResponse>('/usage/leaderboard/tenants', { params }),
+  leaderboardTenants: async (params: {
+    start_ts: number
+    end_ts: number
+    limit?: number
+  }) => {
+    const response = await tenantApiClient.get<TenantUsageLeaderboardResponse>(
+      '/usage/leaderboard/tenants',
+      { params },
+    )
+    return response.data
+  },
 
-  leaderboardAccounts: (params: { start_ts: number; end_ts: number; limit?: number }) =>
-    tenantApiClient.get<AccountUsageLeaderboardResponse>('/usage/leaderboard/accounts', { params }),
+  leaderboardAccounts: async (params: {
+    start_ts: number
+    end_ts: number
+    limit?: number
+  }) => {
+    const response = await tenantApiClient.get<AccountUsageLeaderboardResponse>(
+      '/usage/leaderboard/accounts',
+      { params },
+    )
+    return response.data
+  },
 
-  leaderboardApiKeys: (params: { start_ts: number; end_ts: number; limit?: number; api_key_id?: string }) =>
-    tenantApiClient.get<ApiKeyUsageLeaderboardResponse>('/usage/leaderboard/api-keys', { params }),
+  leaderboardApiKeys: async (params: {
+    start_ts: number
+    end_ts: number
+    limit?: number
+    api_key_id?: string
+  }) => {
+    const response = await tenantApiClient.get<ApiKeyUsageLeaderboardResponse>(
+      '/usage/leaderboard/api-keys',
+      { params },
+    )
+    return response.data
+  },
 }

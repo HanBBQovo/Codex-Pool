@@ -1,889 +1,1190 @@
-import { useCallback, useMemo, useState } from 'react'
-import { type ColumnDef } from '@tanstack/react-table'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ActivitySquare,
-  CircleAlert,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Chip,
+  Divider,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+  Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  Pagination,
+  Select,
+  SelectItem,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+  type Selection,
+} from "@heroui/react";
+import {
+  ChevronDown,
   Copy,
+  Database,
   ExternalLink,
-  RotateCw,
-  SquarePen,
-  Trash2,
-} from 'lucide-react'
-import { useTranslation } from 'react-i18next'
+  RefreshCcw,
+  Search,
+  ShieldCheck,
+  ShieldX,
+  Sparkles,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
 
+import { localizeApiErrorDisplay } from "@/api/errorI18n";
 import {
   modelsApi,
-  type AdminModelOfficialInfo,
+  type ListModelsResponse,
+  type ModelAvailabilityStatus,
   type ModelSchema,
-} from '@/api/models'
-import { localizeApiErrorDisplay } from '@/api/errorI18n'
+} from "@/api/models";
 import {
-  PageIntro,
-  PagePanel,
-  SectionHeader,
-} from '@/components/layout/page-archetypes'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { LoadingOverlay } from '@/components/ui/loading-overlay'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { formatOptionalExactCount } from '@/lib/count-number-format'
-import { describeModelsWorkspaceLayout } from '@/lib/page-archetypes'
-import { POOL_SECTION_CLASS_NAME } from '@/lib/pool-styles'
-import { cn } from '@/lib/utils'
-import { formatRelativeTime } from '@/lib/time'
+  DockedPageIntro,
+  PageContent,
+} from "@/components/layout/page-archetypes";
+import { notify } from "@/lib/notification";
+import { cn } from "@/lib/utils";
 
-function formatMicrocredits(value?: number | null) {
-  if (typeof value !== 'number') return '-'
-  return (value / 1_000_000).toFixed(4)
+type AvailabilityFilter = "all" | ModelAvailabilityStatus;
+
+const TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50];
+const EMPTY_MODELS: ModelSchema[] = [];
+
+function normalizeSelection(selection: Selection) {
+  if (selection === "all") {
+    return "";
+  }
+
+  const [first] = Array.from(selection);
+  return first === undefined ? "" : String(first);
 }
 
-function pricingSourceLabel(
-  source: string,
-  t: ReturnType<typeof useTranslation>['t'],
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "-" : parsed.toLocaleString();
+}
+
+function formatUsdPerMillion(
+  value: number | null | undefined,
+  fallback: string,
 ) {
-  if (source === 'manual_override') {
-    return t('models.pricing.sourceLabels.manualOverride', { defaultValue: 'Manual override' })
+  if (value == null) {
+    return fallback;
   }
-  if (source === 'official_sync') {
-    return t('models.pricing.sourceLabels.officialSync', { defaultValue: 'OpenAI official' })
+
+  return `$${(value / 1_000_000).toFixed(4)}`;
+}
+
+function formatTokenCount(value: number | null | undefined, fallback: string) {
+  if (value == null || value <= 0) {
+    return fallback;
   }
-  return t('models.pricing.sourceLabels.unknown', { defaultValue: 'Unknown' })
-}
-
-function pricingSourceVariant(source: string): 'success' | 'info' | 'secondary' {
-  if (source === 'manual_override') return 'success'
-  if (source === 'official_sync') return 'info'
-  return 'secondary'
-}
-
-
-function effectivePricingOrFallback(model: Pick<ModelSchema, 'effective_pricing' | 'official'> | null | undefined) {
-  if (model?.effective_pricing) {
-    return model.effective_pricing
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
   }
-  return {
-    source: 'official_sync',
-    input_price_microcredits: model?.official?.input_price_microcredits ?? null,
-    cached_input_price_microcredits: model?.official?.cached_input_price_microcredits ?? null,
-    output_price_microcredits: model?.official?.output_price_microcredits ?? null,
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return String(value);
+}
+
+function getAvailabilityColor(status: ModelAvailabilityStatus) {
+  switch (status) {
+    case "available":
+      return "success" as const;
+    case "unavailable":
+      return "danger" as const;
+    case "unknown":
+    default:
+      return "default" as const;
   }
 }
 
-function contextText(official?: AdminModelOfficialInfo | null) {
-  const context = formatOptionalExactCount(official?.context_window_tokens)
-  const maxOutput = formatOptionalExactCount(official?.max_output_tokens)
-  return `${context} / ${maxOutput}`
+function getAvailabilityLabel(
+  status: ModelAvailabilityStatus,
+  t: ReturnType<typeof useTranslation>["t"],
+) {
+  switch (status) {
+    case "available":
+      return t("models.availability.available");
+    case "unavailable":
+      return t("models.availability.unavailable");
+    case "unknown":
+    default:
+      return t("models.availability.unknown");
+  }
 }
 
-function modalitiesText(official?: AdminModelOfficialInfo | null) {
-  const input =
-    official?.input_modalities && official.input_modalities.length > 0
-      ? official.input_modalities.join(', ')
-      : '-'
-  const output =
-    official?.output_modalities && official.output_modalities.length > 0
-      ? official.output_modalities.join(', ')
-      : '-'
-  return `in: ${input} · out: ${output}`
-}
-
-function matchesModelSearch(model: ModelSchema, keyword: string) {
-  return [
+function matchModelSearch(model: ModelSchema, keyword: string) {
+  const haystack = [
     model.id,
     model.owned_by,
-    model.official?.title ?? '',
-    model.official?.description ?? '',
-    model.official?.knowledge_cutoff ?? '',
-    model.official?.input_modalities?.join(',') ?? '',
-    model.official?.output_modalities?.join(',') ?? '',
-    model.official?.endpoints?.join(',') ?? '',
-    effectivePricingOrFallback(model).source,
-    String(effectivePricingOrFallback(model).input_price_microcredits ?? ''),
-    String(effectivePricingOrFallback(model).cached_input_price_microcredits ?? ''),
-    String(effectivePricingOrFallback(model).output_price_microcredits ?? ''),
+    model.official?.title,
+    model.official?.description,
+    model.effective_pricing.source,
+    model.availability_error,
   ]
-    .join(' ')
-    .toLowerCase()
-    .includes(keyword)
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(keyword);
 }
 
-function availabilityBadgeVariant(
-  status: ModelSchema['availability_status'],
-): 'success' | 'destructive' | 'secondary' {
-  if (status === 'available') return 'success'
-  if (status === 'unavailable') return 'destructive'
-  return 'secondary'
+function resolveNoValueLabel(t: ReturnType<typeof useTranslation>["t"]) {
+  return t("models.antigravity.notAvailable");
 }
 
-function availabilityLabel(
-  status: ModelSchema['availability_status'],
-  t: ReturnType<typeof useTranslation>['t'],
+function buildCatalogAttention(
+  payload: ListModelsResponse["meta"] | undefined,
+  t: ReturnType<typeof useTranslation>["t"],
 ) {
-  if (status === 'available') return t('models.availability.available')
-  if (status === 'unavailable') return t('models.availability.unavailable')
-  return t('models.availability.unknown')
+  if (!payload) {
+    return null;
+  }
+
+  if (payload.catalog_sync_required) {
+    return t("models.antigravity.catalogAttentionSyncRequired");
+  }
+
+  if (payload.catalog_last_error) {
+    return t("models.antigravity.catalogAttentionRetry");
+  }
+
+  if (payload.probe_cache_stale) {
+    return t("models.antigravity.catalogAttentionCacheStale");
+  }
+
+  return null;
 }
 
-function availabilityIssueText(
+function describeAvailabilityOutcome(
   model: ModelSchema,
-  t: ReturnType<typeof useTranslation>['t'],
+  t: ReturnType<typeof useTranslation>["t"],
 ) {
-  const parts: string[] = []
-  if (model.availability_http_status) {
-    parts.push(`HTTP ${model.availability_http_status}`)
+  if (model.availability_status === "available") {
+    return t("models.antigravity.availabilityOutcome.available");
   }
-  const error = (model.availability_error ?? '').trim()
-  if (error) {
-    parts.push(error)
+
+  if (
+    model.availability_status === "unavailable" &&
+    model.availability_http_status != null
+  ) {
+    return t("models.antigravity.availabilityOutcome.unavailableWithStatus", {
+      status: model.availability_http_status,
+    });
   }
-  if (parts.length === 0) {
-    return t('models.availability.noErrorDetail')
+
+  if (model.availability_status === "unavailable") {
+    return t("models.antigravity.availabilityOutcome.unavailable");
   }
-  return parts.join(' · ')
+
+  return t("models.antigravity.availabilityOutcome.unknown");
+}
+
+function buildModelsSummary(
+  payload: ListModelsResponse | undefined,
+  t: ReturnType<typeof useTranslation>["t"],
+) {
+  const models = payload?.data ?? [];
+  const providers = new Set(
+    models.map((model) => model.owned_by).filter(Boolean),
+  );
+  const available = models.filter(
+    (model) => model.availability_status === "available",
+  ).length;
+  const unavailable = models.filter(
+    (model) => model.availability_status === "unavailable",
+  ).length;
+
+  return [
+    {
+      title: t("models.antigravity.metrics.total"),
+      value: models.length,
+      description: t("models.antigravity.metrics.totalDesc"),
+      icon: Database,
+      toneClassName: "bg-primary/10 text-primary",
+    },
+    {
+      title: t("models.antigravity.metrics.available"),
+      value: available,
+      description: t("models.antigravity.metrics.availableDesc"),
+      icon: ShieldCheck,
+      toneClassName: "bg-success/10 text-success",
+    },
+    {
+      title: t("models.antigravity.metrics.unavailable"),
+      value: unavailable,
+      description: t("models.antigravity.metrics.unavailableDesc"),
+      icon: ShieldX,
+      toneClassName: "bg-danger/10 text-danger",
+    },
+    {
+      title: t("models.antigravity.metrics.providers"),
+      value: providers.size,
+      description: t("models.antigravity.metrics.providersDesc"),
+      icon: Sparkles,
+      toneClassName: "bg-secondary/10 text-secondary",
+    },
+  ];
 }
 
 export default function Models() {
-  const { t, i18n } = useTranslation()
-  const queryClient = useQueryClient()
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [searchValue, setSearchValue] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [availabilityFilter, setAvailabilityFilter] =
+    useState<AvailabilityFilter>("all");
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
 
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [editingModel, setEditingModel] = useState<ModelSchema | null>(null)
-  const [pricingForm, setPricingForm] = useState({
-    input_price_microcredits: '0',
-    cached_input_price_microcredits: '0',
-    output_price_microcredits: '0',
-    enabled: true,
-  })
-
-  const resolveErrorLabel = useCallback(
-    (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
-    [t],
-  )
-
-  const { data: modelsPayload, isLoading, isFetching } = useQuery({
-    queryKey: ['models'],
+  const {
+    data: modelsPayload,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: ["models"],
     queryFn: modelsApi.listModels,
-    staleTime: 60000,
-  })
+    refetchInterval: 60_000,
+  });
 
-  const syncCatalogMutation = useMutation({
-    mutationFn: () => modelsApi.syncOpenAiCatalog(),
-    onSuccess: (payload) => {
-      setError(null)
-      setNotice(
-        t('models.notice.openAiCatalogSynced', {
-          defaultValue: 'OpenAI catalog synced: {{count}} models updated.',
-          count: payload.created_or_updated,
+  const syncMutation = useMutation({
+    mutationFn: modelsApi.syncOpenAiCatalog,
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["models"] });
+      notify({
+        variant: "success",
+        title: t("models.actions.syncOpenAiCatalog"),
+        description: t("models.notice.openAiCatalogSynced", {
+          count: result.created_or_updated,
         }),
-      )
-      queryClient.invalidateQueries({ queryKey: ['models'] })
+      });
     },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.openAiCatalogSyncFailed', {
-            defaultValue: 'Failed to sync OpenAI catalog.',
-          }),
-        ),
-      )
+    onError: async (error) => {
+      await queryClient.invalidateQueries({ queryKey: ["models"] });
+      const fallback = t("models.errors.openAiCatalogSyncFailed");
+      notify({
+        variant: "error",
+        title: t("models.actions.syncOpenAiCatalog"),
+        description: localizeApiErrorDisplay(t, error, fallback).label,
+      });
     },
-  })
+  });
 
   const probeMutation = useMutation({
     mutationFn: () => modelsApi.probeModels({ force: true }),
-    onSuccess: () => {
-      setError(null)
-      setNotice(
-        t('models.notice.probeCompleted', {
-          defaultValue: 'Model probing completed. Availability has been refreshed.',
-        }),
-      )
-      queryClient.invalidateQueries({ queryKey: ['models'] })
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["models"] });
+      notify({
+        variant: "success",
+        title: t("models.actions.probeAvailability"),
+        description: t("models.notice.probeCompleted"),
+      });
     },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.probeFailed', { defaultValue: 'Model probing failed.' }),
-        ),
-      )
+    onError: (error) => {
+      const fallback = t("models.errors.probeFailed");
+      notify({
+        variant: "error",
+        title: t("models.actions.probeAvailability"),
+        description: localizeApiErrorDisplay(t, error, fallback).label,
+      });
     },
-  })
+  });
 
-  const upsertPricingMutation = useMutation({
-    mutationFn: async () =>
-      modelsApi.upsertModelPricing({
-        model: editingModel?.id ?? '',
-        input_price_microcredits: Number(pricingForm.input_price_microcredits),
-        cached_input_price_microcredits: Number(pricingForm.cached_input_price_microcredits),
-        output_price_microcredits: Number(pricingForm.output_price_microcredits),
-        enabled: pricingForm.enabled,
-      }),
-    onSuccess: (item) => {
-      setError(null)
-      setNotice(
-        t('models.notice.modelPricingSaved', {
-          defaultValue: 'Model pricing saved: {{model}}',
-          model: item.model,
-        }),
-      )
-      queryClient.invalidateQueries({ queryKey: ['models'] })
-    },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.saveModelPricingFailed', { defaultValue: 'Failed to save model pricing.' }),
-        ),
-      )
-    },
-  })
+  const models = useMemo(
+    () => modelsPayload?.data ?? EMPTY_MODELS,
+    [modelsPayload?.data],
+  );
+  const meta = modelsPayload?.meta;
+  const noValueLabel = resolveNoValueLabel(t);
+  const summaryCards = useMemo(
+    () => buildModelsSummary(modelsPayload, t),
+    [modelsPayload, t],
+  );
+  const catalogAttention = useMemo(
+    () => buildCatalogAttention(meta, t),
+    [meta, t],
+  );
 
-  const deletePricingMutation = useMutation({
-    mutationFn: async (pricingId: string) => modelsApi.deleteModelPricing(pricingId),
-    onSuccess: () => {
-      setError(null)
-      setNotice(t('models.notice.modelPricingDeleted', { defaultValue: 'Model pricing record deleted.' }))
-      queryClient.invalidateQueries({ queryKey: ['models'] })
-    },
-    onError: (err) => {
-      setError(
-        resolveErrorLabel(
-          err,
-          t('models.errors.deleteModelPricingFailed', { defaultValue: 'Failed to delete model pricing.' }),
-        ),
-      )
-    },
-  })
-
-  const models = useMemo(() => modelsPayload?.data ?? [], [modelsPayload])
-  const modelsMeta = modelsPayload?.meta
-  const isBusy =
-    isLoading ||
-    isFetching ||
-    syncCatalogMutation.isPending ||
-    probeMutation.isPending
-  const modelsLayout = describeModelsWorkspaceLayout()
-  const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
-
-  const openEditor = useCallback((model: ModelSchema) => {
-    setEditingModel(model)
-    setPricingForm({
-      input_price_microcredits: String(
-        model.override_pricing?.input_price_microcredits ??
-          effectivePricingOrFallback(model).input_price_microcredits ??
-          0,
+  const providerOptions = useMemo(
+    () =>
+      [...new Set(models.map((model) => model.owned_by).filter(Boolean))].sort(
+        (left, right) => left.localeCompare(right),
       ),
-      cached_input_price_microcredits: String(
-        model.override_pricing?.cached_input_price_microcredits ??
-          effectivePricingOrFallback(model).cached_input_price_microcredits ??
-          0,
-      ),
-      output_price_microcredits: String(
-        model.override_pricing?.output_price_microcredits ??
-          effectivePricingOrFallback(model).output_price_microcredits ??
-          0,
-      ),
-      enabled: model.override_pricing?.enabled ?? true,
-    })
-    setEditorOpen(true)
-  }, [])
+    [models],
+  );
 
-  const copyText = useCallback(async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value)
-    } catch {
-      const textarea = document.createElement('textarea')
-      textarea.value = value
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.focus()
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-    }
-  }, [])
+  const filteredModels = useMemo(() => {
+    const keyword = searchValue.trim().toLowerCase();
 
-  const columns = useMemo<ColumnDef<ModelSchema>[]>(
-    () => [
-      {
-        accessorKey: 'id',
-        header: t('models.columns.id'),
-        cell: ({ row }) => (
-          <div className="group flex min-w-[220px] items-center gap-1">
-            <span className="min-w-0 truncate font-mono text-sm font-medium" title={row.original.id}>
-              {row.original.id}
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="opacity-0 transition-opacity group-hover:opacity-100"
-              onClick={(event) => {
-                event.stopPropagation()
-                void copyText(row.original.id)
-              }}
-              title={t('models.actions.copyModelId', { defaultValue: 'Copy model ID' })}
-              aria-label={t('models.actions.copyModelId', { defaultValue: 'Copy model ID' })}
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        ),
-      },
-      {
-        id: 'availability',
-        header: t('models.columns.availability'),
-        accessorFn: (row) => row.availability_status,
-        cell: ({ row }) => {
-          const hasIssue = row.original.availability_status === 'unavailable' || Boolean(row.original.availability_error)
-          const issueText = availabilityIssueText(row.original, t)
-          return (
-            <div className="flex items-center gap-1.5">
-              <Badge variant={availabilityBadgeVariant(row.original.availability_status)}>
-                {availabilityLabel(row.original.availability_status, t)}
-              </Badge>
-              {hasIssue ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-warning-foreground transition-colors hover:bg-warning-muted"
-                      aria-label={t('models.availability.issueHint')}
-                    >
-                      <CircleAlert className="h-4 w-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-[360px] whitespace-pre-wrap break-words">
-                    {issueText}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-            </div>
-          )
-        },
-      },
-      {
-        id: 'context',
-        header: t('models.columns.context', { defaultValue: 'Context / Max output' }),
-        accessorFn: (row) => contextText(row.official),
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {contextText(row.original.official ?? null)}
-          </span>
-        ),
-      },
-      {
-        id: 'pricing',
-        header: t('models.columns.pricingStatus'),
-        accessorFn: (row) =>
-          [
-            effectivePricingOrFallback(row).source,
-            effectivePricingOrFallback(row).input_price_microcredits,
-            effectivePricingOrFallback(row).cached_input_price_microcredits,
-            effectivePricingOrFallback(row).output_price_microcredits,
-          ].join(' '),
-        cell: ({ row }) => (
-          <div className="space-y-1 text-xs">
-            <Badge variant={pricingSourceVariant(effectivePricingOrFallback(row.original).source)}>
-              {pricingSourceLabel(effectivePricingOrFallback(row.original).source, t)}
-            </Badge>
-            <div className="font-mono text-muted-foreground">
-              in {formatMicrocredits(effectivePricingOrFallback(row.original).input_price_microcredits)} · cached{' '}
-              {formatMicrocredits(effectivePricingOrFallback(row.original).cached_input_price_microcredits)} · out{' '}
-              {formatMicrocredits(effectivePricingOrFallback(row.original).output_price_microcredits)}
-            </div>
-          </div>
-        ),
-      },
-      {
-        id: 'modalities',
-        header: t('models.columns.modalities', { defaultValue: 'Modalities' }),
-        accessorFn: (row) => modalitiesText(row.official ?? null),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {modalitiesText(row.original.official ?? null)}
-          </span>
-        ),
-      },
-      {
-        id: 'syncedAt',
-        header: t('models.columns.syncedAt', { defaultValue: 'Synced' }),
-        accessorFn: (row) => row.official?.synced_at ?? '',
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {row.original.official?.synced_at
-              ? formatRelativeTime(
-                  new Date(row.original.official.synced_at).getTime(),
-                  i18n.resolvedLanguage,
-                  true,
-                )
-              : '-'}
-          </span>
-        ),
-      },
-      {
-        id: 'actions',
-        enableSorting: false,
-        header: t('models.columns.actions', { defaultValue: 'Actions' }),
-        cell: ({ row }) => (
-          <Button variant="ghost" size="sm" className="group" onClick={() => openEditor(row.original)}>
-            {t('models.actions.openDetails', { defaultValue: 'Details' })}
-            <SquarePen className="ml-1 h-3.5 w-3.5" />
-          </Button>
-        ),
-      },
-    ],
-    [copyText, i18n.resolvedLanguage, openEditor, t],
-  )
+    return models.filter((model) => {
+      if (providerFilter !== "all" && model.owned_by !== providerFilter) {
+        return false;
+      }
+      if (
+        availabilityFilter !== "all" &&
+        model.availability_status !== availabilityFilter
+      ) {
+        return false;
+      }
+      if (keyword && !matchModelSearch(model, keyword)) {
+        return false;
+      }
+      return true;
+    });
+  }, [availabilityFilter, models, providerFilter, searchValue]);
 
-  const catalogSyncText = !modelsMeta
-    ? t('common.loading', { defaultValue: 'Loading…' })
-    : !modelsMeta.catalog_synced_at
-      ? t('models.syncHint.notSynced', {
-          defaultValue: 'OpenAI catalog has not been synced yet.',
-        })
-      : t('models.syncHint.syncedAt', {
-          defaultValue: 'Catalog synced {{time}}',
-          time: formatRelativeTime(
-            new Date(modelsMeta.catalog_synced_at).getTime(),
-            i18n.resolvedLanguage,
-            true,
-          ),
-        })
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredModels.length / rowsPerPage),
+  );
+  const resolvedPage = Math.min(currentPage, totalPages);
+  const paginatedModels = useMemo(() => {
+    const start = (resolvedPage - 1) * rowsPerPage;
+    return filteredModels.slice(start, start + rowsPerPage);
+  }, [filteredModels, resolvedPage, rowsPerPage]);
+  const visibleRangeStart =
+    filteredModels.length === 0 ? 0 : (resolvedPage - 1) * rowsPerPage + 1;
+  const visibleRangeEnd =
+    filteredModels.length === 0
+      ? 0
+      : Math.min(filteredModels.length, resolvedPage * rowsPerPage);
 
-  const probeSummaryText = modelsMeta
-    ? t('models.probeSummary', {
-        defaultValue: 'Probe cache: {{stale}}, checked {{checkedAt}}, ttl {{ttlHours}}h, source {{source}}',
-        stale: modelsMeta.probe_cache_stale
-          ? t('models.cache.stale', { defaultValue: 'stale' })
-          : t('models.cache.fresh', { defaultValue: 'fresh' }),
-        checkedAt: modelsMeta.probe_cache_updated_at
-          ? formatRelativeTime(
-              new Date(modelsMeta.probe_cache_updated_at).getTime(),
-              i18n.resolvedLanguage,
-              true,
-            )
-          : t('models.availability.neverChecked', { defaultValue: 'Never checked' }),
-        ttlHours: Math.max(1, Math.round(modelsMeta.probe_cache_ttl_sec / 3600)),
-        source:
-          modelsMeta.probe_source_account_label
-          || t('models.probeSourceUnknown', { defaultValue: 'unknown account' }),
-      })
-    : undefined
-
-  const hasStatusMessages =
-    Boolean(modelsMeta?.catalog_sync_required)
-    || Boolean(modelsMeta?.catalog_last_error)
-    || Boolean(error)
-    || Boolean(notice)
-
-  const currentModel = editingModel
-  const currentOfficial = currentModel?.official
-  const canDeleteOverride = Boolean(currentModel?.override_pricing?.id)
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === selectedModelId) ?? null,
+    [models, selectedModelId],
+  );
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8">
-      <div className="space-y-5 md:space-y-6">
-        <PageIntro
-          archetype="workspace"
-          title={t('models.title', { defaultValue: 'Models' })}
-          description={t('models.description', {
-            defaultValue: 'Browse the OpenAI official catalog, verify model availability, and manage manual pricing overrides.',
-          })}
-        />
-
-        {modelsLayout.mobileContextPlacement === 'after-intro' ? (
-          <PagePanel tone="secondary" className="space-y-3 rounded-[0.95rem] bg-transparent shadow-none">
-            <SectionHeader
-              title={t('models.actions.sync', { defaultValue: 'Sync Status' })}
-              description={
-                <div className="space-y-1 break-words">
-                  <p>{catalogSyncText}</p>
-                  {probeSummaryText ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{probeSummaryText}</p>
-                  ) : null}
-                </div>
+    <PageContent className="space-y-6">
+      <DockedPageIntro
+        archetype="workspace"
+        title={t("models.title")}
+        description={t("models.subtitle")}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Dropdown>
+              <DropdownTrigger>
+                <Button
+                  color="primary"
+                  endContent={
+                    probeMutation.isPending ||
+                    syncMutation.isPending ? undefined : (
+                      <ChevronDown className="h-4 w-4" />
+                    )
+                  }
+                  isDisabled={probeMutation.isPending || syncMutation.isPending}
+                  isLoading={probeMutation.isPending || syncMutation.isPending}
+                  startContent={<Sparkles className="h-4 w-4" />}
+                  variant="flat"
+                >
+                  {t("models.antigravity.maintenance")}
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label={t("models.antigravity.maintenance")}
+                disabledKeys={
+                  probeMutation.isPending || syncMutation.isPending
+                    ? ["probe", "sync"]
+                    : []
+                }
+                onAction={(key) => {
+                  if (String(key) === "probe") {
+                    probeMutation.mutate();
+                    return;
+                  }
+                  if (String(key) === "sync") {
+                    syncMutation.mutate();
+                  }
+                }}
+              >
+                <DropdownItem
+                  key="probe"
+                  description={t(
+                    "models.antigravity.maintenanceProbeDescription",
+                  )}
+                  startContent={<Sparkles className="h-4 w-4" />}
+                >
+                  {t("models.actions.probeAvailability")}
+                </DropdownItem>
+                <DropdownItem
+                  key="sync"
+                  description={t(
+                    "models.antigravity.maintenanceSyncDescription",
+                  )}
+                  startContent={<RefreshCcw className="h-4 w-4" />}
+                >
+                  {t("models.actions.syncOpenAiCatalog")}
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+            <Button
+              isLoading={isFetching}
+              startContent={
+                isFetching ? undefined : <RefreshCcw className="h-4 w-4" />
               }
-              actions={
-                modelsLayout.actionPlacement === 'within-status-panel' ? (
-                  <div className="flex flex-wrap items-center gap-1.5 rounded-[0.95rem] border border-border/70 bg-muted/20 p-1.5">
-                    <Button
-                      size="sm"
-                      onClick={() => syncCatalogMutation.mutate()}
-                      disabled={syncCatalogMutation.isPending}
-                    >
-                      <RotateCw
-                        className={cn('mr-2 h-4 w-4', syncCatalogMutation.isPending && 'animate-spin')}
-                      />
-                      {t('models.actions.syncOpenAiCatalog', { defaultValue: 'Sync OpenAI catalog' })}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => probeMutation.mutate()}
-                      disabled={probeMutation.isPending || modelsMeta?.catalog_sync_required}
-                    >
-                      <ActivitySquare
-                        className={cn('mr-2 h-4 w-4', probeMutation.isPending && 'animate-pulse')}
-                      />
-                      {t('models.actions.probeAvailability', { defaultValue: 'Probe availability' })}
-                    </Button>
-                  </div>
-                ) : undefined
-              }
-            />
+              variant="light"
+              onPress={() => {
+                void refetch();
+              }}
+            >
+              {t("common.refresh")}
+            </Button>
+          </div>
+        }
+      />
 
-            <div className="flex flex-wrap items-center gap-2">
-              {modelsMeta ? (
-                <Badge variant={modelsMeta.probe_cache_stale ? 'warning' : 'success'}>
-                  {modelsMeta.probe_cache_stale
-                    ? t('models.cache.stale', { defaultValue: 'stale' })
-                    : t('models.cache.fresh', { defaultValue: 'fresh' })}
-                </Badge>
-              ) : null}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.95fr)]">
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div>
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t("models.antigravity.summaryTitle")}
+              </h2>
             </div>
+          </CardHeader>
+          <CardBody className="grid gap-3 px-5 pb-5 pt-1 sm:grid-cols-2">
+            {summaryCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <div
+                  key={card.title}
+                  className="rounded-large border border-default-200 bg-content2/55 px-4 py-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div
+                      className={cn(
+                        "flex h-10 w-10 items-center justify-center rounded-large",
+                        card.toneClassName,
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <div className="mt-5 text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                    {card.title}
+                  </div>
+                  <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+                    {card.value}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-default-500">
+                    {card.description}
+                  </p>
+                </div>
+              );
+            })}
+          </CardBody>
+        </Card>
 
-            {modelsLayout.feedbackPlacement === 'within-status-panel' && hasStatusMessages ? (
-              <div className="space-y-2">
-                {modelsMeta?.catalog_sync_required ? (
-                  <p className="break-words rounded-[0.95rem] border border-warning/20 bg-warning-muted/65 px-4 py-3 text-sm leading-6 text-warning-foreground">
-                    {t('models.emptySyncRequired', {
-                      defaultValue: 'No official catalog yet. Sync OpenAI catalog first.',
-                    })}
-                  </p>
-                ) : null}
-                {modelsMeta?.catalog_last_error ? (
-                  <p className="break-words rounded-[0.95rem] border border-warning/20 bg-warning-muted/65 px-4 py-3 text-sm leading-6 text-warning-foreground">
-                    {modelsMeta.catalog_last_error}
-                  </p>
-                ) : null}
-                {error ? (
-                  <p className="break-words rounded-[0.95rem] border border-destructive/15 bg-destructive/5 px-4 py-3 text-sm leading-6 text-destructive">
-                    {error}
-                  </p>
-                ) : null}
-                {notice ? (
-                  <p className="break-words rounded-[0.95rem] border border-success/20 bg-success-muted/65 px-4 py-3 text-sm leading-6 text-success-foreground">
-                    {notice}
-                  </p>
-                ) : null}
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div>
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t("models.antigravity.catalogTitle")}
+              </h2>
+            </div>
+          </CardHeader>
+          <CardBody className="gap-4 px-5 pb-5 pt-1">
+            <div className="flex flex-wrap gap-2">
+              <Chip
+                color={meta?.probe_cache_stale ? "warning" : "success"}
+                size="sm"
+                variant="flat"
+              >
+                {meta?.probe_cache_stale
+                  ? t("models.antigravity.cacheStale")
+                  : t("models.antigravity.cacheFresh")}
+              </Chip>
+              <Chip
+                color={meta?.catalog_sync_required ? "warning" : "primary"}
+                size="sm"
+                variant="flat"
+              >
+                {meta?.catalog_sync_required
+                  ? t("models.antigravity.catalogNeedsSync")
+                  : t("models.antigravity.catalogReady")}
+              </Chip>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t("models.antigravity.cacheUpdatedAt")}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-foreground">
+                  {formatDateTime(meta?.probe_cache_updated_at)}
+                </div>
+              </div>
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t("models.antigravity.probeSource")}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-foreground">
+                  {meta?.probe_source_account_label ??
+                    t("models.probeSourceUnknown")}
+                </div>
+              </div>
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t("models.antigravity.catalogSyncedAt")}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-foreground">
+                  {formatDateTime(meta?.catalog_synced_at)}
+                </div>
+              </div>
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t("models.antigravity.cacheTtl")}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-foreground">
+                  {t("models.antigravity.cacheTtlHours", {
+                    hours: Math.round((meta?.probe_cache_ttl_sec ?? 0) / 3600),
+                  })}
+                </div>
+              </div>
+            </div>
+            {catalogAttention ? (
+              <div className="rounded-large border border-warning-200 bg-warning-50/80 px-4 py-3 text-sm leading-6 text-warning-700 dark:bg-warning/10 dark:text-warning-300">
+                <div className="font-semibold">
+                  {t("models.antigravity.catalogAttentionTitle")}
+                </div>
+                <div className="mt-1">{catalogAttention}</div>
               </div>
             ) : null}
-          </PagePanel>
-        ) : null}
-
-        <PagePanel className="relative overflow-hidden p-0">
-          <LoadingOverlay
-            show={isBusy}
-            title={t('models.syncing')}
-            description={t('models.loadingHint', {
-              defaultValue: 'Refreshing official catalog and model availability…',
-            })}
-          />
-
-          <TooltipProvider>
-            <StandardDataTable
-              columns={columns}
-              data={models}
-              className={tableSurfaceClassName}
-              searchPlaceholder={t('models.actions.search')}
-              searchFn={matchesModelSearch}
-              emptyText={
-                modelsMeta?.catalog_sync_required
-                  ? t('models.emptySyncRequired', {
-                      defaultValue: 'No official catalog yet. Sync OpenAI catalog first.',
-                    })
-                  : t('models.empty')
-              }
-              actions={
-                modelsMeta?.catalog_sync_required ? (
-                  <Button size="sm" onClick={() => syncCatalogMutation.mutate()}>
-                    <RotateCw className="mr-2 h-4 w-4" />
-                    {t('models.actions.syncOpenAiCatalog', { defaultValue: 'Sync OpenAI catalog' })}
-                  </Button>
-                ) : undefined
-              }
-            />
-          </TooltipProvider>
-        </PagePanel>
+          </CardBody>
+        </Card>
       </div>
 
-      <Dialog
-        open={editorOpen}
-        onOpenChange={(open) => {
-          setEditorOpen(open)
-          if (!open) {
-            setEditingModel(null)
-          }
-        }}
-      >
-        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-[1rem] sm:max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>
-              {currentModel
-                ? t('models.dialog.titleWithId', {
-                    defaultValue: 'Model details · {{modelId}}',
-                    modelId: currentModel.id,
-                  })
-                : t('models.title', { defaultValue: 'Models' })}
-            </DialogTitle>
-            <DialogDescription>
-              {t('models.dialog.officialDescription', {
-                defaultValue:
-                  'Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.',
-              })}
-            </DialogDescription>
-          </DialogHeader>
+      <Card className="border-small border-default-200 bg-content1 shadow-small">
+        <CardHeader className="flex flex-col items-start gap-4 px-5 pb-3 pt-5">
+          <div>
+            <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+              {t("models.antigravity.directoryTitle")}
+            </h2>
+          </div>
 
-          {currentModel ? (
-            <div className="space-y-4">
-              <section className={POOL_SECTION_CLASS_NAME}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="info">{currentModel.owned_by}</Badge>
-                  <Badge variant={availabilityBadgeVariant(currentModel.availability_status)}>
-                    {availabilityLabel(currentModel.availability_status, t)}
-                  </Badge>
-                  <Badge variant={pricingSourceVariant(effectivePricingOrFallback(currentModel).source)}>
-                    {pricingSourceLabel(effectivePricingOrFallback(currentModel).source, t)}
-                  </Badge>
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <Input
+                aria-label={t("models.actions.search")}
+                placeholder={t("models.actions.search")}
+                size="sm"
+                startContent={<Search className="h-4 w-4 text-default-400" />}
+                value={searchValue}
+                onValueChange={(value) => {
+                  setCurrentPage(1);
+                  setSearchValue(value);
+                }}
+              />
+
+              <Select
+                aria-label={t("models.filters.providerLabel")}
+                items={[
+                  { key: "all", label: t("models.filters.allProviders") },
+                  ...providerOptions.map((provider) => ({
+                    key: provider,
+                    label: provider,
+                  })),
+                ]}
+                selectedKeys={[providerFilter]}
+                size="sm"
+                onSelectionChange={(selection) => {
+                  const nextValue = normalizeSelection(selection);
+                  if (!nextValue) {
+                    return;
+                  }
+                  setCurrentPage(1);
+                  setProviderFilter(nextValue);
+                }}
+              >
+                {(item) => <SelectItem key={item.key}>{item.label}</SelectItem>}
+              </Select>
+
+              <Select
+                aria-label={t("models.filters.availabilityLabel")}
+                selectedKeys={[availabilityFilter]}
+                size="sm"
+                onSelectionChange={(selection) => {
+                  const nextValue = normalizeSelection(selection);
+                  if (!nextValue) {
+                    return;
+                  }
+                  setCurrentPage(1);
+                  setAvailabilityFilter(nextValue as AvailabilityFilter);
+                }}
+              >
+                <SelectItem key="all">
+                  {t("models.filters.allAvailability")}
+                </SelectItem>
+                <SelectItem key="available">
+                  {t("models.availability.available")}
+                </SelectItem>
+                <SelectItem key="unavailable">
+                  {t("models.availability.unavailable")}
+                </SelectItem>
+                <SelectItem key="unknown">
+                  {t("models.availability.unknown")}
+                </SelectItem>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-default-500">
+              <span>{t("common.table.rowsPerPage")}</span>
+              <Select
+                aria-label={t("common.table.rowsPerPage")}
+                className="w-[106px]"
+                selectedKeys={[String(rowsPerPage)]}
+                size="sm"
+                onSelectionChange={(selection) => {
+                  const nextValue = normalizeSelection(selection);
+                  if (!nextValue) {
+                    return;
+                  }
+                  setCurrentPage(1);
+                  setRowsPerPage(Number(nextValue));
+                }}
+              >
+                {TABLE_PAGE_SIZE_OPTIONS.map((size) => (
+                  <SelectItem key={String(size)}>{size}</SelectItem>
+                ))}
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardBody className="gap-4 px-5 pb-5 pt-0">
+          <Table
+            isHeaderSticky
+            aria-label={t("models.title")}
+            classNames={{
+              base: "min-h-[30rem]",
+              wrapper: "bg-transparent px-0 py-0 shadow-none",
+              th: "bg-default-100/60 text-xs font-semibold uppercase tracking-[0.12em] text-default-500",
+              td: "align-top py-4 text-sm text-foreground",
+              tr: "data-[hover=true]:bg-content2/35 transition-colors",
+              emptyWrapper: "h-56",
+            }}
+          >
+            <TableHeader>
+              <TableColumn>{t("models.columns.id")}</TableColumn>
+              <TableColumn>{t("models.columns.provider")}</TableColumn>
+              <TableColumn>{t("models.columns.availability")}</TableColumn>
+              <TableColumn>{t("models.columns.inputPrice")}</TableColumn>
+              <TableColumn>{t("models.columns.context")}</TableColumn>
+              <TableColumn>{t("models.columns.actions")}</TableColumn>
+            </TableHeader>
+            <TableBody
+              emptyContent={
+                <div className="flex flex-col items-center gap-3 py-12 text-default-500">
+                  <Database className="h-10 w-10 opacity-35" />
+                  <div className="text-sm font-medium">{t("models.empty")}</div>
                 </div>
-
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <h3 className="text-base font-medium">
-                      {t('models.detail.officialTitle', { defaultValue: 'Official metadata' })}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">{currentOfficial?.title}</p>
-                    {currentOfficial?.description ? (
-                      <p className="text-sm text-muted-foreground">{currentOfficial?.description}</p>
-                    ) : null}
-                    <div className="space-y-1 text-sm">
+              }
+              isLoading={isLoading}
+              items={paginatedModels}
+              loadingContent={<Spinner label={t("common.loading")} />}
+            >
+              {(model) => (
+                <TableRow key={model.id}>
+                  <TableCell>
+                    <div className="min-w-[260px] space-y-1">
+                      <div className="font-medium text-foreground">
+                        {model.official?.title || model.id}
+                      </div>
+                      <div className="font-mono text-xs leading-5 text-default-500">
+                        {model.id}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[180px] space-y-2">
+                      <Chip size="sm" variant="flat">
+                        {model.owned_by}
+                      </Chip>
+                      <div className="text-xs leading-5 text-default-500">
+                        {model.effective_pricing.source}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[190px] space-y-2">
+                      <Chip
+                        color={getAvailabilityColor(model.availability_status)}
+                        size="sm"
+                        variant="flat"
+                      >
+                        {getAvailabilityLabel(model.availability_status, t)}
+                      </Chip>
+                      <div className="text-xs leading-5 text-default-500">
+                        {t("models.columns.checkedAt")}:{" "}
+                        {formatDateTime(model.availability_checked_at)}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[190px] space-y-1 text-xs leading-5 text-default-500">
                       <div>
-                        <span className="font-medium">{t('models.detail.contextWindow', { defaultValue: 'Context window' })}:</span>{' '}
-                        <span className="font-mono">{formatOptionalExactCount(currentOfficial?.context_window_tokens)}</span>
+                        {t("models.columns.inputPrice")}:{" "}
+                        {formatUsdPerMillion(
+                          model.effective_pricing.input_price_microcredits,
+                          noValueLabel,
+                        )}
                       </div>
                       <div>
-                        <span className="font-medium">{t('models.detail.maxOutputTokens', { defaultValue: 'Max output tokens' })}:</span>{' '}
-                        <span className="font-mono">{formatOptionalExactCount(currentOfficial?.max_output_tokens)}</span>
+                        {t("models.columns.cachedInputPrice")}:{" "}
+                        {formatUsdPerMillion(
+                          model.effective_pricing
+                            .cached_input_price_microcredits,
+                          noValueLabel,
+                        )}
                       </div>
                       <div>
-                        <span className="font-medium">{t('models.detail.knowledgeCutoff', { defaultValue: 'Knowledge cutoff' })}:</span>{' '}
-                        <span>{currentOfficial?.knowledge_cutoff ?? '-'}</span>
-                      </div>
-                      <div>
-                        <span className="font-medium">{t('models.detail.reasoningTokenSupport', { defaultValue: 'Reasoning token support' })}:</span>{' '}
-                        <span>
-                          {typeof currentOfficial?.reasoning_token_support === 'boolean'
-                            ? currentOfficial?.reasoning_token_support
-                              ? t('models.pricing.enabled', { defaultValue: 'Enabled' })
-                              : t('models.pricing.disabled', { defaultValue: 'Disabled' })
-                            : '-'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{t('models.detail.sourceUrl', { defaultValue: 'Source URL' })}:</span>
-                        {currentOfficial?.source_url ? (
-                          <a
-                            className="inline-flex items-center gap-1 text-primary underline underline-offset-4"
-                            href={currentOfficial.source_url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {t('models.detail.openOfficialPage', { defaultValue: 'Open official page' })}
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </a>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
+                        {t("models.columns.outputPrice")}:{" "}
+                        {formatUsdPerMillion(
+                          model.effective_pricing.output_price_microcredits,
+                          noValueLabel,
                         )}
                       </div>
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h3 className="text-base font-medium">
-                      {t('models.detail.capabilitiesTitle', { defaultValue: 'Capabilities' })}
-                    </h3>
-                    <div className="space-y-1 text-sm text-muted-foreground">
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[180px] space-y-1 text-xs leading-5 text-default-500">
                       <div>
-                        <span className="font-medium text-foreground">{t('models.detail.inputModalities', { defaultValue: 'Input modalities' })}:</span>{' '}
-                        {currentOfficial?.input_modalities && currentOfficial.input_modalities.length > 0
-                          ? currentOfficial.input_modalities.join(', ')
-                          : '-'}
+                        {t("models.detail.contextWindow")}:{" "}
+                        {formatTokenCount(
+                          model.official?.context_window_tokens,
+                          noValueLabel,
+                        )}
                       </div>
                       <div>
-                        <span className="font-medium text-foreground">{t('models.detail.outputModalities', { defaultValue: 'Output modalities' })}:</span>{' '}
-                        {currentOfficial?.output_modalities && currentOfficial.output_modalities.length > 0
-                          ? currentOfficial.output_modalities.join(', ')
-                          : '-'}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">{t('models.detail.endpoints', { defaultValue: 'Endpoints' })}:</span>{' '}
-                        {currentOfficial?.endpoints && currentOfficial.endpoints.length > 0
-                          ? currentOfficial.endpoints.join(', ')
-                          : '-'}
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">{t('models.columns.syncedAt', { defaultValue: 'Synced' })}:</span>{' '}
-                        {currentOfficial?.synced_at
-                          ? formatRelativeTime(
-                              new Date(currentOfficial.synced_at).getTime(),
-                              i18n.resolvedLanguage,
-                              true,
-                            )
-                          : '-'}
+                        {t("models.detail.maxOutputTokens")}:{" "}
+                        {formatTokenCount(
+                          model.official?.max_output_tokens,
+                          noValueLabel,
+                        )}
                       </div>
                     </div>
-                  </div>
-                </div>
-              </section>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex min-w-[180px] flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        onPress={() => setSelectedModelId(model.id)}
+                      >
+                        {t("models.actions.openDetails")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        startContent={<Copy className="h-4 w-4" />}
+                        variant="light"
+                        onPress={async () => {
+                          try {
+                            await navigator.clipboard.writeText(model.id);
+                            notify({
+                              variant: "success",
+                              title: t("models.actions.copyModelId"),
+                              description: t(
+                                "models.antigravity.copyModelIdSuccess",
+                                {
+                                  modelId: model.id,
+                                },
+                              ),
+                            });
+                          } catch (error) {
+                            const fallback = t("models.antigravity.copyModelIdFailed");
+                            notify({
+                              variant: "error",
+                              title: t("models.actions.copyModelId"),
+                              description: localizeApiErrorDisplay(
+                                t,
+                                error,
+                                fallback,
+                              ).label,
+                            });
+                          }
+                        }}
+                      >
+                        {t("models.actions.copyModelId")}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
 
-              <section className={POOL_SECTION_CLASS_NAME}>
-                <h3 className="text-base font-medium">
-                  {t('models.pricing.overrideSectionTitle', { defaultValue: 'Manual price override' })}
-                </h3>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <div className="rounded-md border border-border/70 p-3 text-sm">
-                    <div className="mb-1 font-medium">
-                      {t('models.pricing.officialBase', { defaultValue: 'Official base' })}
-                    </div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      in {formatMicrocredits(currentOfficial?.input_price_microcredits)} · cached{' '}
-                      {formatMicrocredits(currentOfficial?.cached_input_price_microcredits)} · out{' '}
-                      {formatMicrocredits(currentOfficial?.output_price_microcredits)}
-                    </div>
-                  </div>
-                  <div className="rounded-md border border-border/70 p-3 text-sm">
-                    <div className="mb-1 font-medium">
-                      {t('models.pricing.manualOverride', { defaultValue: 'Manual override' })}
-                    </div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      in {formatMicrocredits(currentModel.override_pricing?.input_price_microcredits)} · cached{' '}
-                      {formatMicrocredits(currentModel.override_pricing?.cached_input_price_microcredits)} · out{' '}
-                      {formatMicrocredits(currentModel.override_pricing?.output_price_microcredits)}
-                    </div>
-                  </div>
-                  <div className="rounded-md border border-border/70 p-3 text-sm">
-                    <div className="mb-1 font-medium">
-                      {t('models.pricing.effectiveSectionTitle', { defaultValue: 'Effective pricing' })}
-                    </div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      in {formatMicrocredits(effectivePricingOrFallback(currentModel).input_price_microcredits)} · cached{' '}
-                      {formatMicrocredits(effectivePricingOrFallback(currentModel).cached_input_price_microcredits)} · out{' '}
-                      {formatMicrocredits(effectivePricingOrFallback(currentModel).output_price_microcredits)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                  <div className="space-y-1.5">
-                    <label htmlFor="model-pricing-input" className="text-xs font-medium text-muted-foreground">
-                      {t('models.pricing.inputPrice', { defaultValue: 'Input price' })}
-                    </label>
-                    <Input
-                      id="model-pricing-input"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={pricingForm.input_price_microcredits}
-                      onChange={(event) =>
-                        setPricingForm((prev) => ({ ...prev, input_price_microcredits: event.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="model-pricing-cached" className="text-xs font-medium text-muted-foreground">
-                      {t('models.pricing.cachedInputPrice', { defaultValue: 'Cached input price' })}
-                    </label>
-                    <Input
-                      id="model-pricing-cached"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={pricingForm.cached_input_price_microcredits}
-                      onChange={(event) =>
-                        setPricingForm((prev) => ({
-                          ...prev,
-                          cached_input_price_microcredits: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="model-pricing-output" className="text-xs font-medium text-muted-foreground">
-                      {t('models.pricing.outputPrice', { defaultValue: 'Output price' })}
-                    </label>
-                    <Input
-                      id="model-pricing-output"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={pricingForm.output_price_microcredits}
-                      onChange={(event) =>
-                        setPricingForm((prev) => ({ ...prev, output_price_microcredits: event.target.value }))
-                      }
-                    />
-                  </div>
-                  <label htmlFor="model-pricing-enabled" className="flex items-center gap-2 text-sm text-muted-foreground md:pt-7">
-                    <Checkbox
-                      id="model-pricing-enabled"
-                      checked={pricingForm.enabled}
-                      onCheckedChange={(checked) =>
-                        setPricingForm((prev) => ({ ...prev, enabled: Boolean(checked) }))
-                      }
-                    />
-                    {t('models.pricing.enablePricing', { defaultValue: 'Enable override' })}
-                  </label>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    onClick={() => upsertPricingMutation.mutate()}
-                    disabled={upsertPricingMutation.isPending}
-                  >
-                    {upsertPricingMutation.isPending ? (
-                      <RotateCw className="mr-2 h-4 w-4 animate-spin" />
-                    ) : null}
-                    {t('models.actions.savePricing', { defaultValue: 'Save pricing' })}
-                  </Button>
-
-                  <Button
-                    variant="destructive"
-                    onClick={() => {
-                      if (!currentModel.override_pricing?.id) return
-                      deletePricingMutation.mutate(currentModel.override_pricing.id)
-                    }}
-                    disabled={!canDeleteOverride || deletePricingMutation.isPending}
-                  >
-                    {deletePricingMutation.isPending ? (
-                      <RotateCw className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="mr-2 h-4 w-4" />
-                    )}
-                    {t('models.actions.deletePricing', { defaultValue: 'Delete pricing' })}
-                  </Button>
-                </div>
-              </section>
+          <div className="flex flex-col gap-3 border-t border-default-200 pt-3 text-xs text-default-500 sm:flex-row sm:items-center sm:justify-between">
+            <div className="tabular-nums">
+              {t("common.table.range", {
+                start: visibleRangeStart,
+                end: visibleRangeEnd,
+                total: filteredModels.length,
+              })}
             </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
+            <Pagination
+              color="primary"
+              isCompact
+              page={resolvedPage}
+              total={totalPages}
+              onChange={setCurrentPage}
+            />
+          </div>
+        </CardBody>
+      </Card>
+
+      <Modal
+        backdrop="blur"
+        classNames={{
+          base: "border-small border-default-200 bg-content1 shadow-large",
+          body: "pt-0",
+          backdrop: "bg-black/52 backdrop-blur-[2px]",
+          wrapper: "px-2 py-2 sm:px-6 sm:py-6",
+        }}
+        isOpen={Boolean(selectedModelId)}
+        placement="center"
+        scrollBehavior="inside"
+        size="5xl"
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedModelId(null);
+          }
+        }}
+      >
+        <ModalContent>
+          {() => (
+            <>
+              <ModalHeader className="flex flex-col gap-2">
+                <div className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                  {selectedModel?.official?.title ||
+                    selectedModel?.id ||
+                    t("models.detail.title")}
+                </div>
+                <div className="font-mono text-xs text-default-500">
+                  {selectedModel?.id ?? "-"}
+                </div>
+                <div className="text-sm leading-6 text-default-600">
+                  {selectedModel?.official?.description ||
+                    t("models.antigravity.noDescription")}
+                </div>
+              </ModalHeader>
+              <ModalBody className="pb-5">
+                {selectedModel ? (
+                  <div className="space-y-5">
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <Card className="border-small border-default-200 bg-content2/55 shadow-none">
+                        <CardHeader className="px-4 pb-2 pt-4">
+                          <h3 className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                            {t("models.antigravity.sections.operational")}
+                          </h3>
+                        </CardHeader>
+                        <CardBody className="gap-3 px-4 pb-4 pt-0 text-sm text-default-600">
+                          <div>
+                            {t("models.columns.provider")}:{" "}
+                            {selectedModel.owned_by}
+                          </div>
+                          <div>
+                            {t("models.columns.availability")}:{" "}
+                            {getAvailabilityLabel(
+                              selectedModel.availability_status,
+                              t,
+                            )}
+                          </div>
+                          <div>
+                            {t("models.columns.checkedAt")}:{" "}
+                            {formatDateTime(
+                              selectedModel.availability_checked_at,
+                            )}
+                          </div>
+                          <div>
+                            {t("models.detail.httpStatus")}:{" "}
+                            {selectedModel.availability_http_status ??
+                              noValueLabel}
+                          </div>
+                          <div>
+                            {t("models.antigravity.effectivePricingSource")}:{" "}
+                            {selectedModel.effective_pricing.source}
+                          </div>
+                          <div>
+                            {t("models.columns.syncedAt")}:{" "}
+                            {formatDateTime(selectedModel.official?.synced_at)}
+                          </div>
+                        </CardBody>
+                      </Card>
+
+                      <Card className="border-small border-default-200 bg-content2/55 shadow-none">
+                        <CardHeader className="px-4 pb-2 pt-4">
+                          <h3 className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                            {t("models.antigravity.sections.pricing")}
+                          </h3>
+                        </CardHeader>
+                        <CardBody className="gap-3 px-4 pb-4 pt-0 text-sm text-default-600">
+                          <div>
+                            {t("models.columns.inputPrice")}:{" "}
+                            {formatUsdPerMillion(
+                              selectedModel.effective_pricing
+                                .input_price_microcredits,
+                              noValueLabel,
+                            )}
+                          </div>
+                          <div>
+                            {t("models.columns.cachedInputPrice")}:{" "}
+                            {formatUsdPerMillion(
+                              selectedModel.effective_pricing
+                                .cached_input_price_microcredits,
+                              noValueLabel,
+                            )}
+                          </div>
+                          <div>
+                            {t("models.columns.outputPrice")}:{" "}
+                            {formatUsdPerMillion(
+                              selectedModel.effective_pricing
+                                .output_price_microcredits,
+                              noValueLabel,
+                            )}
+                          </div>
+                          <Divider />
+                          <div>
+                            {t("models.pricing.officialBase")}:{" "}
+                            {formatUsdPerMillion(
+                              selectedModel.official?.input_price_microcredits,
+                              noValueLabel,
+                            )}
+                          </div>
+                          <div>
+                            {t("models.pricing.manualOverride")}:{" "}
+                            {selectedModel.override_pricing
+                              ? t("common.yes")
+                              : t("common.no")}
+                          </div>
+                        </CardBody>
+                      </Card>
+
+                      <Card className="border-small border-default-200 bg-content2/55 shadow-none">
+                        <CardHeader className="px-4 pb-2 pt-4">
+                          <h3 className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                            {t("models.detail.capabilitiesTitle")}
+                          </h3>
+                        </CardHeader>
+                        <CardBody className="gap-3 px-4 pb-4 pt-0 text-sm text-default-600">
+                          <div>
+                            {t("models.detail.contextWindow")}:{" "}
+                            {formatTokenCount(
+                              selectedModel.official?.context_window_tokens,
+                              noValueLabel,
+                            )}
+                          </div>
+                          <div>
+                            {t("models.detail.maxOutputTokens")}:{" "}
+                            {formatTokenCount(
+                              selectedModel.official?.max_output_tokens,
+                              noValueLabel,
+                            )}
+                          </div>
+                          <div>
+                            {t("models.detail.knowledgeCutoff")}:{" "}
+                            {selectedModel.official?.knowledge_cutoff ??
+                              noValueLabel}
+                          </div>
+                          <div>
+                            {t("models.detail.reasoningTokenSupport")}:{" "}
+                            {selectedModel.official?.reasoning_token_support
+                              ? t("common.yes")
+                              : t("common.no")}
+                          </div>
+                        </CardBody>
+                      </Card>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <Card className="border-small border-default-200 bg-content1 shadow-none">
+                        <CardHeader className="px-4 pb-2 pt-4">
+                          <h3 className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                            {t("models.detail.capabilitiesTitle")}
+                          </h3>
+                        </CardHeader>
+                        <CardBody className="gap-4 px-4 pb-4 pt-0">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                              {t("models.detail.inputModalities")}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {selectedModel.official?.input_modalities
+                                ?.length ? (
+                                selectedModel.official.input_modalities.map(
+                                  (item) => (
+                                    <Chip key={item} size="sm" variant="flat">
+                                      {item}
+                                    </Chip>
+                                  ),
+                                )
+                              ) : (
+                                <span className="text-sm text-default-600">
+                                  {noValueLabel}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                              {t("models.detail.outputModalities")}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {selectedModel.official?.output_modalities
+                                ?.length ? (
+                                selectedModel.official.output_modalities.map(
+                                  (item) => (
+                                    <Chip key={item} size="sm" variant="flat">
+                                      {item}
+                                    </Chip>
+                                  ),
+                                )
+                              ) : (
+                                <span className="text-sm text-default-600">
+                                  {noValueLabel}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                              {t("models.detail.endpoints")}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {selectedModel.official?.endpoints?.length ? (
+                                selectedModel.official.endpoints.map((item) => (
+                                  <Chip key={item} size="sm" variant="flat">
+                                    {item}
+                                  </Chip>
+                                ))
+                              ) : (
+                                <span className="text-sm text-default-600">
+                                  {noValueLabel}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </CardBody>
+                      </Card>
+
+                      <Card className="border-small border-default-200 bg-content1 shadow-none">
+                        <CardHeader className="px-4 pb-2 pt-4">
+                          <h3 className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                            {t("models.detail.officialTitle")}
+                          </h3>
+                        </CardHeader>
+                        <CardBody className="gap-3 px-4 pb-4 pt-0 text-sm text-default-600">
+                          <div>
+                            {t("models.antigravity.officialPageStatus")}:{" "}
+                            {selectedModel.official?.source_url
+                              ? t("models.antigravity.officialPageReady")
+                              : t("models.antigravity.officialPageMissing")}
+                          </div>
+                          <div>
+                            {t("models.antigravity.availabilityOutcomeLabel")}:{" "}
+                            {describeAvailabilityOutcome(selectedModel, t)}
+                          </div>
+                          {selectedModel.official?.raw_text ? (
+                            <pre className="overflow-x-auto rounded-large border border-default-200 bg-content2/65 p-4 text-xs leading-6 text-default-700 dark:text-default-300">
+                              {selectedModel.official.raw_text}
+                            </pre>
+                          ) : null}
+                        </CardBody>
+                      </Card>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 py-12 text-sm text-default-600">
+                    <Spinner size="sm" />
+                    {t("common.loading")}
+                  </div>
+                )}
+              </ModalBody>
+              {selectedModel ? (
+                <ModalFooter className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      startContent={<Copy className="h-4 w-4" />}
+                      variant="flat"
+                      onPress={async () => {
+                        try {
+                          await navigator.clipboard.writeText(selectedModel.id);
+                          notify({
+                            variant: "success",
+                            title: t("models.actions.copyModelId"),
+                            description: t(
+                              "models.antigravity.copyModelIdSuccess",
+                              {
+                                modelId: selectedModel.id,
+                              },
+                            ),
+                          });
+                        } catch (error) {
+                          const fallback = t("models.antigravity.copyModelIdFailed");
+                          notify({
+                            variant: "error",
+                            title: t("models.actions.copyModelId"),
+                            description: localizeApiErrorDisplay(
+                              t,
+                              error,
+                              fallback,
+                            ).label,
+                          });
+                        }
+                      }}
+                    >
+                      {t("models.actions.copyModelId")}
+                    </Button>
+                    {selectedModel.official?.source_url ? (
+                      <Button
+                        size="sm"
+                        startContent={<ExternalLink className="h-4 w-4" />}
+                        variant="light"
+                        onPress={() => {
+                          window.open(
+                            selectedModel.official.source_url,
+                            "_blank",
+                            "noopener,noreferrer",
+                          );
+                        }}
+                      >
+                        {t("models.detail.openOfficialPage")}
+                      </Button>
+                    ) : null}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    onPress={() => setSelectedModelId(null)}
+                  >
+                    {t("common.close")}
+                  </Button>
+                </ModalFooter>
+              ) : null}
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+    </PageContent>
+  );
 }

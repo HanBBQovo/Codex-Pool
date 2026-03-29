@@ -1,4 +1,8 @@
-import { type HTMLAttributes, type ReactNode } from 'react'
+import {
+  type HTMLAttributes,
+  type ReactNode,
+  useMemo,
+} from 'react'
 
 import {
   describeDashboardOverviewLayout,
@@ -9,13 +13,13 @@ import {
   type PageArchetype,
 } from '@/lib/page-archetypes'
 import { cn } from '@/lib/utils'
+import { usePageHeader, usePageHeaderDocking } from '@/components/layout/page-header-context'
 
-interface PageIntroProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
+export interface PageIntroProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   archetype?: PageArchetype | string
   eyebrow?: ReactNode
   title: ReactNode
   description?: ReactNode
-  meta?: ReactNode
   actions?: ReactNode
 }
 
@@ -24,7 +28,6 @@ export function PageIntro({
   eyebrow,
   title,
   description,
-  meta,
   actions,
   className,
   ...props
@@ -43,7 +46,7 @@ export function PageIntro({
     >
       <div className={cn('min-w-0 space-y-3', config.introStyle === 'stage' && 'max-w-[46rem] md:space-y-4')}>
         {eyebrow ? (
-          <div className="inline-flex w-fit items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="inline-flex w-fit items-center gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <span className="h-px w-9 bg-current/70" />
             {eyebrow}
           </div>
@@ -51,10 +54,10 @@ export function PageIntro({
         <div className="space-y-2">
           <h1
             className={cn(
-              'max-w-[18ch] text-balance font-semibold tracking-[-0.034em] text-foreground',
+              'max-w-[22ch] text-balance text-2xl font-bold tracking-tight text-foreground',
               config.introStyle === 'stage'
                 ? 'text-[clamp(2.1rem,5.6vw,3.8rem)] leading-[0.96]'
-                : 'text-[clamp(1.7rem,3.6vw,2.7rem)] leading-[0.98]',
+                : 'leading-tight sm:text-[1.75rem]',
             )}
           >
             {title}
@@ -62,7 +65,7 @@ export function PageIntro({
           {description ? (
             <p
               className={cn(
-                'max-w-[60ch] text-[14px] leading-7 text-muted-foreground sm:text-[15px]',
+                'max-w-[72ch] text-sm leading-6 text-default-500',
                 config.introStyle === 'stage' && 'max-w-[64ch] text-[15px] leading-8 sm:text-[17px]',
               )}
             >
@@ -70,9 +73,34 @@ export function PageIntro({
             </p>
           ) : null}
         </div>
-        {meta ? <div className="border-t border-border/70 pt-3 text-[13px] leading-6 text-muted-foreground">{meta}</div> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 lg:max-w-[24rem] lg:justify-end">{actions}</div> : null}
+    </div>
+  )
+}
+
+export function DockedPageIntro(props: PageIntroProps) {
+  const {
+    title,
+    description,
+    actions,
+  } = props
+  const introRef = usePageHeaderDocking()
+  const pageHeader = useMemo(
+    () => ({
+      mode: 'dock-on-scroll' as const,
+      title,
+      description,
+      actions,
+    }),
+    [actions, description, title],
+  )
+
+  usePageHeader(pageHeader)
+
+  return (
+    <div ref={introRef}>
+      <PageIntro {...props} />
     </div>
   )
 }
@@ -97,14 +125,14 @@ export function BrandStage({
   return (
     <section
       className={cn(
-        'page-stage-surface relative overflow-hidden rounded-[1.1rem] p-5 sm:p-6 lg:p-7',
+        'relative overflow-hidden rounded-large border-small border-default-200 bg-content1 shadow-small p-5 sm:p-6 lg:p-7',
         className,
       )}
       {...props}
     >
       <div className="relative z-10 space-y-5">
         {badge ? <div>{badge}</div> : null}
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           <h1 className="max-w-3xl text-balance text-[clamp(1.75rem,4vw,3rem)] font-semibold leading-[1.01] tracking-[-0.025em] text-foreground">
             {title}
           </h1>
@@ -115,7 +143,7 @@ export function BrandStage({
           ) : null}
         </div>
         {points.length > 0 ? (
-          <ul className="grid gap-2.5 border-t border-border/70 pt-4 text-sm text-foreground/86 sm:grid-cols-2">
+          <ul className="grid gap-3 border-t border-default-200/70 pt-4 text-sm text-foreground/86 sm:grid-cols-2">
             {points.map((point, index) => (
               <li key={index} className="flex items-start gap-3 pr-4">
                 <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/75" />
@@ -127,6 +155,26 @@ export function BrandStage({
         {footer ? <div className="text-sm text-muted-foreground">{footer}</div> : null}
       </div>
     </section>
+  )
+}
+
+type PageContentProps = HTMLAttributes<HTMLDivElement>
+
+export function PageContent({
+  className,
+  children,
+  ...props
+}: PageContentProps) {
+  return (
+    <div
+      className={cn(
+        'page-stagger flex-1 min-w-0 px-[var(--app-page-padding)] py-[var(--app-page-padding)] sm:px-[var(--app-page-padding-sm)] sm:py-[var(--app-page-padding-sm)] lg:px-[var(--app-page-padding-lg)] lg:py-[var(--app-page-padding-lg)]',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -145,8 +193,10 @@ export function PagePanel({
   return (
     <Component
       className={cn(
-        tone === 'primary' ? 'page-panel-surface' : 'page-panel-surface-muted',
-        'relative overflow-hidden rounded-[0.95rem] p-4 sm:rounded-[1rem] sm:p-[1.15rem] lg:p-[1.25rem]',
+        tone === 'primary'
+          ? 'border-small border-default-200 bg-content1 shadow-small'
+          : 'border-small border-default-200 bg-content2 shadow-none',
+        'relative overflow-hidden rounded-large px-[var(--app-panel-padding)] py-[var(--app-panel-padding)] sm:px-[var(--app-panel-padding-sm)] sm:py-[var(--app-panel-padding-sm)] lg:px-[var(--app-panel-padding-lg)] lg:py-[var(--app-panel-padding-lg)]',
         className,
       )}
       {...props}
@@ -174,7 +224,7 @@ export function WorkspaceShell({
       {intro}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.16fr)_minmax(17rem,0.84fr)] xl:items-start">
         <div className="min-w-0 space-y-4">{primary}</div>
-        {secondary ? <aside className="min-w-0 space-y-3.5 xl:border-l xl:border-border/70 xl:pl-4">{secondary}</aside> : null}
+        {secondary ? <aside className="min-w-0 space-y-4 xl:border-l xl:border-default-200/70 xl:pl-4">{secondary}</aside> : null}
       </div>
     </section>
   )
@@ -213,7 +263,7 @@ export function ReportShell({
         {rail ? (
           <aside
             className={cn(
-              'min-w-0 space-y-3.5 xl:border-l xl:border-border/70 xl:pl-4',
+              'min-w-0 space-y-4 xl:border-l xl:border-default-200/70 xl:pl-4',
               layout.mobileRailPlacement === 'after-content' && 'order-2',
             )}
           >
@@ -236,7 +286,7 @@ export function ReportMetricGrid({
   return (
     <div
       className={cn(
-        'grid gap-px overflow-hidden rounded-[0.95rem] border border-border/65 bg-border/60 sm:grid-cols-2 xl:grid-cols-3',
+        'grid gap-px overflow-hidden rounded-large border-small border-default-200 bg-default-100 sm:grid-cols-2 xl:grid-cols-3',
         className,
       )}
       {...props}
@@ -266,15 +316,15 @@ export function ReportMetricCard({
   return (
     <div
       className={cn(
-        'h-full space-y-3 bg-background/84 px-4 py-4 dark:bg-card/84',
+        'h-full space-y-3 bg-content1/84 px-4 py-4',
         className,
       )}
       {...props}
     >
       <div className="space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
         {loading ? (
-          <div className="h-8 w-28 animate-pulse rounded-lg bg-slate-200/75 dark:bg-slate-800/75" />
+          <div className="h-8 w-28 animate-pulse rounded-lg bg-default-200/75" />
         ) : (
           <p
             title={valueTitle}
@@ -286,7 +336,7 @@ export function ReportMetricCard({
       </div>
       {description ? (
         loading ? (
-          <div className="h-3.5 w-36 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
+          <div className="h-3.5 w-36 animate-pulse rounded bg-default-200/70" />
         ) : (
           <p className="text-[12px] leading-6 text-muted-foreground">{description}</p>
         )
@@ -313,14 +363,14 @@ export function SectionHeader({
   return (
     <div
       className={cn(
-        'flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4',
+        'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4',
         className,
       )}
       {...props}
     >
       <div className="min-w-0 space-y-1.5">
         {eyebrow ? (
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             {eyebrow}
           </p>
         ) : null}
@@ -363,9 +413,9 @@ export function DashboardShell({
     >
       <div
         className={cn(
-          'relative order-1 min-w-0 border-b border-border/70 pb-4 md:pb-5',
+          'relative order-1 min-w-0 border-b border-default-200/70 pb-4 md:pb-5',
           rail && 'xl:col-start-1 xl:row-start-1',
-          config.headerSurface === 'section' && 'page-panel-surface rounded-[1rem] p-4 sm:p-5',
+          config.headerSurface === 'section' && 'rounded-large border-small border-default-200 bg-content1 shadow-small p-4 sm:p-5',
         )}
       >
         <div className="relative">{intro}</div>
@@ -376,10 +426,10 @@ export function DashboardShell({
       {rail ? (
         <div
           className={cn(
-            'min-w-0 space-y-3.5',
+            'min-w-0 space-y-4',
             layout.mobileRailPlacement === 'after-content' ? 'order-3' : 'order-2',
             'xl:order-2 xl:col-start-2 xl:row-span-2 xl:row-start-1',
-            layout.railTone === 'attached' && 'xl:border-l xl:border-border/70 xl:pl-5',
+            layout.railTone === 'attached' && 'xl:border-l xl:border-default-200/70 xl:pl-5',
           )}
         >
           {rail}
@@ -402,7 +452,7 @@ export function DashboardMetricGrid({
     <div
       className={cn(
         overview.metricPresentation === 'strip' &&
-          'grid gap-px overflow-hidden rounded-[1rem] border border-border/70 bg-border/70 sm:grid-cols-2 2xl:grid-cols-4',
+          'grid gap-px overflow-hidden rounded-large border-small border-default-200 bg-default-100 sm:grid-cols-2 2xl:grid-cols-4',
         overview.metricPresentation !== 'strip' && 'grid gap-3 sm:grid-cols-2 2xl:grid-cols-4',
         className,
       )}
@@ -419,7 +469,6 @@ interface DashboardMetricCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   value: ReactNode
   valueTitle?: string
   description?: ReactNode
-  icon?: ReactNode
   loading?: boolean
 }
 
@@ -429,7 +478,6 @@ export function DashboardMetricCard({
   value,
   valueTitle,
   description,
-  icon,
   loading = false,
   className,
   ...props
@@ -437,29 +485,22 @@ export function DashboardMetricCard({
   return (
     <div
       className={cn(
-        'h-full space-y-4 bg-background/82 px-4 py-4 dark:bg-card/82',
+        'h-full space-y-3 bg-content1/82 px-4 py-4',
         className,
       )}
       {...props}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          {eyebrow ? (
-            <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-              {eyebrow}
-            </p>
-          ) : null}
-          <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-foreground/76">{title}</p>
-        </div>
-        {icon ? (
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-border/70 bg-background/62 text-muted-foreground">
-            {icon}
-          </div>
+      <div className="min-w-0 space-y-1">
+        {eyebrow ? (
+          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+            {eyebrow}
+          </p>
         ) : null}
+        <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-foreground/76">{title}</p>
       </div>
       <div className="space-y-1.5">
         {loading ? (
-          <div className="h-9 w-32 animate-pulse rounded-lg bg-slate-200/75 dark:bg-slate-800/75" />
+          <div className="h-9 w-32 animate-pulse rounded-lg bg-default-200/75" />
         ) : (
           <p
             title={valueTitle}
@@ -470,7 +511,7 @@ export function DashboardMetricCard({
         )}
         {description ? (
           loading ? (
-            <div className="h-3.5 w-40 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
+            <div className="h-3.5 w-40 animate-pulse rounded bg-default-200/70" />
           ) : (
             <p className="text-[12px] leading-6 text-muted-foreground">{description}</p>
           )

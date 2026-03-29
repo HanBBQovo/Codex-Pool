@@ -8,8 +8,8 @@ type MenuGroupLike<TItem extends { path: string }> = {
   items: TItem[]
 }
 
-export const STANDALONE_ADMIN_API_KEYS_PATH = '/access-keys'
-export const LEGACY_STANDALONE_ADMIN_API_KEYS_PATH = '/api-keys'
+export const STANDALONE_ADMIN_API_KEYS_PATH = '/admin-api-keys'
+export const LEGACY_STANDALONE_ADMIN_API_KEYS_PATH = '/access-keys'
 
 export function shouldShowStandaloneAdminApiKeys(capabilities?: CapabilityLike): boolean {
   return !(capabilities?.features.multi_tenant ?? true)

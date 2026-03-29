@@ -13,7 +13,7 @@ export type UpstreamErrorTemplateStatus =
   | 'rejected'
 export type BuiltinErrorTemplateKind = 'gateway_error' | 'heuristic_upstream'
 
-export type SupportedErrorTemplateLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ja' | 'ru'
+export type SupportedErrorTemplateLocale = 'en' | 'zh-CN'
 
 export interface AiErrorLearningSettings {
   enabled: boolean
@@ -25,9 +25,6 @@ export interface AiErrorLearningSettings {
 export interface LocalizedErrorTemplates {
   en?: string | null
   'zh-CN'?: string | null
-  'zh-TW'?: string | null
-  ja?: string | null
-  ru?: string | null
 }
 
 export interface UpstreamErrorTemplateRecord {
@@ -105,9 +102,6 @@ function normalizeLocalizedTemplates(
   return {
     en: normalizeString(templates?.en),
     'zh-CN': normalizeString(templates?.['zh-CN']),
-    'zh-TW': normalizeString(templates?.['zh-TW']),
-    ja: normalizeString(templates?.ja),
-    ru: normalizeString(templates?.ru),
   }
 }
 
@@ -146,7 +140,7 @@ export const aiErrorLearningApi = {
       '/admin/model-routing/error-learning/settings',
     )
     return {
-      settings: normalizeSettings(response.settings),
+      settings: normalizeSettings(response.data.settings),
     }
   },
   updateSettings: async (payload: UpdateAiErrorLearningSettingsRequest) => {
@@ -155,7 +149,7 @@ export const aiErrorLearningApi = {
       payload,
     )
     return {
-      settings: normalizeSettings(response.settings),
+      settings: normalizeSettings(response.data.settings),
     }
   },
   listTemplates: async (status?: UpstreamErrorTemplateStatus) => {
@@ -164,8 +158,8 @@ export const aiErrorLearningApi = {
       `/admin/model-routing/upstream-errors${suffix}`,
     )
     return {
-      templates: Array.isArray(response.templates)
-        ? response.templates.map(normalizeTemplate)
+      templates: Array.isArray(response.data.templates)
+        ? response.data.templates.map(normalizeTemplate)
         : [],
     }
   },
@@ -174,8 +168,8 @@ export const aiErrorLearningApi = {
       '/admin/model-routing/builtin-error-templates',
     )
     return {
-      templates: Array.isArray(response.templates)
-        ? response.templates.map(normalizeBuiltinTemplate)
+      templates: Array.isArray(response.data.templates)
+        ? response.data.templates.map(normalizeBuiltinTemplate)
         : [],
     }
   },
@@ -185,7 +179,7 @@ export const aiErrorLearningApi = {
       payload,
     )
     return {
-      template: normalizeTemplate(response.template),
+      template: normalizeTemplate(response.data.template),
     }
   },
   updateBuiltinTemplate: async (
@@ -198,7 +192,7 @@ export const aiErrorLearningApi = {
       payload,
     )
     return {
-      template: normalizeBuiltinTemplate(response.template),
+      template: normalizeBuiltinTemplate(response.data.template),
     }
   },
   approveTemplate: async (templateId: string) => {
@@ -206,7 +200,7 @@ export const aiErrorLearningApi = {
       `/admin/model-routing/upstream-errors/${templateId}/approve`,
     )
     return {
-      template: normalizeTemplate(response.template),
+      template: normalizeTemplate(response.data.template),
     }
   },
   rejectTemplate: async (templateId: string) => {
@@ -214,7 +208,7 @@ export const aiErrorLearningApi = {
       `/admin/model-routing/upstream-errors/${templateId}/reject`,
     )
     return {
-      template: normalizeTemplate(response.template),
+      template: normalizeTemplate(response.data.template),
     }
   },
   rewriteTemplate: async (templateId: string) => {
@@ -222,7 +216,7 @@ export const aiErrorLearningApi = {
       `/admin/model-routing/upstream-errors/${templateId}/rewrite`,
     )
     return {
-      template: normalizeTemplate(response.template),
+      template: normalizeTemplate(response.data.template),
     }
   },
   rewriteBuiltinTemplate: async (kind: BuiltinErrorTemplateKind, code: string) => {
@@ -230,7 +224,7 @@ export const aiErrorLearningApi = {
       `/admin/model-routing/builtin-error-templates/${encodeURIComponent(kind)}/${encodeURIComponent(code)}/rewrite`,
     )
     return {
-      template: normalizeBuiltinTemplate(response.template),
+      template: normalizeBuiltinTemplate(response.data.template),
     }
   },
   resetBuiltinTemplate: async (kind: BuiltinErrorTemplateKind, code: string) => {
@@ -238,7 +232,7 @@ export const aiErrorLearningApi = {
       `/admin/model-routing/builtin-error-templates/${encodeURIComponent(kind)}/${encodeURIComponent(code)}/reset`,
     )
     return {
-      template: normalizeBuiltinTemplate(response.template),
+      template: normalizeBuiltinTemplate(response.data.template),
     }
   },
 }

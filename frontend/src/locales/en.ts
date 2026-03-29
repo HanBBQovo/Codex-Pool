@@ -16,6 +16,7 @@ export default {
             delete: "Delete Account",
             deleteConfirm: "Delete account {{label}}?",
             disableAccount: "Disable Account",
+            disable: "Disable",
             enableAccount: "Enable Account",
             export: "Export CSV",
             filter: "Filter List",
@@ -28,6 +29,7 @@ export default {
             selectAll: "Select all filtered results",
             selectOne: "Select account {{label}}",
             selectedCount: "{{count}} selected",
+            view: "View Details",
             viewDetails: "View Details",
             edit: "Edit Properties",
             refresh: "Force Refresh",
@@ -47,7 +49,6 @@ export default {
             plan: "Plan",
             provider: "Provider / Mode",
             rateLimit: "Rate Limit Usage",
-            runtimePool: "Runtime Pool",
             binding: "Binding",
             unbound: "unbound"
         },
@@ -75,7 +76,6 @@ export default {
                 credentials: "Credentials",
                 identity: "Identity",
                 refresh: "Refresh State",
-                runtimeHealth: "Runtime Health",
                 supportedModels: "Available Models",
                 subscription: "Subscription"
             },
@@ -108,24 +108,9 @@ export default {
                 rateLimitsExpiresAt: "Rate Limits Expires At",
                 rateLimitsLastErrorCode: "Rate Limits Last Error Code",
                 rateLimitsLastError: "Rate Limits Last Error",
-                poolState: "Runtime Pool",
-                refreshCredentialState: "Refresh Credential State",
-                quarantineReason: "Quarantine Reason",
-                quarantineUntil: "Quarantine Until",
-                pendingPurgeReason: "Pending Purge Reason",
-                pendingPurgeAt: "Pending Purge At",
-                lastLiveResult: "Last Live Result",
-                lastLiveResultAt: "Last Live Result At",
-                lastLiveResultError: "Last Live Error",
-                hasRefreshCredential: "Has Refresh Credential",
-                hasAccessTokenFallback: "Has Access Token Fallback",
                 rawAccount: "Account Payload",
                 rawOauthStatus: "OAuth Status Payload"
             }
-        },
-        liveResult: {
-            ok: "OK",
-            failed: "Failed"
         },
         filters: {
             active: "Active",
@@ -208,7 +193,8 @@ export default {
             notApplicable: "-",
             provider: {
                 legacyBearer: "Legacy bearer token",
-                refreshToken: "Refresh token"
+                refreshToken: "Refresh token",
+                unknown: "Unknown provider"
             },
             sourceType: {
                 codex: "Codex",
@@ -228,13 +214,6 @@ export default {
                 unknown: "Unknown credential type"
             }
         },
-        refreshCredentialState: {
-            healthy: "Healthy",
-            degraded: "Degraded",
-            invalid: "Invalid",
-            missing: "Missing",
-            unknown: "Unknown"
-        },
         rateLimits: {
             labels: {
                 fiveHours: "5-Hour Limit",
@@ -252,31 +231,79 @@ export default {
             unavailable: "No rate limit data",
             usedPrefix: "Used"
         },
+        planValues: {
+            business: "Business",
+            enterprise: "Enterprise",
+            free: "Free",
+            plus: "Plus",
+            pro: "Pro",
+            team: "Team"
+        },
         searchPlaceholder: "Search by email, label, URL…",
-        runtimePool: {
-            eyebrow: "Runtime health",
-            title: "Online pool posture",
-            description: "Accounts only reflects the online pool. Use Inventory to inspect queued, ready, or no-quota vault records before activation.",
-            openInventory: "Open Inventory",
-            active: "Active",
-            activeDesc: "Eligible for runtime routing right now.",
-            quarantine: "Quarantine",
-            quarantineDesc: "Temporarily isolated while waiting for retry or quota reset.",
-            pendingPurge: "Pending purge",
-            pendingPurgeDesc: "Fatal credentials already removed from routing and waiting for cleanup.",
-            vaultReady: "Vault ready",
-            vaultReadyDesc: "Inventory records that can join the active pool without refresh.",
-            unknown: "Unknown"
+        notAvailable: "N/A",
+        health: {
+            ok: "OK",
+            failed: "Failed",
+            disabled: "Disabled"
         },
         status: {
             active: "Active",
             disabled: "Disabled"
+        },
+        plan: {
+            enterprise: "Enterprise",
+            free: "Free",
+            plus: "Plus",
+            pro: "Pro",
+            team: "Team",
+            unknown: "Unknown plan"
         },
         subtitle: "Manage API credentials and billing health.",
         syncing: "Syncing account status…",
         title: "Accounts Pool"
     },
     billing: {
+        antigravity: {
+            activeGranularity: "Granularity in focus",
+            activeScope: "Current scope",
+            activeTenant: "Active tenant",
+            averageDeduction: "Average deduction",
+            averageDeductionHint: "Estimated from negative ledger deltas across recorded usage events.",
+            balanceHint: "Current tenant credit balance available for future requests.",
+            balanceAfter: "Balance {{value}}",
+            contractHint: "Billing follows the same tenant credits contract used by the main branch.",
+            currentBalanceChip: "Balance snapshot",
+            eventType: {
+                adminRecharge: "Admin recharge",
+                unknown: "Unknown event",
+                usage: "Usage"
+            },
+            ledgerRows: "Ledger rows",
+            ledgerSearch: "Search ledger rows, request IDs, or models…",
+            ledgerSignalsDescription: "Quickly read recharge events, deduction events, ledger row count, and the current balance snapshot.",
+            ledgerSignalsTitle: "Ledger signals",
+            lastUpdated: "Last updated {{time}}",
+            lastUpdatedLabel: "Last updated",
+            loading: "Loading tenant billing…",
+            logCoverage: "Log coverage",
+            logCoverageHint: "Traceable request log rows within the selected time window.",
+            monthConsumedHint: "Aggregate deductions recorded during the active calendar month.",
+            noActivityTitle: "This tenant has no billing activity yet",
+            noActivityDescription: "Tenant {{tenant}} has not recorded any recharge or usage deductions yet, so the trend and ledger remain empty. Once you prepare accounts or send requests, the real billing trail will start to appear here.",
+            noTenant: "No tenant available",
+            noTenantDescription: "Create or sync a tenant first, then this page can show the real credits summary and ledger.",
+            rechargeEvents: "Recharge events",
+            requestCountHint: "Requests included in the current cost summary window.",
+            scopeTitle: "Scope",
+            scopePanelDescription: "Switch tenant scope and reporting granularity to align the cost window you are reviewing.",
+            scopePanelTitle: "Billing scope",
+            tenantCreditEvent: "Tenant credit event",
+            tenantLabel: "Tenant",
+            todayConsumedHint: "Credits consumed by request processing during the current day.",
+            totalCostHint: "Estimated total cost in the selected time window.",
+            usageEvents: "Usage events",
+            avgCostHint: "Average request cost computed from total cost divided by requests."
+        },
         columns: {
             balanceAfter: "Balance After Change",
             billingDetail: "Billing Details",
@@ -408,10 +435,15 @@ export default {
         logout: "Sign Out",
         no: "No",
         noData: "No data yet.",
+        never: "Never",
         openMenu: "Open menu",
+        closeMenu: "Close menu",
         refresh: "Refresh",
         skipToMainContent: "Skip to main content",
         table: {
+            allItemsSelected: "All items selected",
+            columns: "Columns",
+            dataTableAria: "Data table",
             firstPage: "First page",
             go: "Go",
             jumpToPage: "Jump to page",
@@ -420,12 +452,42 @@ export default {
             pageOf: "Page {{page}} / {{total}}",
             previousPage: "Previous page",
             range: "{{start}}-{{end}} / {{total}}",
+            rowActions: "Row actions",
             rowsPerPage: "Rows per page",
             searchLabel: "Search table",
-            searchPlaceholder: "Search in current list…"
+            searchPlaceholder: "Search in current list…",
+            selectedCount: "{{count}} of {{total}} selected",
+            statusLabel: "Status",
+            statusFilter: "Status filter",
+            totalItems: "Total {{count}} items"
         },
+        languages: {
+            english: "English",
+            simplifiedChinese: "Simplified Chinese"
+        },
+        tokenSegments: {
+            cached: "Cached",
+            input: "Input",
+            output: "Output"
+        },
+        units: {
+            millisecondsShort: "{{value}}ms",
+            secondsShort: "{{value}}s"
+        },
+        current: "Current",
+        actions: "Actions",
         toggleLanguage: "Toggle language",
         toggleTheme: "Toggle theme",
+        uiPreferences: {
+            title: "Interface Preferences",
+            drawerPlacement: "Drawer placement",
+            drawerPlacementOptions: {
+                bottom: "Bottom",
+                right: "Right",
+                left: "Left",
+                top: "Top"
+            }
+        },
         yes: "Yes",
         save: "Save",
         search: "Search…",
@@ -444,6 +506,30 @@ export default {
         priority: "Priority"
     },
     config: {
+        antigravity: {
+            loading: "Loading configuration…",
+            metrics: {
+                authValidation: "Auth validation",
+                controlPlane: "Control plane listen",
+                dataPlane: "Data plane URL",
+                refreshStatus: "Refresh status"
+            },
+            notesEmpty: "No notes added",
+            notesPresent: "Notes available",
+            notesStatus: "Notes status",
+            refreshDisabled: "Auto refresh disabled",
+            refreshEnabled: "Auto refresh enabled",
+            refreshIntervalLabel: "Refresh interval",
+            reset: "Reset",
+            saveFailed: "Failed to save configuration.",
+            section: {
+                connection: "Connection",
+                refresh: "Refresh"
+            },
+            runtimePanelTitle: "Runtime sync state",
+            synced: "In sync with server config",
+            unsavedChanges: "Unsaved changes"
+        },
         controlPlane: {
             authValidateUrl: "Auth Validation URL",
             dataPlaneUrl: "Forwarding Service URL",
@@ -458,6 +544,46 @@ export default {
             intervalSec: "Refresh interval (seconds)",
             notes: "Notes",
             title: "Auto Refresh Settings"
+        },
+        themeLab: {
+            title: "Theme Lab",
+            description: "Bring the default shell closer to native HeroUI Pro styling and fine-tune it in this browser.",
+            localOnly: "Local to this browser",
+            currentMode: "Current mode: {{value}}",
+            resolvedMode: "Resolved mode: {{value}}",
+            modeTitle: "Theme mode",
+            modeDescription: "Switch between light, dark, or system. This drives the global HeroUI theme instead of page-local styling.",
+            modeLightHint: "Always use the HeroUI light theme.",
+            modeDarkHint: "Always use the HeroUI dark theme.",
+            modeSystemHint: "Follow the system appearance preference automatically.",
+            radiusTitle: "Shape radius",
+            radiusDescription: "Adjust the curvature used by cards, inputs, and panel surfaces.",
+            densityTitle: "Page density",
+            densityDescription: "Adjust global spacing and shell breathing room across the workbench.",
+            footer: "These settings apply instantly to the current admin console and persist in local browser storage. Runtime config save/reset does not modify them.",
+            reset: "Restore HeroUI Pro defaults",
+            previewTitle: "Live preview",
+            previewDescription: "Use a standard surface, form row, and action cluster to quickly inspect the current baseline.",
+            previewMetric: "Preview metric",
+            previewMetricHint: "Check surface hierarchy, text weight, borders, and shadow balance.",
+            previewInputLabel: "Preview input",
+            previewInputValue: "The current theme is already affecting this field.",
+            previewPrimaryAction: "Primary action",
+            previewSecondaryAction: "Secondary action",
+            previewChipHealthy: "Healthy",
+            previewChipAttention: "Attention",
+            previewResolvedChip: "Applied: {{value}}",
+            previewChipRadius: "Radius: {{value}}",
+            previewChipDensity: "Density: {{value}}",
+            density: {
+                compact: "Compact",
+                comfortable: "Comfortable"
+            },
+            radius: {
+                compact: "Crisp",
+                default: "Native default",
+                relaxed: "Relaxed"
+            }
         },
         runtimeHint: {
             desc: "Changes take effect immediately. After restart, environment variables and config.toml still take priority.",
@@ -490,8 +616,17 @@ export default {
     },
     dashboard: {
         actions: {
+            openMenu: "Open actions menu",
+            viewAccounts: "View accounts",
             viewBilling: "View billing",
+            viewImports: "View imports",
             viewLogs: "View request logs"
+        },
+        antigravity: {
+            activeAccounts: "{{count}} active",
+            last24Hours: "Last 24 hours",
+            loading: "Loading dashboard data…",
+            signal: "Operational signal"
         },
         alerts: {
             checkRoutes: "Check Routes",
@@ -504,6 +639,7 @@ export default {
                 time: "Time"
             },
             empty: "All systems looking good.",
+            emptyDescription: "No active infrastructure or usage-pipeline alerts are visible in the current window.",
             resolve: "Mark Resolved",
             searchPlaceholder: "Search alerts…",
             subtitle: "System states needing review",
@@ -612,45 +748,32 @@ export default {
             usagePipeline: "Usage pipeline"
         },
         poolOverview: {
-            eyebrow: "Pool overview",
-            title: "Inventory and runtime pool",
-            description: "Read vault admission and runtime pool counts together so you can spot activation pressure before it shows up as request failures.",
-            inventoryDesc: "Stored in the pool but not yet eligible for routing.",
+            title: "Account pool overview",
+            description: "See how inventory, routable capacity, cooling accounts, and pending delete records are distributed.",
+            totalLabel: "Total",
+            inventory: "Inventory",
+            inventoryDesc: "Stored in the pool but not yet in the routable set.",
+            routable: "Routable",
             routableDesc: "Currently healthy enough to serve routing traffic.",
-            coolingDesc: "Temporarily out of routing while cooling or waiting for reprobe.",
-            pendingDeleteDesc: "Marked for removal after fatal health decisions.",
-            queued: "Vault queued",
-            queuedDesc: "Imported and waiting for admission probing.",
-            ready: "Vault ready",
-            readyDesc: "Can enter active runtime without refresh.",
-            needsRefresh: "Vault needs refresh",
-            needsRefreshDesc: "Needs one refresh before it can join the active pool.",
-            noQuota: "Vault no quota",
-            noQuotaDesc: "Probe succeeded but quota is currently exhausted.",
-            active: "Active",
-            activeDesc: "Currently routable runtime accounts.",
-            quarantine: "Quarantine",
-            quarantineDesc: "Temporarily isolated while retry or reset is pending.",
-            pendingPurge: "Pending purge",
-            pendingPurgeDesc: "Fatal runtime credentials already removed from routing."
+            cooling: "Cooling",
+            coolingDesc: "Waiting for quota recovery or reprobe before routing again.",
+            pendingDelete: "Pending delete",
+            pendingDeleteDesc: "Already moved into the pending delete lifecycle.",
+            shareOfPool: "Share of pool"
         },
         healthSignals: {
-            eyebrow: "Health signals",
-            title: "Recent runtime signals",
-            description: "Track live-result success and failure signals so quarantines and purges show up before operators need to dig through logs.",
-            healthyDesc: "Accounts currently classified as healthy.",
+            title: "Health signals",
+            description: "Separate healthy capacity from quota, transient, fatal, and admin-driven states.",
+            healthy: "Healthy",
+            healthyDesc: "Accounts currently carrying healthy runtime signals.",
+            quota: "Quota",
             quotaDesc: "Accounts cooling because of rate limits or quota exhaustion.",
-            fatalDesc: "Accounts marked by fatal auth or account failures.",
-            transientDesc: "Accounts waiting on transient transport or upstream recovery.",
-            adminDesc: "Accounts held by explicit operator action.",
-            liveOk: "Live-result OK",
-            liveOkDesc: "Recent success signals seen from runtime accounts.",
-            liveFailed: "Live-result failed",
-            liveFailedDesc: "Recent failure signals reported from runtime accounts.",
-            quarantine: "Quarantine signals",
-            quarantineDesc: "Signals that moved runtime accounts into quarantine.",
-            pendingPurge: "Pending purge signals",
-            pendingPurgeDesc: "Signals that already pushed runtime accounts out of routing."
+            fatal: "Fatal",
+            fatalDesc: "Signals that usually require restore or delete decisions.",
+            transient: "Transient",
+            transientDesc: "Temporary failures that can recover after reprobe.",
+            admin: "Admin",
+            adminDesc: "States driven by operator actions or admin decisions."
         },
         scope: {
             apiKey: "API Key View",
@@ -713,21 +836,67 @@ export default {
             retryFailed: "Retry failed",
             removeFromList: "Remove from list"
         },
+        antigravity: {
+            loading: "Loading import jobs…",
+            intakeTitle: "Import intake",
+            intakeDescription: "Choose the credential mode here and launch the next file-import batch.",
+            intakeHint: "After you upload multiple .json/.jsonl files, the backend merges them into one import job and keeps the state visible in the queue on the left.",
+            newImport: "New Import",
+            pause: "Pause",
+            recentHint: "Monitor the latest tracked import jobs, resume paused work, and retry failures from one queue.",
+            resume: "Resume",
+            status: {
+                paused: "Paused"
+            }
+        },
+        admission: {
+            ready: "Ready",
+            readyDesc: "Admission passed and the record is ready to move toward runtime.",
+            needsRefresh: "Needs refresh",
+            needsRefreshDesc: "Accepted, but a refresh is still required before runtime activation.",
+            noQuota: "No quota",
+            noQuotaDesc: "Admission already detected quota or rate-limit blockers.",
+            failed: "Admission failed",
+            failedDesc: "Admission or activation has already ended in terminal failure.",
+            status: {
+                ready: "Ready",
+                needsRefresh: "Needs refresh",
+                noQuota: "No quota",
+                failed: "Failed",
+                queued: "Queued",
+                unknown: "Unknown"
+            },
+            failureStage: {
+                admissionProbe: "Admission probe",
+                activationRefresh: "Activation refresh",
+                activationRateLimits: "Activation rate-limit check",
+                runtimeRefresh: "Runtime refresh"
+            }
+        },
         detail: {
             columns: {
                 admission: "Admission",
                 error: "Error",
+                failure: "Failure stage",
                 label: "Label",
                 line: "Line",
-                quota: "Quota",
-                reason: "Reason",
+                message: "Outcome",
+                retry: "Retry",
+                source: "Source",
                 status: "Status"
             },
-            admissionFilterAll: "All outcomes",
-            admissionFilterLabel: "Admission filter",
             filterLabel: "Status filter",
+            description: "Review admission counts and row-level outcomes from the selected import job.",
+            filters: {
+                admission: "Admission filter",
+                allAdmissions: "All admissions",
+                allStatuses: "All import states",
+                status: "Import status"
+            },
             itemsEmpty: "No matching job items.",
+            itemsDescription: "Inspect each imported record by admission result, failure stage, and retryability.",
             itemsLoading: "Loading job items…",
+            itemsTitle: "Imported item audit",
             jobIdLabel: "Job ID: {{jobId}}",
             loadMore: "Load more",
             loadedCount: "Loaded {{count}} records",
@@ -787,33 +956,18 @@ export default {
             accessToken: "Import AK",
             accessTokenHint: "Use access_token when you want one-time imports without refresh rotation."
         },
-        admission: {
-            eyebrow: "Admission outcome",
-            quotaExhausted: "Quota exhausted, waiting for reprobe.",
-            quotaReady: "Probe succeeded and quota is available.",
-            quotaNotApplicable: "Quota summary unavailable.",
-            failureStage: "Failure stage",
-            attempts: "Attempts",
-            transientRetries: "Transient retries",
-            nextRetryAt: "Next retry",
-            terminalReason: "Terminal reason",
-            status: {
-                queued: "Queued",
-                ready: "Ready",
-                needsRefresh: "Needs refresh",
-                noQuota: "No quota",
-                failed: "Failed",
-                unknown: "Unknown"
-            }
-        },
         metrics: {
             created: "Created",
+            createdDesc: "New account-pool records created from this batch.",
             failed: "Failed",
+            failedDesc: "Items that ultimately ended in failed status.",
             processed: "Processed",
             status: "Status",
             throughput: "Throughput",
+            throughputDesc: "Approximate imports per minute while the job is running.",
             total: "Total",
-            updated: "Existing / Updated"
+            updated: "Existing / Updated",
+            updatedDesc: "Existing records that were refreshed or merged."
         },
         precheck: {
             createdNotice: "Import job created: {{id}}",
@@ -849,6 +1003,7 @@ export default {
             columns: {
                 jobId: "Job ID"
             },
+            description: "The browser keeps recent tracked jobs here so you can switch between batches quickly.",
             descRecent: "The queue auto-polls job status. Click a job to inspect items and errors.",
             emptyRecent: "No tracked jobs yet. Upload files or add a job_id manually.",
             titleRecent: "Recent import jobs",
@@ -868,6 +1023,7 @@ export default {
             created: "Created",
             failed: "Failed",
             pending: "Pending",
+            paused: "Paused",
             processing: "Processing",
             queued: "Queued",
             running: "Running",
@@ -884,6 +1040,7 @@ export default {
             descNew: "Download the JSONL template and fill in refresh_token or access_token based on the selected credential mode."
         },
         title: "Batch Import Jobs",
+        description: "Upload credential files, monitor admission outcomes, and audit every imported record from one workbench.",
         validation: {
             fileTooLarge: "File {{name}} exceeds 20MB. Please split and retry.",
             unsupportedFormat: "File {{name}} is unsupported. Only .json / .jsonl are allowed.",
@@ -920,81 +1077,28 @@ export default {
         },
         subtitle: "Upload account secrets securely in strictly formatted CSV/TXT files."
     },
-    inventory: {
-        eyebrow: "Inventory",
-        title: "OAuth Inventory",
-        subtitle: "Track vaulted OAuth inventory before activation so queued, ready, and no-quota records never get mixed into the runtime pool view.",
-        loading: "Loading inventory…",
-        empty: "No inventory records match the current filter.",
-        searchPlaceholder: "Search by email, label, account ID, or admission reason…",
-        meta: {
-            total: "Total {{count}}",
-            filtered: "Showing {{count}}"
-        },
-        metrics: {
-            total: "Total records"
-        },
-        filters: {
-            status: "Inventory status",
-            all: "All inventory"
-        },
-        status: {
-            queued: "Queued",
-            ready: "Ready",
-            needsRefresh: "Needs refresh",
-            noQuota: "No quota",
-            failed: "Failed",
-            unknown: "Unknown"
-        },
-        credentials: {
-            hasRt: "RT ready",
-            noRt: "No RT",
-            hasAk: "AK fallback",
-            noAk: "No AK"
-        },
-        columns: {
-            account: "Account",
-            chatgptAccountId: "ChatGPT Account ID",
-            vaultStatus: "Vault Status",
-            credentials: "Credentials",
-            quota: "Quota Summary",
-            timeline: "Admission Timeline",
-            reason: "Reason"
-        },
-        fields: {
-            checkedAt: "Checked",
-            retryAfter: "Retry after",
-            nextRetryAt: "Next retry",
-            failureStage: "Failure stage",
-            retryPolicy: "Retry policy",
-            attempts: "Attempts",
-            transientRetries: "Transient retries",
-            terminalReason: "Terminal reason",
-            source: "Source"
-        },
-        retryable: {
-            yes: "Will retry automatically",
-            no: "No automatic retry"
-        },
-        failureStage: {
-            admissionProbe: "Admission probe",
-            activationRefresh: "Activation refresh",
-            activationRateLimits: "Activation rate-limit check",
-            runtimeRefresh: "Runtime refresh",
-            unknown: "Unknown stage"
-        },
-        table: {
-            eyebrow: "Vault view",
-            title: "Admission inventory records",
-            description: "This table only covers vault inventory. Runtime activation and quarantine are still managed from Accounts."
-        }
-    },
     oauthImport: {
         title: "OAuth Login Import",
         subtitle: "Sign in with Codex OAuth and import the logged-in account directly into the pool.",
+        wizard: {
+            label: "Import wizard",
+            description: "Walk through OAuth sign-in, callback fallback, and result review so the account lands in the pool cleanly.",
+            progress: "Flow progress",
+            current: "Current",
+            completed: "Done",
+            noSession: "There is no login session yet. Start from step one to open the OAuth flow.",
+            setupHint: "Creating a session immediately opens the OAuth window and starts polling for callback delivery."
+        },
         start: {
             title: "Start Codex OAuth Login",
             description: "Create a login session, complete OAuth authorization, then auto-import the account."
+        },
+        authorize: {
+            title: "Complete OAuth authorization",
+            description: "Open the authorization window, finish sign-in, and wait for the callback.",
+            callbackLabel: "Callback URL",
+            helperTitle: "What to watch",
+            helperDescription: "If the popup is blocked or the automatic callback never lands, submit the manual callback URL from the next panel."
         },
         form: {
             label: "Account Label (Optional)",
@@ -1002,6 +1106,12 @@ export default {
             baseUrl: "Base URL",
             priority: "Priority",
             enabled: "Enable account after import"
+        },
+        monitor: {
+            title: "Watch token exchange and import",
+            description: "The backend is exchanging credentials and importing the account into the pool.",
+            activeLabel: "Import is still running",
+            activeHint: "Stay on this page or check the account pool later. The status card on the left keeps refreshing automatically."
         },
         actions: {
             startLogin: "Start OAuth Login",
@@ -1030,6 +1140,11 @@ export default {
             accountId: "Account ID: {{id}}",
             accountLabel: "Label: {{label}}",
             email: "Email: {{email}}",
+            reviewTitle: "Review import result",
+            reviewDescription: "Confirm whether the account was created, updated, or needs another import attempt.",
+            chatgptAccountId: "ChatGPT account ID: {{id}}",
+            chatgptPlanType: "Plan type: {{plan}}",
+            pending: "The flow reached the final step, but the backend result payload has not finished arriving yet.",
             created: "Created",
             updated: "Already exists"
         },
@@ -1069,11 +1184,13 @@ export default {
             sessionExpired: "Your session expired. Please sign in again."
         },
         password: "Password",
+        hidePassword: "Hide password",
+        showPassword: "Show password",
         passwordPlaceholder: "Enter admin password",
         securityHint: "Repeated sign-in failures are recorded in audit logs for later review.",
         submit: "Sign In",
-        subtitle: "Sign in with your admin account",
-        title: "Codex-Pool Console",
+        subtitle: "OpenAI-compatible proxy · account pool management",
+        title: "Sign in",
         username: "Username",
         usernamePlaceholder: "Enter admin username"
     },
@@ -1133,93 +1250,6 @@ export default {
             timestamp: "Timestamp"
         },
         export: "Export logs",
-        events: {
-            categories: {
-                accountPool: "Account pool",
-                adminAction: "Admin action",
-                import: "Import",
-                infra: "Infrastructure",
-                patrol: "Patrol",
-                request: "Request",
-                unknown: "Unknown"
-            },
-            actions: {
-                viewDetail: "Details"
-            },
-            columns: {
-                account: "Account",
-                actions: "Actions",
-                category: "Category",
-                createdAt: "Time",
-                eventType: "Event",
-                message: "Message",
-                reason: "Reason",
-                requestId: "Request ID",
-                severity: "Severity"
-            },
-            detail: {
-                description: "{{eventType}} · {{category}}",
-                loading: "Loading event detail…",
-                timelineEmpty: "No correlated request timeline available.",
-                title: "Event detail",
-                labels: {
-                    accountId: "Account ID",
-                    accountLabel: "Account label",
-                    eventId: "Event ID",
-                    failoverScope: "Failover scope",
-                    jobId: "Job ID",
-                    latency: "Latency",
-                    method: "Method",
-                    model: "Model",
-                    nextActionAt: "Next action at",
-                    path: "Path",
-                    requestId: "Request ID",
-                    routingDecision: "Routing decision",
-                    secretPreview: "Secret preview",
-                    selectedAccountId: "Selected account",
-                    selectedProxyId: "Selected proxy",
-                    statusCode: "Status code",
-                    traceRequestId: "Trace request ID",
-                    upstreamStatusCode: "Upstream status code"
-                },
-                sections: {
-                    message: "Message",
-                    payload: "Payload",
-                    timeline: "Request timeline"
-                }
-            },
-            description: "Scope: Unified request, account pool, patrol, import and infrastructure events created after the new event stream was enabled.",
-            empty: "No unified event data available yet. The new stream only shows events created after rollout.",
-            filters: {
-                accountAriaLabel: "Account filter",
-                accountPlaceholder: "Account ID",
-                allCategories: "All categories",
-                allSeverities: "All severities",
-                categoryAriaLabel: "Category filter",
-                jobIdAriaLabel: "Job ID filter",
-                jobIdPlaceholder: "Job ID",
-                keywordAriaLabel: "Keyword filter",
-                keywordPlaceholder: "Keyword (event / message / request / account)",
-                rangeAriaLabel: "Time range",
-                reasonCodeAriaLabel: "Reason code filter",
-                reasonCodePlaceholder: "Reason code",
-                requestIdAriaLabel: "Request ID filter",
-                requestIdPlaceholder: "Request ID",
-                severityAriaLabel: "Severity filter",
-                tenantAriaLabel: "Tenant filter"
-            },
-            severities: {
-                debug: "Debug",
-                error: "Error",
-                info: "Info",
-                unknown: "Unknown",
-                warn: "Warning"
-            },
-            summary: {
-                total: "Total {{count}}"
-            },
-            title: "Event Stream"
-        },
         filters: {
             allTenants: "All tenants"
         },
@@ -1251,7 +1281,7 @@ export default {
                 apiKey: "API Key",
                 createdAt: "Time",
                 errorCode: "Error",
-                latency: "Latency (ms)",
+                latency: "Latency",
                 path: "Path",
                 requestId: "Request ID",
                 serviceTier: "Tier",
@@ -1274,6 +1304,154 @@ export default {
             },
             title: "Request Logs"
         },
+        events: {
+            title: "Unified Event Stream",
+            description: "Inspect request, account pool, patrol, import, infrastructure, and admin action events from one workbench.",
+            meta: "Start from request_id, then drill into correlated events and raw payloads.",
+            summaryTitle: "Current signal window",
+            summaryDescription: "A quick read on how much operational noise is moving through the control plane right now.",
+            tableTitle: "Event stream",
+            tableDescription: "Filter by category and severity, then inspect payloads and correlation chains.",
+            searchPlaceholder: "Search event, request ID, account, reason…",
+            empty: "No events in the selected window.",
+            categories: {
+                request: "Request",
+                accountPool: "Account pool",
+                patrol: "Patrol",
+                import: "Import",
+                infra: "Infrastructure",
+                adminAction: "Admin action",
+                unknown: "Unknown"
+            },
+            severities: {
+                debug: "Debug",
+                info: "Info",
+                warn: "Warning",
+                error: "Error",
+                unknown: "Unknown"
+            },
+            metrics: {
+                total: "Events",
+                totalDesc: "Unified request, account pool, patrol, import, infrastructure, and admin events.",
+                error: "Errors",
+                errorDesc: "Severity=error entries in the current window.",
+                accountPool: "Account pool",
+                accountPoolDesc: "State transitions, restores, deletes, and operator-side actions.",
+                request: "Requests",
+                requestDesc: "Events currently classified as request within the selected window."
+            },
+            columns: {
+                time: "Time",
+                category: "Category",
+                severity: "Severity",
+                event: "Event",
+                context: "Context"
+            },
+            actions: {
+                inspect: "Inspect"
+            },
+            filters: {
+                category: "Category",
+                range: "Time range",
+                severity: "Severity",
+                allCategories: "All categories",
+                allSeverities: "All severities"
+            },
+            fields: {
+                requestId: "Request ID",
+                account: "Account",
+                reasonCode: "Reason code",
+                time: "Time",
+                path: "Path",
+                method: "Method",
+                jobId: "Job ID",
+                model: "Model",
+                tenant: "Tenant",
+                authProvider: "Auth provider",
+                reasonClass: "Reason class",
+                routeDecision: "Routing decision",
+                nextActionAt: "Next action",
+                statusCode: "Status code",
+                upstreamStatusCode: "Upstream status code",
+                latency: "Latency"
+            },
+            eventTypes: {
+                requestReceived: "Request received",
+                requestCompleted: "Request completed",
+                requestFailed: "Request failed",
+                routingCandidateSelected: "Routing candidate selected",
+                sameAccountRetry: "Same-account retry",
+                crossAccountFailover: "Cross-account failover",
+                continuationCursorSaved: "Continuation cursor saved",
+                continuationCursorRestored: "Continuation cursor restored",
+                wsHttpFallback: "WebSocket fell back to HTTP",
+                proxySelectionFailed: "Proxy selection failed",
+                probeSucceeded: "Probe succeeded",
+                activePatrolBatchCompleted: "Active patrol batch completed",
+                rateLimitRefreshBatchCompleted: "Rate-limit refresh batch completed",
+                pendingDeleteBatchCompleted: "Pending-delete batch completed",
+                accountPoolStateTransition: "Account pool state changed",
+                accountDeleted: "Account deleted",
+                importJobCreated: "Import job created",
+                importJobCompleted: "Import job completed",
+                importJobFailed: "Import job failed",
+                upstreamEvent: "Upstream event",
+                unknown: "Unknown event"
+            },
+            reasonCodes: {
+                requestReceived: "Request entered the system",
+                routingCandidateSelected: "Routing candidate selected",
+                rateLimited: "Rate limited",
+                transportError: "Transport error",
+                proxyUnavailable: "Proxy unavailable",
+                continuationCursorRestored: "Continuation cursor restored",
+                rateLimitRefreshBatchCompleted: "Rate-limit refresh batch completed",
+                pendingDeleteBatchCompleted: "Pending-delete batch completed",
+                accountDeactivated: "Account deactivated",
+                previousResponseNotFound: "Previous response not found",
+                upstreamRequestFailed: "Upstream request failed",
+                invalidRefreshToken: "Invalid refresh token",
+                refreshTokenReused: "Refresh token reused",
+                upstreamUnavailable: "Upstream unavailable",
+                unknown: "Unknown reason"
+            },
+            reasonClasses: {
+                healthy: "Healthy",
+                quota: "Quota",
+                fatal: "Fatal",
+                transient: "Transient",
+                admin: "Admin",
+                unknown: "Unknown class"
+            },
+            routingDecisions: {
+                recentSuccess: "Prioritize recent success",
+                freshProbe: "Prefer fresh probe results",
+                roundRobin: "Round robin",
+                sameAccountRetry: "Same-account retry",
+                crossAccountFailover: "Cross-account failover",
+                requestReceived: "Request just entered the system",
+                unknown: "Unknown decision"
+            },
+            authProviders: {
+                oauthRefreshToken: "OAuth refresh token",
+                legacyBearer: "Legacy bearer",
+                codexOauth: "Codex OAuth",
+                unknown: "Unknown auth provider"
+            },
+            insightsTitle: "Event focus",
+            insightsDescription: "Start with the most common event types and reason codes, then decide whether to follow request_id or open details directly.",
+            topEventTypes: "Top event types",
+            topReasons: "Top reason codes",
+            noInsights: "There is not enough summarized event data for the current filter yet.",
+            previewTitle: "Preview",
+            detailTitle: "Event detail",
+            detailDescription: "Inspect raw payloads, message previews, and correlation chains.",
+            detailDescriptionWithRequest: "Request ID: {{requestId}}",
+            payloadTitle: "Payload JSON",
+            payloadDescription: "Raw payload stored in the unified event stream.",
+            correlationTitle: "Correlation chain",
+            correlationDescription: "All events sharing the same request_id."
+        },
         search: "Search payload or service…",
         subtitle: "Real-time audit trails and operational context.",
         time: {
@@ -1282,7 +1460,6 @@ export default {
         },
         tabs: {
             audit: "Audit Logs",
-            events: "Event Stream",
             request: "Request Logs",
             system: "System Logs"
         },
@@ -1297,6 +1474,9 @@ export default {
             modelsList: "Model List Fetch",
             modelsProbe: "Model Probe",
             unknown: "Unknown action ({{action}})"
+        },
+        antigravity: {
+            stream: "Stream"
         }
     },
     models: {
@@ -1379,7 +1559,63 @@ export default {
         },
         filters: {
             allProviders: "All providers",
-            providerLabel: "Provider filter"
+            providerLabel: "Provider filter",
+            availabilityLabel: "Availability filter",
+            allAvailability: "All availability"
+        },
+        antigravity: {
+            notAvailable: "N/A",
+            summaryTitle: "Catalog Overview",
+            summaryDescription: "Quickly assess the current model pool from availability, provider coverage, and catalog breadth.",
+            catalogTitle: "Probe & Sync Status",
+            catalogDescription: "Probe cache freshness and official catalog sync state are collected here.",
+            maintenance: "Catalog maintenance",
+            maintenanceProbeDescription: "Refresh availability probing for the current account pool now.",
+            maintenanceSyncDescription: "Resync the official catalog snapshot and metadata.",
+            cacheFresh: "Probe cache fresh",
+            cacheStale: "Probe cache stale",
+            catalogNeedsSync: "Catalog needs sync",
+            catalogReady: "Catalog synced",
+            cacheUpdatedAt: "Cache updated at",
+            probeSource: "Probe source account",
+            catalogSyncedAt: "Catalog synced at",
+            cacheTtl: "Cache TTL",
+            cacheTtlHours: "{{hours}} hours",
+            catalogLastError: "Latest catalog error",
+            catalogAttentionTitle: "Operator attention needed",
+            catalogAttentionSyncRequired: "The official catalog has not completed a recent sync yet. Run a sync first, then confirm the model directory is complete again.",
+            catalogAttentionRetry: "The most recent catalog sync or availability probe did not complete successfully. This page keeps the readable summary, while deeper technical details should be checked in the unified event stream.",
+            catalogAttentionCacheStale: "The probe cache is stale. Run another availability probe before making decisions from outdated model status.",
+            directoryTitle: "Model Directory",
+            directoryDescription: "Filter models by provider and availability, then inspect pricing and official metadata.",
+            noDescription: "No official description is available.",
+            copyModelIdSuccess: "Copied model ID: {{modelId}}",
+            copyModelIdFailed: "Failed to copy model ID.",
+            effectivePricingSource: "Effective pricing source",
+            officialPageStatus: "Official catalog page",
+            officialPageReady: "Available",
+            officialPageMissing: "Unavailable",
+            availabilityOutcomeLabel: "Latest probe outcome",
+            availabilityOutcome: {
+                available: "The latest probe marked this model as available.",
+                unavailable: "The latest probe marked this model as temporarily unavailable. Check the event stream for deeper investigation.",
+                unavailableWithStatus: "The latest probe returned HTTP {{status}}, so this model is currently unavailable.",
+                unknown: "A stable probe conclusion is not available yet."
+            },
+            metrics: {
+                total: "Total models",
+                totalDesc: "Total models currently mapped or exposed by the pool.",
+                available: "Available models",
+                availableDesc: "Models that most recently probed as available.",
+                unavailable: "Unavailable models",
+                unavailableDesc: "Models that still return probe errors or remain unreachable.",
+                providers: "Providers",
+                providersDesc: "Distinct providers or hubs represented in the catalog."
+            },
+            sections: {
+                operational: "Operational state",
+                pricing: "Pricing snapshot"
+            }
         },
         form: {
             modelId: "Model ID",
@@ -1540,146 +1776,11 @@ export default {
             month: "By month"
         }
     },
-    accountPool: {
-        eyebrow: "Unified operations view",
-        title: "Account Pool",
-        subtitle: "Watch inventory, routing eligibility, cooling, and pending delete through one operator state model.",
-        loading: "Loading account pool…",
-        empty: "No matching accounts.",
-        searchPlaceholder: "Search by email, label, account ID, or reason…",
-        meta: {
-            total: "Total {{count}} accounts",
-            filtered: "Filtered {{count}}"
-        },
-        filters: {
-            state: "State",
-            scope: "Scope",
-            reasonClass: "Reason class",
-            allStates: "All states",
-            allScopes: "All scopes",
-            allReasons: "All reason classes"
-        },
-        state: {
-            inventory: "Inventory",
-            routable: "Routable",
-            cooling: "Cooling",
-            pendingDelete: "Pending Delete"
-        },
-        scope: {
-            runtime: "Runtime",
-            inventory: "Inventory"
-        },
-        reasonClass: {
-            healthy: "Healthy",
-            quota: "Quota",
-            fatal: "Fatal",
-            transient: "Transient",
-            admin: "Admin"
-        },
-        reasonCode: {
-            none: "No blocking reason",
-            tokenInvalidated: "Token invalidated",
-            accountDeactivated: "Account deactivated",
-            invalidRefreshToken: "Invalid refresh token",
-            refreshTokenRevoked: "Refresh token revoked",
-            refreshTokenReused: "Refresh token reused",
-            rateLimited: "Rate limited",
-            quotaExhausted: "Quota exhausted",
-            upstreamUnavailable: "Upstream unavailable",
-            transportError: "Transport error",
-            overloaded: "Upstream overloaded",
-            operatorRetiredInvalidRefreshToken: "Retired after terminal invalid refresh",
-            unknown: "Unknown reason"
-        },
-        routeEligible: {
-            yes: "Routable",
-            no: "Not routable"
-        },
-        signalSource: {
-            active: "Active check",
-            passive: "Passive signal",
-            unknown: "No signal"
-        },
-        actions: {
-            inspect: "Inspect",
-            reprobe: "Reprobe",
-            restore: "Restore",
-            delete: "Delete",
-            refresh: "Refresh View"
-        },
-        columns: {
-            account: "Account",
-            state: "State",
-            reason: "Reason",
-            credentials: "Credentials",
-            quota: "Quota",
-            nextAction: "Timeline",
-            actions: "Actions"
-        },
-        metrics: {
-            inventory: "Inventory",
-            routable: "Routable",
-            cooling: "Cooling",
-            pendingDelete: "Pending Delete",
-            healthy: "Healthy",
-            quota: "Quota",
-            fatal: "Fatal",
-            transient: "Transient",
-            admin: "Admin",
-            stateDescription: "{{state}} accounts in the current operator view.",
-            reasonDescription: "Accounts currently classified as {{reason}}."
-        },
-        sections: {
-            stateOverview: "Operator state",
-            stateOverviewTitle: "One state model across inventory and runtime",
-            stateOverviewDescription: "Use one set of states to understand which accounts can route now, which are cooling, and which are on the way out.",
-            reasonOverview: "Reason classes",
-            reasonOverviewTitle: "Why accounts are in their current state",
-            reasonOverviewDescription: "Reason classes explain whether the current state comes from quota, fatal auth issues, transient failures, or operator action.",
-            records: "Unified queue",
-            recordsTitle: "Single account pool list",
-            recordsDescription: "Every record is shown with one operator state, one reason class, and one next action.",
-            detail: "Record detail"
-        },
-        detail: {
-            description: "Inspect the latest operator state, reason, credentials, and quota summary for this account."
-        },
-        fields: {
-            currentState: "Current State",
-            routeEligible: "Route Eligibility",
-            nextAction: "Next Action",
-            credentials: "Credentials",
-            timeline: "Timeline",
-            identity: "Identity",
-            email: "Email",
-            chatgptAccountId: "ChatGPT Account ID",
-            plan: "Plan",
-            sourceType: "Source Type",
-            mode: "Mode",
-            authProvider: "Auth Provider",
-            credentialKind: "Credential Kind",
-            refreshState: "Refresh Credential State",
-            lastSignalAt: "Last Signal At",
-            lastSignalSource: "Signal Source",
-            createdAt: "Created At",
-            updatedAt: "Updated At",
-            quota: "Quota Summary"
-        },
-        messages: {
-            confirmDeleteTitle: "Delete {{label}} from the pool?",
-            confirmDeleteDescription: "This removes the record from the pool and cannot be undone.",
-            actionSuccessTitle: "{{action}} completed",
-            actionSuccessDescription: "{{label}} has been updated.",
-            actionPartialTitle: "{{action}} partially failed",
-            actionFailedTitle: "{{action}} failed",
-            actionFailed: "Action failed"
-        }
-    },
     nav: {
         accounts: "Accounts Pool",
         modelRouting: "Model Routing",
         apiKeyGroups: "Group Management",
-        apiKeys: "API Keys",
+        apiKeys: "Key Pool",
         billing: "Billing",
         config: "Configuration",
         dashboard: "Dashboard",
@@ -1703,6 +1804,196 @@ export default {
         usage: "Usage",
         cleanup: "Cleanup",
         closeNavigation: "Close navigation"
+    },
+    accountPool: {
+        title: "Account pool",
+        subtitle: "Use one four-state model to monitor inventory, routable capacity, cooling records, and pending delete accounts.",
+        meta: "The current operating states are inventory / routable / cooling / pending_delete.",
+        empty: "No account pool records match the current filters.",
+        searchPlaceholder: "Search email, label, account ID, reason…",
+        filters: {
+            state: "State",
+            scope: "Scope",
+            reasonClass: "Reason class",
+            allStates: "All states",
+            allScopes: "All scopes",
+            allReasons: "All reason classes"
+        },
+        state: {
+            inventory: "Inventory",
+            routable: "Routable",
+            cooling: "Cooling",
+            pendingDelete: "Pending delete",
+            unknown: "Unknown state"
+        },
+        scope: {
+            runtime: "Runtime",
+            inventory: "Inventory"
+        },
+        reasonClass: {
+            healthy: "Healthy",
+            quota: "Quota",
+            fatal: "Fatal",
+            transient: "Transient",
+            admin: "Admin",
+            unknown: "Unknown reason class"
+        },
+        refreshState: {
+            healthy: "Healthy",
+            degraded: "Degraded",
+            missing: "Missing",
+            invalid: "Invalid",
+            unknown: "Unknown"
+        },
+        healthFreshness: {
+            fresh: "Fresh",
+            stale: "Stale",
+            unknown: "Unknown"
+        },
+        probeOutcome: {
+            ok: "Passed",
+            quota: "Quota",
+            transient: "Transient issue",
+            fatal: "Fatal issue",
+            unknown: "Not probed"
+        },
+        signalSource: {
+            active: "Active patrol",
+            passive: "Passive signal",
+            unknown: "Unknown"
+        },
+        reasonCode: {
+            none: "No blocking reason code",
+            tokenInvalidated: "Token invalidated",
+            accountDeactivated: "Account deactivated",
+            invalidRefreshToken: "Invalid refresh token",
+            refreshTokenRevoked: "Refresh token revoked",
+            refreshTokenReused: "Refresh token reused",
+            rateLimited: "Rate limited",
+            quotaExhausted: "Usage exhausted",
+            upstreamUnavailable: "Upstream unavailable",
+            transportError: "Transport error",
+            overloaded: "Upstream overloaded",
+            operatorRetiredInvalidRefreshToken: "Operator retired the account for an invalid refresh token",
+            unknown: "Unknown blocking reason"
+        },
+        routeEligible: {
+            yes: "Route eligible",
+            no: "Not routable"
+        },
+        actions: {
+            inspect: "Inspect",
+            more: "More actions",
+            reprobe: "Reprobe",
+            restore: "Restore",
+            delete: "Delete"
+        },
+        columns: {
+            account: "Account",
+            state: "State",
+            reason: "Reason",
+            credentials: "Credentials",
+            operationalStatus: "Operational status",
+            quota: "Usage",
+            updatedAt: "Updated at",
+            recentSignal: "Recent signal",
+            actions: "Actions"
+        },
+        metrics: {
+            inventory: "Inventory",
+            routable: "Routable",
+            cooling: "Cooling",
+            pendingDelete: "Pending delete",
+            records: "{{count}} records",
+            totalRecords: "Total records",
+            filteredRecords: "Filtered records",
+            inventoryDesc: "Still in inventory and not yet routable.",
+            routableDesc: "Currently healthy enough to join routing.",
+            coolingDesc: "In a quota or transient cooling window.",
+            pendingDeleteDesc: "Already moved into pending delete cleanup."
+        },
+        rateLimits: {
+            defaultLabel: "quota",
+            empty: "No quota snapshot available",
+            unavailable: "unavailable",
+            fiveHoursShort: "5h",
+            oneWeekShort: "7d",
+            githubShort: "GitHub"
+        },
+        recentSignal: {
+            updatedFallback: "Last updated",
+            window12h: "Last 12h",
+            window24h: "Last 24h",
+            active: "Active",
+            sparse: "Sparse",
+            silent: "Silent",
+            busy: "Busy",
+            noHeatmap: "No signal heatmap available",
+            summaryWithDetail: "{{relative}} · {{detail}}",
+            bucketTooltip: "{{time}} · {{count}} signals · active {{active}} / passive {{passive}}",
+            legend: {
+                success: "Success",
+                mixed: "Partially failed",
+                error: "All failed"
+            }
+        },
+        cooling: {
+            imminent: "Resuming soon",
+            thawIn: "{{hours}}h {{minutes}}m until restore"
+        },
+        sections: {
+            stateOverviewTitle: "State overview",
+            stateOverviewDescription: "Start with the distribution across inventory, routable, cooling, and pending delete.",
+            reasonOverviewTitle: "Reason classes",
+            reasonOverviewDescription: "Then separate healthy, quota, fatal, transient, and admin-driven states.",
+            recordsTitle: "Pool records",
+            recordsDescription: "Filter records by state, scope, and reason class, then run available actions."
+        },
+        detail: {
+            modalTitle: "Account pool record",
+            description: "Inspect the selected record's operating state, credentials, and usage summary.",
+            empty: "Record details are not available yet.",
+            sections: {
+                status: "Operating state",
+                profile: "Account profile",
+                recentSignal: "Recent signal heatmap",
+                credentials: "Credential posture",
+                quota: "Usage summary"
+            }
+        },
+        fields: {
+            nextAction: "Next action",
+            routeEligible: "Route eligibility",
+            healthFreshness: "Health freshness",
+            lastSignalAt: "Last signal",
+            lastSignalSource: "Signal source",
+            lastProbeAt: "Last probe at",
+            lastProbeOutcome: "Last probe outcome",
+            updatedAt: "Updated at",
+            createdAt: "Created at",
+            email: "Email",
+            chatgptAccountId: "ChatGPT account ID",
+            plan: "Plan",
+            sourceType: "Source type",
+            recordScope: "Record scope",
+            mode: "Mode",
+            authProvider: "Auth provider",
+            credentialKind: "Credential kind",
+            refreshState: "Refresh credential state",
+            reasonCode: "Reason code",
+            hasRefreshCredential: "Has refresh credential",
+            accessTokenFallback: "Has access-token fallback",
+            rateLimitsFetchedAt: "Usage snapshot updated at"
+        },
+        messages: {
+            confirmDeleteTitle: "Delete {{label}}?",
+            confirmDeleteDescription: "The record will be removed from the account pool.",
+            actionSuccessTitle: "{{action}} completed",
+            actionSuccessDescription: "{{label}} has been updated.",
+            actionPartialTitle: "{{action}} partially failed",
+            actionFailedTitle: "{{action}} failed",
+            actionFailed: "Please try again later."
+        }
     },
     notifications: {
         dismiss: "Dismiss notification",
@@ -1759,6 +2050,15 @@ export default {
             edit: "Edit",
             test: "Test",
             testAll: "Test All"
+        },
+        antigravity: {
+            auth: "Auth",
+            authConfigured: "Configured",
+            lastErrorSummary: "The latest probe failed. Continue the investigation in the unified event stream.",
+            authNone: "None",
+            emptyDescription: "Add the first proxy node to start routing traffic through the admin-managed pool.",
+            latency: "Latency",
+            scheme: "Scheme"
         },
         badges: {
             auth: "Auth"
@@ -1868,6 +2168,93 @@ export default {
         title: "Outbound Proxy Pool"
     },
     system: {
+        antigravity: {
+            billingMode: {
+                costReportOnly: "Cost report only",
+                creditEnforced: "Credit enforced"
+            },
+            capabilitiesDescription: "Review the edition envelope and tenant-facing switches in one place.",
+            capabilitiesTitle: "Capability Envelope",
+            category: {
+                config: "Configuration",
+                diagnostics: "Diagnostics",
+                runtime: "Runtime"
+            },
+            componentsDescription: "Verify that control-plane, data-plane, and usage storage are all responding as expected.",
+            componentsTitle: "Core Components",
+            config: {
+                authValidateUrl: "Auth Validate URL",
+                controlPlaneListen: "Control Plane Listen",
+                dataPlaneUrl: "Data Plane URL",
+                oauthRefresh: "OAuth Refresh",
+                refreshInterval: "Refresh Interval"
+            },
+            counts: {
+                apiKeys: "API Keys",
+                enabledAccounts: "Enabled Accounts",
+                oauthAccounts: "OAuth Accounts",
+                tenants: "Tenants",
+                totalAccounts: "Total Accounts"
+            },
+            dataPlane: {
+                accounts: "Accounts",
+                active: "Active"
+            },
+            dataPlaneIssue: "Runtime diagnostics report issues in the data plane.",
+            debug: {
+                authValidatorEnabled: "Auth validator",
+                billingReconcileAdjust: "Billing reconcile adjustments",
+                billingReconcileFailed: "Billing reconcile failures",
+                billingReconcileReleased: "Billing reconcile releases",
+                billingReconcileScanned: "Billing reconcile scanned",
+                failoverEnabled: "Failover enabled",
+                quickRetryMax: "Quick retry max",
+                requestFailoverWait: "Failover wait",
+                retryPollInterval: "Retry poll interval",
+                sharedRoutingCache: "Shared routing cache",
+                snapshotRevision: "Snapshot revision"
+            },
+            debugSignals: "Debug Signals",
+            debugSignalsDescription: "Keep automatic failover, auth validation, cache, and billing reconcile signals in one compact view.",
+            disabled: "Disabled",
+            edition: {
+                business: "Business",
+                personal: "Personal",
+                team: "Team"
+            },
+            enabled: "Enabled",
+            features: {
+                costReports: "Cost reports",
+                costReportsHint: "A lighter visibility mode suited to personal and team editions.",
+                creditBilling: "Credit billing",
+                creditBillingHint: "Required before strict credit enforcement and preauth flows are active.",
+                multiTenant: "Multi-tenant",
+                multiTenantHint: "Whether the control plane isolates resources and workflows by tenant.",
+                tenantPortal: "Tenant portal",
+                tenantPortalHint: "Whether a self-service tenant workspace is exposed.",
+                tenantRecharge: "Tenant recharge",
+                tenantRechargeHint: "Whether tenants can recharge balances and manage credits themselves.",
+                tenantSelfService: "Tenant self-service",
+                tenantSelfServiceHint: "Whether registration, password reset, and similar tenant flows are enabled."
+            },
+            generatedAtHint: "Last runtime snapshot timestamp",
+            loading: "Loading system state…",
+            milliseconds: "{{value}}ms",
+            runtimeConfig: "Runtime Config",
+            runtimeConfigDescription: "These values reflect the effective control-plane, data-plane, and OAuth refresh configuration on this instance.",
+            runtimeCounts: "Runtime Counts",
+            runtimeCountsDescription: "Quickly gauge the account, key, and tenant footprint carried by this instance.",
+            seconds: "{{value}} seconds",
+            summary: {
+                billingMode: "Billing mode",
+                billingModeHint: "Current billing contract mode",
+                edition: "Edition",
+                editionHint: "Edition and capability envelope",
+                generatedAt: "Generated at",
+                generatedAtHint: "Last runtime snapshot timestamp",
+                uptimeHint: "Control plane runtime duration"
+            }
+        },
         columns: {
             component: "Component",
             details: "Details",
@@ -1898,9 +2285,9 @@ export default {
             badges: {
                 failoverOff: "Failover: OFF",
                 failoverOn: "Failover: ON",
-                failoverWait: "Failover wait {{value}} ms",
+                failoverWait: "Failover wait {{value}}ms",
                 quickRetry: "Quick retry ≤ {{value}}",
-                retryPoll: "Retry poll {{value}} ms",
+                retryPoll: "Retry poll {{value}}ms",
                 sharedCacheOff: "Shared cache: OFF",
                 sharedCacheOn: "Shared cache: ON",
                 stickyConflictAvoidOff: "Sticky conflict avoid: OFF",
@@ -2263,6 +2650,40 @@ export default {
             title: "Consumption Trend"
         }
     },
+    modelRouting: {
+        actions: {
+            add: "Add Rule",
+            delete: "Delete",
+            edit: "Edit Rule"
+        },
+        columns: {
+            actions: "Actions",
+            exactModels: "Exact Models",
+            fallbackProfiles: "Fallback Profiles",
+            family: "Family",
+            modelPrefixes: "Prefixes",
+            name: "Policy",
+            priority: "Priority",
+            status: "Status"
+        },
+        empty: "No routing policies returned by the backend",
+        loading: "Loading routing policies…",
+        searchPlaceholder: "Search policies…",
+        status: {
+            disabled: "Disabled",
+            enabled: "Enabled"
+        },
+        subtitle: "Profiles and policies now follow the real admin model routing contract",
+        summary: {
+            enabledProfiles: "Enabled Profiles",
+            enabledProfilesHint: "Profiles currently eligible for routing",
+            profiles: "Profiles",
+            profilesHint: "Routing profiles returned by the backend",
+            selectedAccounts: "Selected Accounts",
+            selectedAccountsHint: "Explicit account bindings across all profiles"
+        },
+        title: "Model Routing"
+    },
     groupsPage: {
         actions: {
             create: "Create group",
@@ -2278,14 +2699,44 @@ export default {
             multipliers: "Multipliers",
             name: "Group",
             status: "Status",
+            updated: "Updated",
             usage: "Usage"
         },
         editor: {
             createTitle: "Create group",
             description: "Configure group-wide multipliers and per-model pricing overrides.",
-            editTitle: "Edit group"
+            editTitle: "Edit group",
+            groupSettingsTitle: "Group settings",
+            groupSettingsDescription: "Maintain the group name, multipliers, and default behavior."
         },
         empty: "No groups yet",
+        antigravity: {
+            allowAllModels: "Allow all catalog models",
+            catalogCount: "Catalog {{count}}",
+            coverage: "Coverage {{coverage}}",
+            listTitle: "Group directory",
+            listDescription: "Organize API keys, model coverage, and billing multipliers with unified group policies.",
+            metrics: {
+                total: "Total groups",
+                totalDesc: "All API key groups currently available to manage in this workspace.",
+                enabled: "Enabled groups",
+                enabledDesc: "Groups that are still active for operator use.",
+                defaults: "Default groups",
+                defaultsDesc: "Groups currently acting as default routing and pricing fallbacks.",
+                catalog: "Catalog models",
+                catalogDesc: "Unified catalog entries currently available for group policy selection."
+            },
+            scopedPolicy: "Scoped model policy",
+            serviceUnavailableDescription: "The current runtime does not provide API key group storage, so this page is unavailable right now.",
+            updatedAt: "Updated {{value}}"
+        },
+        filters: {
+            statusLabel: "Status filter",
+            all: "All groups",
+            enabled: "Enabled",
+            disabled: "Disabled",
+            deleted: "Deleted"
+        },
         form: {
             allowAllModels: "Allow all catalog models",
             cachedInputMultiplier: "Cached input multiplier (ppm)",
@@ -2319,6 +2770,7 @@ export default {
             title: "Model policy"
         },
         preview: {
+            basePricingSummary: "{{provider}} · {{title}} · Base price: Input {{input}} · Cached {{cached}} · Output {{output}}",
             columns: {
                 finalPrice: "Final price",
                 formulaPrice: "Formula price",
@@ -2326,6 +2778,7 @@ export default {
                 model: "Model"
             },
             description: "Shows the final displayed price for the selected group.",
+            empty: "No models configured yet.",
             moreHidden: "{{count}} more models are collapsed",
             mode: {
                 absolute: "Absolute override",
@@ -2568,10 +3021,7 @@ export default {
             },
             locales: {
                 en: "English",
-                zhCN: "Chinese (Simplified)",
-                zhTW: "Chinese (Traditional)",
-                ja: "Japanese",
-                ru: "Russian"
+                zhCN: "Chinese (Simplified)"
             }
         },
         common: {
@@ -2729,6 +3179,25 @@ export default {
                 tenantUser: "Tenant user",
                 unknown: "Unknown actor"
             },
+            payloadSummary: {
+                empty: "No extra context",
+                present: "Contains extra context"
+            },
+            reasonValues: {
+                none: "No extra notes",
+                present: "Contains operator notes"
+            },
+            targetTypes: {
+                requestLogs: "Request logs",
+                requestCorrelation: "Request correlation",
+                auditLogs: "Audit logs",
+                usageSummary: "Usage summary",
+                usageTrendsHourly: "Hourly usage trends",
+                upstreamErrorTemplate: "Upstream error template",
+                builtinErrorTemplate: "Built-in error template",
+                upstreamErrorLearningSettings: "Error learning settings",
+                unknown: "Unknown target"
+            },
             columns: {
                 action: "Action",
                 actor: "Actor",
@@ -2771,7 +3240,7 @@ export default {
             columns: {
                 apiKey: "API Key",
                 error: "Error",
-                latency: "Latency (ms)",
+                latency: "Latency",
                 path: "Path",
                 requestId: "Request ID",
                 serviceTier: "Tier",
@@ -2908,12 +3377,15 @@ export default {
             },
             planValues: {
                 credit: "Credit",
-                unknown: "Custom ({{value}})"
+                standard: "Standard",
+                unknown: "Unknown plan"
             },
             statusValues: {
                 active: "Active",
                 inactive: "Inactive",
-                unknown: "Unknown ({{value}})"
+                suspended: "Suspended",
+                disabled: "Disabled",
+                unknown: "Unknown"
             },
             defaultBadge: "Default",
             empty: "No tenant data",
@@ -2998,16 +3470,51 @@ export default {
             }
         }
     },
+    layout: {
+        theme: {
+            quickSwitchFromSystem: "Following system: {{current}}, click to switch to {{next}}"
+        }
+    },
     theme: {
         aurora: "Aurora",
         colorful: "Colorful",
         dark: "Dark",
-        light: "Light"
+        light: "Light",
+        system: "System"
     },
     usage: {
         actions: {
             export: "Export CSV",
             filters: "Filters"
+        },
+        antigravity: {
+            estimatedCost: "Estimated cost",
+            estimatedCostHint: "Approximate spend projected from current request mix.",
+            avgLatency: "Average first-token latency",
+            avgLatencyHint: "Mean first-token response time over the last 30 days.",
+            last30Days: "Last 30 days",
+            loading: "Loading usage analytics…",
+            modelMixDescription: "See which models currently absorb most of the request volume.",
+            modelMixEmpty: "No model distribution data is available yet.",
+            modelMixTitle: "Model Load Mix",
+            peakDay: "Peak day",
+            peakDayValue: "{{date}} · {{requests}} requests",
+            requestsSummaryHint: "Total requests over the last 30 days.",
+            requestsCount: "{{value}} requests",
+            shareValue: "{{value}}%",
+            signalsDescription: "Keep the most important peaks, leading models, and leading keys together in one quick brief.",
+            signalsTitle: "Key Signals",
+            timeWindow: "Analysis window",
+            tokenTrendDescription: "Shows how input, cached, and output tokens changed across the selected window.",
+            tokenTrendEmpty: "No token trend data is available yet.",
+            tokenTrendTitle: "Token Trend",
+            topApiKey: "Top API key",
+            topApiKeyValue: "{{value}} requests",
+            topModel: "Top model",
+            topModelValue: "{{value}} requests",
+            tokensCount: "{{value}} tokens",
+            topKeysHint: "Compare model concentration by request count and aggregate token load.",
+            totalTokensHint: "All input, cached, output, and reasoning tokens."
         },
         chart: {
             empty: "No data recorded in this period.",
@@ -3096,8 +3603,9 @@ export default {
         }
     },
     apiKeys: {
-        title: "API Keys",
-        subtitle: "Issue and manage secure access credentials for client applications.",
+        title: "Key Pool",
+        subtitle: "Manage the standalone workspace key pool and issue secure access credentials.",
+        listTitle: "Key Pool",
         createPanelDescription: "Create a Data Plane access key for this standalone workspace. The plaintext key is shown only once.",
         create: "Create Secret Key",
         search: "Search key name or prefix…",
@@ -3154,6 +3662,12 @@ export default {
                 close: "Close",
                 copyPlaintext: "Copy plaintext key"
             }
+        },
+        antigravity: {
+            lastUsed: "Last Used",
+            revoke: "Revoke",
+            rotate: "Rotate Key",
+            view: "View Details"
         }
     }
 }

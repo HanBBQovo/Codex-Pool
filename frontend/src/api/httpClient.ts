@@ -18,6 +18,7 @@ interface AuthClientOptions {
   loginFailedEvent: string
   authRequiredDetail?: unknown
   logDevErrors?: boolean
+  unwrapResponseData?: boolean
 }
 
 function hasAuthorizationHeader(config: InternalAxiosRequestConfig): boolean {
@@ -45,7 +46,7 @@ export function createAuthApiClient(options: AuthClientOptions): AxiosInstance {
   })
 
   client.interceptors.response.use(
-    (response) => response.data,
+    (response) => (options.unwrapResponseData ? response.data : response),
     (error: AxiosError<ApiErrorBody>) => {
       const status = error?.response?.status
       const url = error?.config?.url as string | undefined
@@ -53,6 +54,7 @@ export function createAuthApiClient(options: AuthClientOptions): AxiosInstance {
       if (status === 401 && options.isLoginEndpoint(url)) {
         window.dispatchEvent(new CustomEvent(options.loginFailedEvent))
       }
+
       if (status === 401 && !options.isAuthEndpoint(url)) {
         window.dispatchEvent(
           new CustomEvent(options.authRequiredEvent, {
@@ -61,7 +63,9 @@ export function createAuthApiClient(options: AuthClientOptions): AxiosInstance {
         )
       }
 
-      if (options.logDevErrors && import.meta.env.DEV) {
+      // 不记录预期的 401（如启动时探测已登录状态），避免噪音
+      const isExpected401 = status === 401 && options.isAuthEndpoint(url)
+      if (options.logDevErrors && import.meta.env.DEV && !isExpected401) {
         console.error('API Error:', error)
       }
 
@@ -86,4 +90,3 @@ export function extractApiErrorStatusFrom(error: unknown): number | null {
   const axiosError = error as AxiosError<ApiErrorBody>
   return axiosError.response?.status ?? null
 }
-

@@ -6,7 +6,8 @@ import { useTranslation } from 'react-i18next'
 import { tenantKeysApi } from '@/api/tenantKeys'
 import { tenantUsageApi } from '@/api/tenantUsage'
 import {
-  PageIntro,
+  DockedPageIntro,
+  PageContent,
   PagePanel,
   ReportShell,
   SectionHeader,
@@ -18,7 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { SurfaceInset } from '@/components/ui/surface'
+import { DataTable } from '@/components/DataTable'
 import { TrendChart } from '@/components/ui/trend-chart'
 import { formatExactCount } from '@/lib/count-number-format'
 import { resolveLocale } from '@/lib/i18n-format'
@@ -39,8 +41,6 @@ interface HourlyUsageRow {
 }
 
 const tableSurfaceClassName = 'h-[420px] border-0 bg-transparent shadow-none'
-const chartEmptyStateClassName =
-  'flex h-[340px] items-center justify-center rounded-[1.2rem] border border-dashed border-border/60 bg-muted/20 text-sm text-muted-foreground'
 
 export function TenantUsagePage() {
   const { t, i18n } = useTranslation()
@@ -187,36 +187,21 @@ export function TenantUsagePage() {
     [hourlyAxisFormatter, locale, t],
   )
 
-  const rangeLabel = (days: RangePreset) => {
-    if (days === 1) {
-      return t('tenantUsage.filters.range.last24Hours')
-    }
-    if (days === 7) {
-      return t('tenantUsage.filters.range.last7Days')
-    }
-    return t('tenantUsage.filters.range.last30Days')
-  }
-
   return (
-    <div className="flex-1 w-full overflow-y-auto p-4 sm:p-6 lg:p-8">
+    <PageContent className="w-full overflow-y-auto">
       <ReportShell
         intro={
-          <PageIntro
+          <DockedPageIntro
             archetype="detail"
             title={t('tenantUsage.title')}
             description={t('tenantUsage.subtitle')}
-            meta={
-              <span className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
-                {rangeLabel(rangePreset)}
-              </span>
-            }
           />
         }
         toolbar={
           <PagePanel tone="secondary">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   {t('tenantUsage.filters.rangeAriaLabel')}
                 </p>
                 <Select
@@ -234,7 +219,7 @@ export function TenantUsagePage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   {t('tenantUsage.filters.apiKeyAriaLabel')}
                 </p>
                 <Select value={apiKeyId} onValueChange={setApiKeyId}>
@@ -260,7 +245,7 @@ export function TenantUsagePage() {
               title={t('tenantUsage.leaderboard.title')}
               description={t('tenantUsage.leaderboard.description')}
             />
-            <StandardDataTable
+            <DataTable
               columns={keyColumns}
               data={leaderboardRows}
               defaultPageSize={10}
@@ -278,7 +263,9 @@ export function TenantUsagePage() {
               description={t('tenantUsage.trend.description')}
             />
             {chartData.length === 0 ? (
-              <div className={chartEmptyStateClassName}>{t('tenantUsage.trend.empty')}</div>
+              <SurfaceInset className="flex h-[340px] items-center justify-center text-sm text-default-600">
+                {t('tenantUsage.trend.empty')}
+              </SurfaceInset>
             ) : (
               <TrendChart
                 data={chartData}
@@ -303,7 +290,7 @@ export function TenantUsagePage() {
             title={t('tenantUsage.hourly.title')}
             description={t('tenantUsage.hourly.description')}
           />
-          <StandardDataTable
+          <DataTable
             columns={hourlyColumns}
             data={hourlyRows}
             defaultPageSize={10}
@@ -315,6 +302,6 @@ export function TenantUsagePage() {
           />
         </PagePanel>
       </ReportShell>
-    </div>
+    </PageContent>
   )
 }

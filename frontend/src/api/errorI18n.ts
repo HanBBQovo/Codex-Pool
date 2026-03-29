@@ -1,12 +1,12 @@
 import type { AxiosError } from 'axios'
 import type { TFunction } from 'i18next'
 
-import type { ApiErrorBody } from './httpClient'
+import type { ApiErrorBody } from './client'
 import {
   extractApiErrorCodeFrom,
   extractApiErrorMessageFrom,
   extractApiErrorStatusFrom,
-} from './httpClient'
+} from './client'
 
 export interface LocalizedErrorDisplay {
   label: string
@@ -25,6 +25,14 @@ function truncate(value: string, maxLen: number): string {
     return value
   }
   return `${value.slice(0, maxLen)}…`
+}
+
+function buildDiagnosticTooltip(parts: string[]): string | undefined {
+  if (!import.meta.env.DEV) {
+    return undefined
+  }
+
+  return parts.length ? parts.join(' | ') : undefined
 }
 
 function isAxiosError(error: unknown): error is AxiosError<ApiErrorBody> {
@@ -135,7 +143,7 @@ export function localizeApiErrorDisplay(
 
   return {
     label,
-    tooltip: tooltipParts.length ? tooltipParts.join(' | ') : undefined,
+    tooltip: buildDiagnosticTooltip(tooltipParts),
     code: code ?? undefined,
     status: typeof status === 'number' ? status : undefined,
   }
@@ -151,7 +159,7 @@ export function localizeHttpStatusDisplay(
     fallbackLabel
   return {
     label,
-    tooltip: typeof status === 'number' ? `status=${status}` : undefined,
+    tooltip: buildDiagnosticTooltip(typeof status === 'number' ? [`status=${status}`] : []),
     status: typeof status === 'number' ? status : undefined,
   }
 }
@@ -165,7 +173,7 @@ export function localizeRequestLogErrorDisplay(
   const numeric = raw ? Number(raw) : undefined
   const status = typeof numeric === 'number' && !Number.isNaN(numeric) ? numeric : statusCode
   const display = localizeHttpStatusDisplay(t, status, raw ? t('errors.common.failed') : '-')
-  const tooltip = raw ? `error_code=${raw}` : display.tooltip
+  const tooltip = buildDiagnosticTooltip(raw ? [`error_code=${raw}`] : [])
   return { ...display, tooltip }
 }
 
@@ -179,7 +187,7 @@ export function localizeOAuthErrorCodeDisplay(
     (normalized ? t('errors.common.failed') : '-')
   return {
     label,
-    tooltip: normalized ? `code=${normalized}` : undefined,
+    tooltip: buildDiagnosticTooltip(normalized ? [`code=${normalized}`] : []),
     code: normalized ?? undefined,
   }
 }

@@ -1,212 +1,575 @@
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Textarea } from '@/components/ui/textarea'
-import { Save, AlertTriangle, Settings2, Globe, Loader2 } from 'lucide-react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { configApi } from '@/api/config'
-import type { RuntimeConfigSnapshot, RuntimeConfigUpdateRequest } from '@/api/types'
-import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import {
-  PageIntro,
-  PagePanel,
-  SectionHeader,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Chip,
+  Divider,
+  Input,
+  Radio,
+  RadioGroup,
+  Spinner,
+  Switch,
+  Textarea,
+} from '@heroui/react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Monitor, Moon, RefreshCcw, Save, Settings, ShieldCheck, Sun, Workflow } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import type { RuntimeConfigSnapshot } from '@/api/types'
+import { systemApi } from '@/api/system'
+import { useTheme } from '@/components/use-theme'
+import { useUiPreferences } from '@/components/use-ui-preferences'
+import {
+  DockedPageIntro,
+  PageContent,
 } from '@/components/layout/page-archetypes'
-import { LoadingOverlay } from '@/components/ui/loading-overlay'
-import { describeConfigSettingsLayout } from '@/lib/page-archetypes'
+import { buildRuntimeConfigUpdateRequest } from '@/features/config/contracts'
+
+function hasRuntimeChanges(
+  config: RuntimeConfigSnapshot | null,
+  remoteConfig: RuntimeConfigSnapshot | undefined,
+) {
+  return (
+    config !== null
+    && remoteConfig !== undefined
+    && JSON.stringify(buildRuntimeConfigUpdateRequest(config))
+      !== JSON.stringify(buildRuntimeConfigUpdateRequest(remoteConfig))
+  )
+}
 
 export default function Config() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const { data: serverConfig, isLoading } = useQuery({
-    queryKey: ['runtimeConfig'],
-    queryFn: configApi.getConfig,
-  })
-
+  const { theme, resolvedTheme, setTheme } = useTheme()
+  const {
+    themeDensity,
+    setThemeDensity,
+    themeRadius,
+    setThemeRadius,
+  } = useUiPreferences()
   const [formDraft, setFormDraft] = useState<RuntimeConfigSnapshot | null>(null)
-  const formState = formDraft ?? serverConfig ?? null
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const updateMutation = useMutation({
-    mutationFn: (updated: RuntimeConfigUpdateRequest) => configApi.updateConfig(updated),
-    onSuccess: (data) => {
-      queryClient.setQueryData(['runtimeConfig'], data)
-      setFormDraft(data)
-    },
+  const { data: remoteConfig, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ['systemConfig'],
+    queryFn: systemApi.getConfig,
   })
+
+  const config = formDraft ?? remoteConfig ?? null
+  const hasChanges = hasRuntimeChanges(config, remoteConfig)
 
   const updateDraft = (updater: (current: RuntimeConfigSnapshot) => RuntimeConfigSnapshot) => {
     setFormDraft((previous) => {
-      const base = previous ?? serverConfig
+      const base = previous ?? remoteConfig
       if (!base) return previous
       return updater(base)
     })
   }
 
-  const handleSave = () => {
-    if (!formState) return
-    updateMutation.mutate({
-      data_plane_base_url: formState.data_plane_base_url,
-      auth_validate_url: formState.auth_validate_url,
-      oauth_refresh_enabled: formState.oauth_refresh_enabled,
-      oauth_refresh_interval_sec: formState.oauth_refresh_interval_sec,
-      notes: formState.notes,
-    })
+  const resetDraft = () => {
+    setFormDraft(null)
+    setMessage(null)
+    setError(null)
   }
-  const configLayout = describeConfigSettingsLayout()
+
+  const mutation = useMutation({
+    mutationFn: systemApi.updateConfig,
+    onSuccess: (nextConfig) => {
+      queryClient.setQueryData(['systemConfig'], nextConfig)
+      setFormDraft(nextConfig)
+      setError(null)
+      setMessage(t('config.success'))
+    },
+    onError: () => {
+      setMessage(null)
+      setError(t('config.antigravity.saveFailed'))
+    },
+  })
+
+  const handleSave = () => {
+    if (!config) {
+      return
+    }
+    mutation.mutate(buildRuntimeConfigUpdateRequest(config))
+  }
+
+  const resetThemeLab = () => {
+    setTheme('system')
+    setThemeDensity('comfortable')
+    setThemeRadius('default')
+  }
+
+  const overviewCards = useMemo(
+    () => [
+      {
+        title: t('config.antigravity.metrics.controlPlane'),
+        value: config?.control_plane_listen ?? '-',
+        description: t('config.controlPlane.listen'),
+        icon: <Settings className="h-4 w-4" />,
+        toneClassName: 'bg-primary/10 text-primary',
+      },
+      {
+        title: t('config.antigravity.metrics.dataPlane'),
+        value: config?.data_plane_base_url ?? '-',
+        description: t('config.controlPlane.dataPlaneUrl'),
+        icon: <Workflow className="h-4 w-4" />,
+        toneClassName: 'bg-secondary/10 text-secondary',
+      },
+      {
+        title: t('config.antigravity.metrics.authValidation'),
+        value: config?.auth_validate_url ?? '-',
+        description: t('config.controlPlane.authValidateUrl'),
+        icon: <ShieldCheck className="h-4 w-4" />,
+        toneClassName: 'bg-success/10 text-success',
+      },
+      {
+        title: t('config.antigravity.metrics.refreshStatus'),
+        value: config?.oauth_refresh_enabled
+          ? t('config.antigravity.refreshEnabled')
+          : t('config.antigravity.refreshDisabled'),
+        description: t('config.refreshSettings.intervalSec', {
+        }) + `: ${t('common.units.secondsShort', { value: config?.oauth_refresh_interval_sec ?? 0 })}`,
+        icon: <RefreshCcw className="h-4 w-4" />,
+        toneClassName: 'bg-warning/10 text-warning',
+      },
+    ],
+    [config, t],
+  )
+  const themeModeLabel =
+    theme === 'system'
+      ? t('theme.system')
+      : theme === 'dark'
+        ? t('theme.dark')
+        : t('theme.light')
+  const resolvedThemeLabel = resolvedTheme === 'dark' ? t('theme.dark') : t('theme.light')
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-100px)] w-full items-center justify-center">
+        <Spinner
+          color="primary"
+          label={t('config.antigravity.loading')}
+          size="lg"
+        />
+      </div>
+    )
+  }
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-4xl space-y-5 md:space-y-6">
-        <PageIntro
-          archetype="settings"
-          title={t('config.title')}
-          description={t('config.subtitle')}
-        />
+    <PageContent className="space-y-6">
+      <DockedPageIntro
+        archetype="settings"
+        title={t('config.title')}
+        description={t('config.subtitle')}
+        actions={(
+          <div className="flex flex-wrap gap-2">
+            <Button
+              isDisabled={!hasChanges || mutation.isPending}
+              startContent={<RefreshCcw className="h-4 w-4" />}
+              variant="light"
+              onPress={resetDraft}
+            >
+              {t('config.antigravity.reset')}
+            </Button>
+            <Button
+              isLoading={isFetching}
+              startContent={isFetching ? undefined : <RefreshCcw className="h-4 w-4" />}
+              variant="light"
+              onPress={() => {
+                void refetch()
+              }}
+            >
+              {t('common.refresh')}
+            </Button>
+            <Button
+              color="primary"
+              isDisabled={!config || !hasChanges}
+              isLoading={mutation.isPending}
+              startContent={mutation.isPending ? undefined : <Save className="h-4 w-4" />}
+              variant="flat"
+              onPress={handleSave}
+            >
+              {t('config.save')}
+            </Button>
+          </div>
+        )}
+      />
 
-        {configLayout.warningPlacement === 'after-intro' ? (
-          <PagePanel tone="secondary" className="space-y-3 rounded-[0.95rem] bg-transparent shadow-none">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-foreground" />
-              <div className="space-y-1.5">
-                <h2 className="text-base font-semibold text-warning-foreground">
-                  {t('config.runtimeHint.title')}
-                </h2>
-                <p className="text-sm leading-6 text-warning-foreground/90">
-                  {t('config.runtimeHint.desc')}
+      {message ? (
+        <Card className="border-small border-success-200 bg-success-50/90 shadow-none dark:bg-success/10">
+          <CardBody className="py-3 text-sm font-medium text-success-700 dark:text-success-300">
+            {message}
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {error ? (
+        <Card className="border-small border-danger-200 bg-danger-50/90 shadow-none dark:bg-danger/10">
+          <CardBody className="py-3 text-sm font-medium text-danger-700 dark:text-danger-300">
+            {error}
+          </CardBody>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {overviewCards.map((card) => (
+          <Card key={card.title} className="border-small border-default-200 bg-content1 shadow-small">
+            <CardBody className="space-y-5 p-4">
+              <div className={card.toneClassName + ' flex h-10 w-10 items-center justify-center rounded-large'}>
+                {card.icon}
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-default-500">
+                  {card.title}
+                </p>
+                <p className="truncate text-sm font-semibold leading-6 text-foreground">
+                  {card.value}
+                </p>
+                <p className="text-sm leading-6 text-default-600">
+                  {card.description}
                 </p>
               </div>
-            </div>
-          </PagePanel>
-        ) : null}
+            </CardBody>
+          </Card>
+        ))}
+      </div>
 
-        <div className="relative space-y-6">
-          <LoadingOverlay
-            show={isLoading}
-            title={t('common.loading')}
-            size="compact"
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)]">
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('config.controlPlane.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('config.controlPlane.desc')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="gap-4 px-5 pb-5 pt-1">
+            <Input
+              classNames={{ label: 'text-xs font-medium text-default-500' }}
+              isReadOnly
+              label={t('config.controlPlane.listen')}
+              labelPlacement="outside"
+              size="sm"
+              value={config?.control_plane_listen ?? ''}
+            />
+            <Input
+              classNames={{ label: 'text-xs font-medium text-default-500' }}
+              label={t('config.controlPlane.dataPlaneUrl')}
+              labelPlacement="outside"
+              size="sm"
+              value={config?.data_plane_base_url ?? ''}
+              onValueChange={(value) =>
+                updateDraft((current) => ({ ...current, data_plane_base_url: value }))
+              }
+            />
+            <Input
+              classNames={{ label: 'text-xs font-medium text-default-500' }}
+              label={t('config.controlPlane.authValidateUrl')}
+              labelPlacement="outside"
+              size="sm"
+              value={config?.auth_validate_url ?? ''}
+              onValueChange={(value) =>
+                updateDraft((current) => ({ ...current, auth_validate_url: value }))
+              }
+            />
+          </CardBody>
+        </Card>
+
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('config.antigravity.runtimePanelTitle')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('config.runtimeHint.desc')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="gap-4 px-5 pb-5 pt-1">
+            <div className="flex flex-wrap gap-2">
+              <Chip color="primary" size="sm" variant="flat">
+                {t('config.reload.title')}
+              </Chip>
+              <Chip color={hasChanges ? 'warning' : 'success'} size="sm" variant="flat">
+                {hasChanges
+                  ? t('config.antigravity.unsavedChanges')
+                  : t('config.antigravity.synced')}
+              </Chip>
+            </div>
+            <Divider />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t('config.antigravity.notesStatus')}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-foreground">
+                  {config?.notes?.trim()
+                    ? t('config.antigravity.notesPresent')
+                    : t('config.antigravity.notesEmpty')}
+                </div>
+              </div>
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t('config.antigravity.refreshIntervalLabel')}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-foreground">
+                  {config?.oauth_refresh_interval_sec ?? 0}s
+                </div>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(0,0.94fr)]">
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('config.themeLab.title')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('config.themeLab.description')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="gap-5 px-5 pb-5 pt-1">
+            <div className="flex flex-wrap gap-2">
+              <Chip color="secondary" size="sm" variant="flat">
+                {t('config.themeLab.localOnly')}
+              </Chip>
+              <Chip size="sm" variant="flat">
+                {t('config.themeLab.currentMode', { value: themeModeLabel })}
+              </Chip>
+              <Chip color="primary" size="sm" variant="flat">
+                {t('config.themeLab.resolvedMode', { value: resolvedThemeLabel })}
+              </Chip>
+            </div>
+
+            <Divider />
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-foreground">
+                  {t('config.themeLab.modeTitle')}
+                </h3>
+                <p className="text-sm leading-6 text-default-600">
+                  {t('config.themeLab.modeDescription')}
+                </p>
+              </div>
+              <RadioGroup
+                aria-label={t('config.themeLab.modeTitle')}
+                classNames={{ wrapper: 'flex gap-3 md:flex-row' }}
+                orientation="horizontal"
+                value={theme}
+                onValueChange={(value) => setTheme(value as 'light' | 'dark' | 'system')}
+              >
+                <Radio description={t('config.themeLab.modeLightHint')} value="light">
+                  <div className="inline-flex items-center gap-2">
+                    <Sun className="h-4 w-4" />
+                    {t('theme.light')}
+                  </div>
+                </Radio>
+                <Radio description={t('config.themeLab.modeDarkHint')} value="dark">
+                  <div className="inline-flex items-center gap-2">
+                    <Moon className="h-4 w-4" />
+                    {t('theme.dark')}
+                  </div>
+                </Radio>
+                <Radio description={t('config.themeLab.modeSystemHint')} value="system">
+                  <div className="inline-flex items-center gap-2">
+                    <Monitor className="h-4 w-4" />
+                    {t('theme.system')}
+                  </div>
+                </Radio>
+              </RadioGroup>
+            </div>
+
+            <Divider />
+
+            <div className="grid gap-5 md:grid-cols-2">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {t('config.themeLab.radiusTitle')}
+                  </h3>
+                  <p className="text-sm leading-6 text-default-600">
+                    {t('config.themeLab.radiusDescription')}
+                  </p>
+                </div>
+                <RadioGroup
+                  aria-label={t('config.themeLab.radiusTitle')}
+                  value={themeRadius}
+                  onValueChange={(value) => setThemeRadius(value as 'compact' | 'default' | 'relaxed')}
+                >
+                  <Radio value="compact">{t('config.themeLab.radius.compact')}</Radio>
+                  <Radio value="default">{t('config.themeLab.radius.default')}</Radio>
+                  <Radio value="relaxed">{t('config.themeLab.radius.relaxed')}</Radio>
+                </RadioGroup>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {t('config.themeLab.densityTitle')}
+                  </h3>
+                  <p className="text-sm leading-6 text-default-600">
+                    {t('config.themeLab.densityDescription')}
+                  </p>
+                </div>
+                <RadioGroup
+                  aria-label={t('config.themeLab.densityTitle')}
+                  value={themeDensity}
+                  onValueChange={(value) => setThemeDensity(value as 'compact' | 'comfortable')}
+                >
+                  <Radio value="compact">{t('config.themeLab.density.compact')}</Radio>
+                  <Radio value="comfortable">{t('config.themeLab.density.comfortable')}</Radio>
+                </RadioGroup>
+              </div>
+            </div>
+
+            <Divider />
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="max-w-2xl text-sm leading-6 text-default-600">
+                {t('config.themeLab.footer')}
+              </p>
+              <Button variant="light" onPress={resetThemeLab}>
+                {t('config.themeLab.reset')}
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('config.themeLab.previewTitle')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('config.themeLab.previewDescription')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="gap-5 px-5 pb-5 pt-1">
+            <div className="rounded-large border-small border-default-200 bg-content1 p-4 shadow-small">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                    {t('config.themeLab.previewMetric')}
+                  </div>
+                  <div className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                    128
+                  </div>
+                  <div className="text-sm leading-6 text-default-600">
+                    {t('config.themeLab.previewMetricHint')}
+                  </div>
+                </div>
+                <Chip color="success" size="sm" variant="flat">
+                  {t('config.themeLab.previewResolvedChip', { value: resolvedThemeLabel })}
+                </Chip>
+              </div>
+            </div>
+
+            <Input
+              classNames={{ label: 'text-xs font-medium text-default-500' }}
+              label={t('config.themeLab.previewInputLabel')}
+              labelPlacement="outside"
+              size="sm"
+              value={t('config.themeLab.previewInputValue')}
+            />
+
+            <div className="flex flex-wrap gap-3">
+              <Button color="primary" variant="solid">
+                {t('config.themeLab.previewPrimaryAction')}
+              </Button>
+              <Button variant="flat">
+                {t('config.themeLab.previewSecondaryAction')}
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Chip color="success" size="sm" variant="flat">
+                {t('config.themeLab.previewChipHealthy')}
+              </Chip>
+              <Chip color="warning" size="sm" variant="flat">
+                {t('config.themeLab.previewChipAttention')}
+              </Chip>
+              <Chip size="sm" variant="bordered">
+                {t('config.themeLab.previewChipRadius', { value: t(`config.themeLab.radius.${themeRadius}`) })}
+              </Chip>
+              <Chip size="sm" variant="bordered">
+                {t('config.themeLab.previewChipDensity', { value: t(`config.themeLab.density.${themeDensity}`) })}
+              </Chip>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
+
+      <Card className="border-small border-default-200 bg-content1 shadow-small">
+        <CardHeader className="px-5 pb-3 pt-5">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+              {t('config.refreshSettings.title')}
+            </h2>
+            <p className="text-sm leading-6 text-default-600">
+              {t('config.refreshSettings.desc')}
+            </p>
+          </div>
+        </CardHeader>
+        <CardBody className="gap-4 px-5 pb-5 pt-1">
+          <div className="flex items-center justify-between gap-4 rounded-large border border-default-200 bg-content2/55 px-4 py-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                {t('config.refreshSettings.enableLabel')}
+              </p>
+              <p className="text-xs leading-5 text-default-500">
+                {t('config.refreshSettings.enableDesc')}
+              </p>
+            </div>
+            <Switch
+              color="primary"
+              isSelected={config?.oauth_refresh_enabled ?? false}
+              onValueChange={(value) =>
+                updateDraft((current) => ({ ...current, oauth_refresh_enabled: value }))
+              }
+            />
+          </div>
+
+          <Input
+            classNames={{ label: 'text-xs font-medium text-default-500' }}
+            label={t('config.refreshSettings.intervalSec')}
+            labelPlacement="outside"
+            size="sm"
+            type="number"
+            value={String(config?.oauth_refresh_interval_sec ?? 3600)}
+            onValueChange={(value) =>
+              updateDraft((current) => ({
+                ...current,
+                oauth_refresh_interval_sec: Math.max(1, Number(value) || 1),
+              }))
+            }
           />
 
-          {configLayout.sectionFlow === 'stacked-panels' ? (
-            <>
-              <PagePanel className="space-y-0 overflow-hidden p-0">
-                <section className="space-y-5 px-5 py-5 sm:px-6">
-                  <SectionHeader
-                    title={(
-                      <span className="inline-flex items-center gap-2">
-                        <Settings2 className="h-5 w-5 text-muted-foreground" />
-                        {t('config.controlPlane.title')}
-                      </span>
-                    )}
-                    description={t('config.controlPlane.desc')}
-                  />
-
-                  <div className="grid gap-5">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">{t('config.controlPlane.listen')}</label>
-                      <Input value={formState?.control_plane_listen ?? ''} disabled />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">{t('config.controlPlane.dataPlaneUrl')}</label>
-                      <Input
-                        value={formState?.data_plane_base_url ?? ''}
-                        onChange={(e) => updateDraft((current) => ({ ...current, data_plane_base_url: e.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">{t('config.controlPlane.authValidateUrl')}</label>
-                      <Input
-                        value={formState?.auth_validate_url ?? ''}
-                        onChange={(e) => updateDraft((current) => ({ ...current, auth_validate_url: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                </section>
-
-                <section className="space-y-5 border-t border-border/70 px-5 py-5 sm:px-6">
-                  <SectionHeader
-                    title={(
-                      <span className="inline-flex items-center gap-2">
-                        <Globe className="h-5 w-5 text-muted-foreground" />
-                        {t('config.refreshSettings.title')}
-                      </span>
-                    )}
-                    description={t('config.refreshSettings.desc')}
-                  />
-
-                  <div className="grid gap-5">
-                    <div className="flex flex-col gap-4 rounded-[0.95rem] border border-border/60 bg-background/65 p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="space-y-0.5">
-                        <label className="text-sm font-medium text-foreground">{t('config.refreshSettings.enableLabel')}</label>
-                        <p className="text-[13px] leading-6 text-muted-foreground">{t('config.refreshSettings.enableDesc')}</p>
-                      </div>
-                      <div className="flex items-center sm:justify-end">
-                        <Checkbox
-                          id="oauth-refresh-toggle"
-                          checked={formState?.oauth_refresh_enabled || false}
-                          onCheckedChange={(checked) =>
-                            updateDraft((current) => ({ ...current, oauth_refresh_enabled: !!checked }))
-                          }
-                          className="data-[state=checked]:bg-primary"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-5 md:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-foreground">{t('config.refreshSettings.intervalSec')}</label>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={formState?.oauth_refresh_interval_sec ?? 15}
-                          onChange={(e) =>
-                            updateDraft((current) => ({
-                              ...current,
-                              oauth_refresh_interval_sec: Math.max(1, Number(e.target.value) || 1),
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-foreground">{t('config.refreshSettings.notes')}</label>
-                        <Textarea
-                          value={formState?.notes ?? ''}
-                          onChange={(e) => updateDraft((current) => ({ ...current, notes: e.target.value }))}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                {configLayout.actionPlacement === 'after-sections' ? (
-                  <section className="flex flex-col gap-3 border-t border-border/70 bg-muted/16 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                    <div className="min-w-0">
-                      {updateMutation.isSuccess ? (
-                        <span className="inline-flex items-center gap-2 text-sm text-success-foreground">
-                          <Save className="h-4 w-4" />
-                          {t('config.success')}
-                        </span>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {t('config.subtitle')}
-                        </p>
-                      )}
-                    </div>
-                    <Button onClick={handleSave} disabled={isLoading || updateMutation.isPending || !formState}>
-                      {updateMutation.isPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Save className="mr-2 h-4 w-4" />
-                      )}
-                      {t('config.save')}
-                    </Button>
-                  </section>
-                ) : null}
-              </PagePanel>
-            </>
-          ) : null}
-        </div>
-      </div>
-    </div>
+          <Textarea
+            classNames={{ label: 'text-xs font-medium text-default-500' }}
+            label={t('config.refreshSettings.notes')}
+            labelPlacement="outside"
+            minRows={5}
+            size="sm"
+            value={config?.notes ?? ''}
+            onValueChange={(value) => updateDraft((current) => ({ ...current, notes: value }))}
+          />
+        </CardBody>
+      </Card>
+    </PageContent>
   )
 }

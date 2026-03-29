@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Gauge, RefreshCcw, Timer, TrendingUp, Zap } from 'lucide-react'
+import { RefreshCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -9,6 +9,8 @@ import {
   Select,
   SelectItem,
   Skeleton,
+  Tab,
+  Tabs,
 } from '@heroui/react'
 import {
   Area,
@@ -28,7 +30,8 @@ import {
   DashboardMetricCard,
   DashboardMetricGrid,
   DashboardShell,
-  PageIntro,
+  DockedPageIntro,
+  PageContent,
   PagePanel,
   SectionHeader,
 } from '@/components/layout/page-archetypes'
@@ -36,7 +39,7 @@ import {
   ChartAccessibility,
   type ChartAccessibilityColumn,
 } from '@/components/ui/chart-accessibility'
-import { ToggleBadgeButton } from '@/components/ui/toggle-badge-button'
+import { SurfaceCard, SurfaceCardBody, SurfaceInset } from '@/components/ui/surface'
 import {
   buildTokenTrendA11yRows,
   getVisibleTokenComponentKeys,
@@ -70,7 +73,6 @@ import {
   formatDashboardTrendTimestampLabel,
 } from '@/lib/dashboard-number-format'
 import { formatExactCount } from '@/lib/count-number-format'
-import { cn } from '@/lib/utils'
 
 type RangePreset = 1 | 7 | 30
 
@@ -140,16 +142,6 @@ export function TenantDashboardPage() {
   })
 
   const isRefreshing = manualRefreshing || isFetchingSummary
-
-  const rangeLabel = (days: RangePreset) => {
-    if (days === 1) {
-      return t('tenantDashboard.filters.range.last24Hours', { defaultValue: 'Last 24 hours' })
-    }
-    if (days === 7) {
-      return t('tenantDashboard.filters.range.last7Days', { defaultValue: 'Last 7 days' })
-    }
-    return t('tenantDashboard.filters.range.last30Days', { defaultValue: 'Last 30 days' })
-  }
 
   const handleRefresh = () => {
     setRangeAnchorMs(Date.now())
@@ -277,17 +269,6 @@ export function TenantDashboardPage() {
       color: TOKEN_COMPONENT_CHART_COLORS.reasoning,
     },
   ]
-  const emptyStateClassName =
-    'flex h-[320px] items-center justify-center rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground'
-  const tokenSummaryTileClassName = 'rounded-xl border border-border/60 bg-muted/20 p-3'
-  const overviewTileClassName = 'rounded-xl border border-border/60 bg-background/70 px-4 py-3'
-  const toggleBadgeButtonClassName = (pressed: boolean) =>
-    cn(
-      'gap-2 rounded-full border-border/60 bg-background/80 px-3 py-1.5 text-xs font-medium shadow-none',
-      pressed
-        ? 'bg-accent text-accent-foreground hover:bg-accent/90'
-        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-    )
   const visibleTokenComponentKeys = useMemo(
     () => getVisibleTokenComponentKeys(tokenComponents),
     [tokenComponents],
@@ -400,35 +381,30 @@ export function TenantDashboardPage() {
       value: formatDashboardMetric(rpm),
       exactValue: formatDashboardExactNumber(rpm),
       desc: t('tenantDashboard.kpi.rpmDesc', { defaultValue: 'Requests per minute' }),
-      icon: TrendingUp,
     },
     {
       title: t('tenantDashboard.kpi.tpm', { defaultValue: 'TPM' }),
       value: formatDashboardTokenRate(tpm),
       exactValue: formatDashboardExactNumber(tpm),
       desc: t('tenantDashboard.kpi.tpmDesc', { defaultValue: 'Tokens per minute' }),
-      icon: Gauge,
     },
     {
       title: t('tenantDashboard.kpi.totalTokens', { defaultValue: 'Token consumption total' }),
       value: formatDashboardTokenCount(totalTokens),
       exactValue: formatExactCount(totalTokens),
       desc: t('tenantDashboard.kpi.totalTokensDesc', { defaultValue: 'Input + cached + output + reasoning' }),
-      icon: Zap,
     },
     {
       title: t('tenantDashboard.kpi.totalRequests', { defaultValue: 'Total requests' }),
       value: formatDashboardCount(totalRequests),
       exactValue: formatExactCount(totalRequests),
       desc: t('tenantDashboard.kpi.totalRequestsDesc', { defaultValue: 'Selected time range' }),
-      icon: TrendingUp,
     },
     {
       title: t('tenantDashboard.kpi.avgFirstTokenSpeed', { defaultValue: 'Average first-token speed' }),
       value: formatDashboardDurationSeconds(avgFirstTokenSec),
       exactValue: formatDashboardDurationSeconds(avgFirstTokenSec),
       desc: t('tenantDashboard.kpi.avgFirstTokenSpeedDesc', { defaultValue: 'TTFT (streaming exact / non-stream approximate)' }),
-      icon: Timer,
     },
   ]
 
@@ -469,30 +445,16 @@ export function TenantDashboardPage() {
   }, [keys, selectedApiKeyId, t])
 
   return (
-    <div className="flex-1 overflow-y-auto bg-muted/20 px-4 py-4 sm:px-6 lg:px-8">
+    <PageContent className="overflow-y-auto bg-muted/20">
       <DashboardShell
         intro={(
-          <PageIntro
+          <DockedPageIntro
             archetype="dashboard"
             eyebrow={t('tenantDashboard.hero.badge', { defaultValue: 'Tenant Workspace Overview' })}
             title={t('tenantDashboard.title', { defaultValue: 'Tenant Dashboard' })}
             description={t('tenantDashboard.subtitle.metricsFocus', {
               defaultValue: 'Focus metrics: TPM, RPM, total token consumption, total requests, and first-token speed.',
             })}
-            meta={(
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-6">
-                <span>{t('tenantDashboard.hero.summaryPrefix', { defaultValue: 'Scope: current tenant ' })}</span>
-                <span>
-                  {selectedApiKeyId
-                    ? t('tenantDashboard.hero.summarySingleApiKey', { defaultValue: '(single API key)' })
-                    : t('tenantDashboard.hero.summaryAllApiKeys', { defaultValue: '(all API keys)' })}
-                </span>
-                <span className="text-slate-300 dark:text-slate-600">·</span>
-                <span>{rangeLabel(rangePreset)}</span>
-                <span className="text-slate-300 dark:text-slate-600">·</span>
-                <span>{t('dashboard.meta.autoRefresh', { defaultValue: 'Auto-refresh every 30 seconds' })}</span>
-              </div>
-            )}
             actions={(
               <>
                 <NextButton
@@ -520,7 +482,6 @@ export function TenantDashboardPage() {
                   {t('tenantDashboard.actions.manageApiKeys', { defaultValue: 'Manage API keys' })}
                 </NextButton>
                 <NextButton
-                  variant="bordered"
                   className="min-h-11"
                   onPress={handleRefresh}
                   isDisabled={isRefreshing}
@@ -537,9 +498,6 @@ export function TenantDashboardPage() {
             <SectionHeader
               eyebrow={t('dashboard.filters.eyebrow', { defaultValue: 'Context' })}
               title={t('dashboard.filters.title', { defaultValue: 'Scope and filters' })}
-              description={t('dashboard.filters.description', {
-                defaultValue: 'Tighten the view to a tenant or API key when you need to isolate hotspots quickly.',
-              })}
             />
             <div className="space-y-3">
               <Select
@@ -547,7 +505,6 @@ export function TenantDashboardPage() {
                 disallowEmptySelection
                 selectedKeys={[String(rangePreset)]}
                 onChange={(event) => setRangePreset(Number(event.target.value) as RangePreset)}
-                variant="bordered"
                 size="sm"
               >
                 {rangeOptions.map((option) => (
@@ -559,17 +516,11 @@ export function TenantDashboardPage() {
                 disallowEmptySelection
                 selectedKeys={[apiKeyId]}
                 onChange={(event) => setApiKeyId(event.target.value)}
-                variant="bordered"
                 size="sm"
                 items={apiKeyOptions}
               >
                 {(item) => <SelectItem key={item.key}>{item.label}</SelectItem>}
               </Select>
-              <p className="text-xs text-muted-foreground">
-                {t('tenantDashboard.filters.apiKeyHint', {
-                  defaultValue: 'Tip: use API key filter to isolate model and token hotspots quickly.',
-                })}
-              </p>
             </div>
           </PagePanel>
         )}
@@ -583,38 +534,32 @@ export function TenantDashboardPage() {
               valueTitle={item.exactValue}
               description={item.desc}
               loading={isFetchingSummary && !summary}
-              icon={<item.icon className="h-4 w-4" />}
             />
           ))}
         </DashboardMetricGrid>
 
         <PagePanel tone="secondary">
-          <SectionHeader
-            title={t('tenantDashboard.groupOverview.title', { defaultValue: 'API key group overview' })}
-            description={
-              selectedApiKeyId
-                ? t('tenantDashboard.groupOverview.singleDescription', { defaultValue: 'Current API key group binding and validity state.' })
-                : t('tenantDashboard.groupOverview.allDescription', { defaultValue: 'How your current API keys are distributed across pricing groups.' })
-            }
-          />
+          <SectionHeader title={t('tenantDashboard.groupOverview.title', { defaultValue: 'API key group overview' })} />
           <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {groupOverviewItems.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border/60 px-4 py-5 text-sm text-muted-foreground">
+              <SurfaceInset tone="muted" className="px-4 py-5 text-sm text-muted-foreground">
                 {t('tenantDashboard.groupOverview.empty', { defaultValue: 'No API key groups to show yet.' })}
-              </div>
+              </SurfaceInset>
             ) : (
               groupOverviewItems.map((item) => (
-                <div key={item.id} className={overviewTileClassName}>
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-medium text-foreground">{item.label}</p>
-                    <Chip color={item.invalid ? 'danger' : 'success'} variant="flat">
-                      {item.invalid
-                        ? t('tenantDashboard.groupOverview.invalid', { defaultValue: 'Invalid' })
-                        : t('tenantDashboard.groupOverview.valid', { defaultValue: 'Valid' })}
-                    </Chip>
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">{item.groupName}</p>
-                </div>
+                <SurfaceCard key={item.id} tone="default" shadow="none">
+                  <SurfaceCardBody className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium text-foreground">{item.label}</p>
+                      <Chip color={item.invalid ? 'danger' : 'success'} variant="flat">
+                        {item.invalid
+                          ? t('tenantDashboard.groupOverview.invalid', { defaultValue: 'Invalid' })
+                          : t('tenantDashboard.groupOverview.valid', { defaultValue: 'Valid' })}
+                      </Chip>
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">{item.groupName}</p>
+                  </SurfaceCardBody>
+                </SurfaceCard>
               ))
             )}
           </div>
@@ -624,27 +569,28 @@ export function TenantDashboardPage() {
           <PagePanel className="space-y-5">
             <SectionHeader
               title={t('tenantDashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}
-              description={t('tenantDashboard.tokenTrend.description', {
-                defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
-              })}
               actions={(
                 <div className="flex flex-wrap gap-2">
                   {tokenBreakdownRows.map((item) => (
-                    <ToggleBadgeButton
+                    <NextButton
                       key={item.key}
-                      variant="outline"
-                      pressed={tokenComponents[item.key]}
-                      className={toggleBadgeButtonClassName(tokenComponents[item.key])}
+                      aria-pressed={tokenComponents[item.key]}
+                      color={tokenComponents[item.key] ? 'primary' : 'default'}
+                      radius="full"
+                      size="sm"
+                      startContent={(
+                        <span
+                          aria-hidden="true"
+                          className="size-2 shrink-0 rounded-full border border-background/70"
+                          style={{ backgroundColor: item.color }}
+                        />
+                      )}
+                      variant={tokenComponents[item.key] ? 'flat' : 'bordered'}
                       title={formatExactCount(item.value)}
-                      onClick={() => setTokenComponents((prev) => toggleTokenComponent(prev, item.key))}
+                      onPress={() => setTokenComponents((prev) => toggleTokenComponent(prev, item.key))}
                     >
-                      <span
-                        aria-hidden="true"
-                        className="size-2 shrink-0 rounded-full border border-background/70"
-                        style={{ backgroundColor: item.color }}
-                      />
                       <span>{item.label}: {formatDashboardTokenCount(item.value)}</span>
-                    </ToggleBadgeButton>
+                    </NextButton>
                   ))}
                 </div>
               )}
@@ -664,9 +610,9 @@ export function TenantDashboardPage() {
                 <Skeleton className="h-[300px] w-full rounded-xl" />
               </div>
             ) : tokenTrendData.length === 0 ? (
-              <div className={emptyStateClassName}>
+              <SurfaceInset tone="muted" className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
                 {t('tenantDashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
-              </div>
+              </SurfaceInset>
             ) : (
               <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
                 <ResponsiveContainer width="100%" height={320}>
@@ -726,26 +672,32 @@ export function TenantDashboardPage() {
           <PagePanel className="space-y-5">
             <SectionHeader
               title={t('tenantDashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}
-              description={t('tenantDashboard.modelDistribution.description', { defaultValue: 'Top models by request count or token usage.' })}
               actions={(
-                <div className="flex gap-2">
-                  <ToggleBadgeButton
-                    variant="outline"
-                    pressed={modelMode === 'requests'}
-                    className={toggleBadgeButtonClassName(modelMode === 'requests')}
-                    onClick={() => setModelMode('requests')}
-                  >
-                    {t('tenantDashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' })}
-                  </ToggleBadgeButton>
-                  <ToggleBadgeButton
-                    variant="outline"
-                    pressed={modelMode === 'tokens'}
-                    className={toggleBadgeButtonClassName(modelMode === 'tokens')}
-                    onClick={() => setModelMode('tokens')}
-                  >
-                    {t('tenantDashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
-                  </ToggleBadgeButton>
-                </div>
+                <Tabs
+                  aria-label={t('tenantDashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}
+                  className="w-auto"
+                  classNames={{
+                    tabList: 'rounded-full bg-content2 p-1',
+                    tab: 'h-9 px-3',
+                    cursor: 'rounded-full bg-primary shadow-none',
+                    panel: 'hidden',
+                    tabContent:
+                      'text-xs font-medium text-default-500 group-data-[selected=true]:text-primary-foreground',
+                  }}
+                  color="primary"
+                  selectedKey={modelMode}
+                  variant="solid"
+                  onSelectionChange={(key) => setModelMode(String(key) as ModelDistributionMode)}
+                >
+                  <Tab
+                    key="requests"
+                    title={t('tenantDashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' })}
+                  />
+                  <Tab
+                    key="tokens"
+                    title={t('tenantDashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
+                  />
+                </Tabs>
               )}
             />
             <ChartAccessibility
@@ -763,9 +715,9 @@ export function TenantDashboardPage() {
                 <Skeleton className="h-[300px] w-full rounded-xl" />
               </div>
             ) : modelDistributionData.length === 0 ? (
-              <div className={emptyStateClassName}>
+              <SurfaceInset tone="muted" className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
                 {t('tenantDashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
-              </div>
+              </SurfaceInset>
             ) : (
               <div aria-hidden="true" style={{ width: '100%', minHeight: 320 }}>
                 <ResponsiveContainer width="100%" height={320}>
@@ -829,14 +781,16 @@ export function TenantDashboardPage() {
           />
           <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {tokenBreakdownRows.map((row) => (
-              <div key={row.key} className={tokenSummaryTileClassName}>
-                <p className="text-xs text-muted-foreground">{row.label}</p>
-                <p className="text-lg font-semibold text-foreground">{formatDashboardTokenCount(row.value)}</p>
-              </div>
+              <SurfaceCard key={row.key} tone="muted" shadow="none">
+                <SurfaceCardBody className="p-3">
+                  <p className="text-xs text-muted-foreground">{row.label}</p>
+                  <p className="text-lg font-semibold text-foreground">{formatDashboardTokenCount(row.value)}</p>
+                </SurfaceCardBody>
+              </SurfaceCard>
             ))}
           </div>
         </PagePanel>
       </DashboardShell>
-    </div>
+    </PageContent>
   )
 }

@@ -36,12 +36,14 @@ export interface RequestLogsResponse {
 }
 
 export const requestLogsApi = {
-  adminList: (params: RequestLogQueryParams) =>
-    apiClient.get<RequestLogsResponse>('/admin/request-logs', {
+  adminList: async (params: RequestLogQueryParams): Promise<RequestLogsResponse> => {
+    const response = await apiClient.get<RequestLogsResponse>('/admin/request-logs', { params })
+    return response.data
+  },
+  tenantList: async (params: Omit<RequestLogQueryParams, 'tenant_id'>) => {
+    const response = await tenantApiClient.get<RequestLogsResponse>('/request-logs', {
       params,
-    }),
-  tenantList: (params: Omit<RequestLogQueryParams, 'tenant_id'>) =>
-    tenantApiClient.get<RequestLogsResponse>('/request-logs', {
-      params,
-    }),
+    })
+    return response.data
+  },
 }

@@ -1,22 +1,56 @@
 import * as React from "react"
+import { Input as HeroInput, type InputProps as HeroInputProps } from "@heroui/react"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+export type InputProps = Omit<HeroInputProps, "spellCheck"> & {
+  spellCheck?: boolean
+}
+
+const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
+  {
+    className,
+    classNames,
+    variant = "bordered",
+    radius = "sm",
+    size = "md",
+    spellCheck,
+    ...props
+  },
+  ref,
+) {
   return (
-    <input
-      type={type}
-      data-slot="input"
-      className={cn(
-        "file:text-foreground placeholder:text-muted-foreground/90 selection:bg-primary selection:text-primary-foreground border-input h-10 w-full min-w-0 rounded-[10px] border bg-background/88 px-3.5 py-2 text-[0.95rem] shadow-[inset_0_1px_0_rgba(255,255,255,0.26)] transition-[border-color,box-shadow,background-color,transform] duration-180 ease-[cubic-bezier(0.16,1,0.3,1)] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.045] md:text-sm motion-reduce:transform-none",
-        "hover:border-border hover:bg-background/94 dark:hover:bg-white/[0.055]",
-        "focus-visible:border-ring focus-visible:bg-background focus-visible:ring-[3px] focus-visible:ring-ring/24 dark:focus-visible:bg-white/[0.06]",
-        "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
-        className
-      )}
+    <HeroInput
+      ref={ref}
+      variant={variant}
+      radius={radius}
+      size={size}
+      spellCheck={
+        spellCheck === undefined
+          ? undefined
+          : (spellCheck ? "true" : "false")
+      }
+      className={className}
+      classNames={{
+        inputWrapper: cn(
+          "border-small border-default-200 bg-content1 shadow-small transition-[border-color,background-color]",
+          "group-data-[focus=true]:border-primary group-data-[focus=true]:bg-content1",
+          "group-data-[hover=true]:border-default-300 group-data-[hover=true]:bg-content2",
+          classNames?.inputWrapper,
+        ),
+        input: cn("text-sm text-foreground placeholder:text-default-400", classNames?.input),
+        label: cn("text-sm font-medium text-foreground/82", classNames?.label),
+        description: cn("text-xs text-default-500", classNames?.description),
+        errorMessage: cn("text-xs", classNames?.errorMessage),
+        clearButton: cn("text-default-400", classNames?.clearButton),
+        base: classNames?.base,
+        mainWrapper: classNames?.mainWrapper,
+        innerWrapper: classNames?.innerWrapper,
+        helperWrapper: classNames?.helperWrapper,
+      }}
       {...props}
     />
   )
-}
+})
 
 export { Input }

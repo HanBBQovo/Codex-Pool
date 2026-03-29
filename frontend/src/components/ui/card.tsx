@@ -1,28 +1,32 @@
 import * as React from "react"
+import {
+  Card as HeroCard,
+  CardBody as HeroCardBody,
+  CardFooter as HeroCardFooter,
+  CardHeader as HeroCardHeader,
+  type CardProps as HeroCardProps,
+} from "@heroui/react"
 
 import { cn } from "@/lib/utils"
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+function Card({ className, ...props }: HeroCardProps) {
   return (
-    <div
-      data-slot="card"
+    <HeroCard
+      radius="lg"
+      shadow="sm"
       className={cn(
-        "bg-background/78 text-card-foreground flex flex-col gap-4 rounded-[0.95rem] border border-border/65 py-4 shadow-none dark:bg-card/82 dark:border-white/8",
-        className
+        "border-small border-default-200 bg-content1 text-foreground",
+        className,
       )}
       {...props}
     />
   )
 }
 
-function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+function CardHeader({ className, ...props }: React.ComponentProps<typeof HeroCardHeader>) {
   return (
-    <div
-      data-slot="card-header"
-      className={cn(
-        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-4 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-4",
-        className
-      )}
+    <HeroCardHeader
+      className={cn("@container/card-header flex flex-col items-start gap-2 px-4 py-4", className)}
       {...props}
     />
   )
@@ -32,7 +36,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-title"
-      className={cn("leading-none font-semibold tracking-[-0.02em]", className)}
+      className={cn("text-base font-semibold tracking-[-0.02em] text-foreground", className)}
       {...props}
     />
   )
@@ -42,7 +46,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-description"
-      className={cn("text-muted-foreground text-sm leading-6", className)}
+      className={cn("text-sm leading-6 text-default-600", className)}
       {...props}
     />
   )
@@ -52,33 +56,18 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-action"
-      className={cn(
-        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
-        className
-      )}
+      className={cn("ml-auto flex items-center justify-end gap-2 self-start", className)}
       {...props}
     />
   )
 }
 
-function CardContent({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="card-content"
-      className={cn("px-4", className)}
-      {...props}
-    />
-  )
+function CardContent({ className, ...props }: React.ComponentProps<typeof HeroCardBody>) {
+  return <HeroCardBody className={cn("px-4 py-4", className)} {...props} />
 }
 
-function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="card-footer"
-      className={cn("flex items-center px-4 [.border-t]:pt-4", className)}
-      {...props}
-    />
-  )
+function CardFooter({ className, ...props }: React.ComponentProps<typeof HeroCardFooter>) {
+  return <HeroCardFooter className={cn("px-4 py-4", className)} {...props} />
 }
 
 export {

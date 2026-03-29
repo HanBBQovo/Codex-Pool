@@ -20,15 +20,30 @@ export interface TenantCreateApiKeyResponse {
 }
 
 export const tenantKeysApi = {
-  list: () => tenantApiClient.get<TenantApiKeyRecord[]>('/keys'),
+  list: async () => {
+    const response = await tenantApiClient.get<TenantApiKeyRecord[]>('/keys')
+    return response.data
+  },
 
-  create: (payload: { name: string; ip_allowlist: string[]; model_allowlist?: string[]; group_id?: string }) =>
-    tenantApiClient.post<TenantCreateApiKeyResponse>('/keys', payload),
+  create: async (payload: {
+    name: string
+    ip_allowlist: string[]
+    model_allowlist?: string[]
+    group_id?: string
+  }) => {
+    const response = await tenantApiClient.post<TenantCreateApiKeyResponse>('/keys', payload)
+    return response.data
+  },
 
   patch: (
     keyId: string,
-    payload: { enabled?: boolean; ip_allowlist?: string[]; model_allowlist?: string[]; group_id?: string }
-  ) => tenantApiClient.patch<TenantApiKeyRecord>(`/keys/${keyId}`, payload),
+    payload: { enabled?: boolean; ip_allowlist?: string[]; model_allowlist?: string[]; group_id?: string },
+  ) =>
+    tenantApiClient
+      .patch<TenantApiKeyRecord>(`/keys/${keyId}`, payload)
+      .then((response) => response.data),
 
-  remove: (keyId: string) => tenantApiClient.delete<void>(`/keys/${keyId}`),
+  remove: async (keyId: string) => {
+    await tenantApiClient.delete<void>(`/keys/${keyId}`)
+  },
 }

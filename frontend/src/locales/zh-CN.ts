@@ -16,6 +16,7 @@ export default {
             delete: "删除账号",
             deleteConfirm: "确认删除账号 {{label}}？",
             disableAccount: "禁用账号",
+            disable: "禁用",
             enableAccount: "启用账号",
             export: "导出 CSV",
             filter: "筛选列表",
@@ -28,6 +29,7 @@ export default {
             selectAll: "全选当前筛选结果",
             selectOne: "选择账号 {{label}}",
             selectedCount: "已选 {{count}} 条",
+            view: "查看详情",
             viewDetails: "查看详情",
             edit: "编辑属性",
             refresh: "强制刷新",
@@ -47,7 +49,6 @@ export default {
             plan: "套餐",
             provider: "账号类型",
             rateLimit: "Rate Limit 使用",
-            runtimePool: "运行池",
             binding: "绑定账号 ID",
             unbound: "未绑定"
         },
@@ -75,7 +76,6 @@ export default {
                 credentials: "凭据",
                 identity: "身份信息",
                 refresh: "刷新状态",
-                runtimeHealth: "运行健康",
                 supportedModels: "可用模型",
                 subscription: "订阅信息"
             },
@@ -108,24 +108,9 @@ export default {
                 rateLimitsExpiresAt: "限额过期时间",
                 rateLimitsLastErrorCode: "限额最近错误码",
                 rateLimitsLastError: "限额最近错误",
-                poolState: "运行池",
-                refreshCredentialState: "刷新凭证状态",
-                quarantineReason: "隔离原因",
-                quarantineUntil: "隔离到期",
-                pendingPurgeReason: "待清理原因",
-                pendingPurgeAt: "待清理时间",
-                lastLiveResult: "最近 Live Result",
-                lastLiveResultAt: "最近 Live Result 时间",
-                lastLiveResultError: "最近 Live 错误",
-                hasRefreshCredential: "是否有刷新凭证",
-                hasAccessTokenFallback: "是否有访问令牌回退",
                 rawAccount: "账号原始数据",
                 rawOauthStatus: "OAuth 状态原始数据"
             }
-        },
-        liveResult: {
-            ok: "成功",
-            failed: "失败"
         },
         filters: {
             active: "正常",
@@ -208,7 +193,8 @@ export default {
             notApplicable: "-",
             provider: {
                 legacyBearer: "旧版 Bearer 令牌",
-                refreshToken: "Refresh Token"
+                refreshToken: "刷新令牌",
+                unknown: "未知提供方"
             },
             sourceType: {
                 codex: "Codex",
@@ -228,13 +214,6 @@ export default {
                 unknown: "未知凭据类型"
             }
         },
-        refreshCredentialState: {
-            healthy: "健康",
-            degraded: "退化",
-            invalid: "无效",
-            missing: "缺失",
-            unknown: "未知"
-        },
         rateLimits: {
             labels: {
                 fiveHours: "5小时限制",
@@ -248,35 +227,83 @@ export default {
             moreDetails: "查看更多（+{{count}}）",
             noReset: "暂无刷新时间",
             remainingPrefix: "剩余",
-            resetAt: "{{absolute}}（{{relative}}）重置",
+            resetAt: "{{absolute}}",
             unavailable: "暂无限额数据",
             usedPrefix: "已用"
         },
+        planValues: {
+            business: "商业版",
+            enterprise: "企业版",
+            free: "免费版",
+            plus: "Plus",
+            pro: "Pro",
+            team: "团队版"
+        },
         searchPlaceholder: "按邮箱、标签、URL 搜索…",
-        runtimePool: {
-            eyebrow: "运行健康",
-            title: "在线池态势",
-            description: "Accounts 只代表在线池。想查看 queued、ready、no_quota 等库存状态，请进入 Inventory。",
-            openInventory: "打开 Inventory",
-            active: "活跃",
-            activeDesc: "当前可参与运行时路由。",
-            quarantine: "隔离",
-            quarantineDesc: "等待重试或额度恢复的临时隔离账号。",
-            pendingPurge: "待清理",
-            pendingPurgeDesc: "已从路由摘除，等待异步清理的致命账号。",
-            vaultReady: "库存就绪",
-            vaultReadyDesc: "无需 refresh 即可补入 active 池的库存记录。",
-            unknown: "未知"
+        notAvailable: "暂无",
+        health: {
+            ok: "正常",
+            failed: "失败",
+            disabled: "已禁用"
         },
         status: {
             active: "正常",
             disabled: "已禁用"
+        },
+        plan: {
+            enterprise: "企业版",
+            free: "免费版",
+            plus: "Plus",
+            pro: "Pro",
+            team: "团队版",
+            unknown: "未知计划"
         },
         subtitle: "在这里查看账号是否可用，并管理登录状态",
         syncing: "正在同步账号状态…",
         title: "账号池"
     },
     billing: {
+        antigravity: {
+            activeGranularity: "当前粒度",
+            activeScope: "当前范围",
+            activeTenant: "当前租户",
+            averageDeduction: "平均单次扣减",
+            averageDeductionHint: "按账本中的负向积分变动估算每次用量事件的平均扣减强度。",
+            balanceHint: "当前租户可继续用于后续请求的可用积分余额。",
+            balanceAfter: "余额 {{value}}",
+            contractHint: "当前账单页面与 main 分支保持同一套租户 credits 契约。",
+            currentBalanceChip: "余额快照",
+            eventType: {
+                adminRecharge: "管理员充值",
+                unknown: "未知事件",
+                usage: "用量扣费"
+            },
+            ledgerRows: "流水条目",
+            ledgerSearch: "搜索账本流水、请求 ID 或模型…",
+            ledgerSignalsDescription: "快速查看充值事件、扣费事件、账本条目数量和当前余额快照。",
+            ledgerSignalsTitle: "账本信号",
+            lastUpdated: "最近更新：{{time}}",
+            lastUpdatedLabel: "最近更新时间",
+            loading: "正在加载租户账单…",
+            logCoverage: "日志覆盖",
+            logCoverageHint: "当前时间窗口内可追溯的请求日志条目数。",
+            monthConsumedHint: "当前自然月内已经记录的累计扣减额度。",
+            noActivityTitle: "这个租户还没有产生账本活动",
+            noActivityDescription: "当前租户 {{tenant}} 还没有充值或用量扣费记录，所以趋势图和账本会保持为空。先准备账号池或发起请求后，这里会开始出现真实账单轨迹。",
+            noTenant: "暂无可用租户",
+            noTenantDescription: "请先创建或同步一个租户，然后这里才能展示真实的 credits 汇总与账本流水。",
+            rechargeEvents: "充值事件",
+            requestCountHint: "当前时间窗口内纳入成本汇总的请求总数。",
+            scopeTitle: "范围",
+            scopePanelDescription: "在租户与统计粒度之间切换，快速对齐你正在查看的费用窗口。",
+            scopePanelTitle: "账单范围",
+            tenantCreditEvent: "租户积分事件",
+            tenantLabel: "租户",
+            todayConsumedHint: "当前自然日内由请求处理产生的积分消耗。",
+            totalCostHint: "当前时间窗口内估算的总成本。",
+            usageEvents: "扣费事件",
+            avgCostHint: "按总成本除以请求数得到的平均单次请求成本。"
+        },
         columns: {
             balanceAfter: "变动后余额",
             billingDetail: "账单详情",
@@ -408,10 +435,15 @@ export default {
         logout: "退出登录",
         no: "否",
         noData: "暂无数据",
+        never: "从不",
         openMenu: "打开菜单",
+        closeMenu: "关闭菜单",
         refresh: "刷新",
         skipToMainContent: "跳至主要内容",
         table: {
+            allItemsSelected: "已选择全部条目",
+            columns: "列",
+            dataTableAria: "数据表格",
             firstPage: "第一页",
             go: "跳转",
             jumpToPage: "跳转页码",
@@ -420,12 +452,42 @@ export default {
             pageOf: "第 {{page}} / {{total}} 页",
             previousPage: "上一页",
             range: "{{start}}-{{end}} / 共 {{total}} 条",
+            rowActions: "行操作",
             rowsPerPage: "每页条数",
             searchLabel: "搜索表格",
-            searchPlaceholder: "搜索当前列表…"
+            searchPlaceholder: "搜索当前列表…",
+            selectedCount: "已选 {{count}} / {{total}} 条",
+            statusLabel: "状态",
+            statusFilter: "状态筛选",
+            totalItems: "共 {{count}} 条"
         },
+        languages: {
+            english: "English",
+            simplifiedChinese: "简体中文"
+        },
+        tokenSegments: {
+            cached: "缓存",
+            input: "输入",
+            output: "输出"
+        },
+        units: {
+            millisecondsShort: "{{value}}ms",
+            secondsShort: "{{value}}s"
+        },
+        current: "当前",
+        actions: "操作",
         toggleLanguage: "切换语言",
         toggleTheme: "切换主题",
+        uiPreferences: {
+            title: "界面偏好",
+            drawerPlacement: "抽屉弹出方位",
+            drawerPlacementOptions: {
+                bottom: "底部",
+                right: "右侧",
+                left: "左侧",
+                top: "顶部"
+            }
+        },
         yes: "是",
         save: "保存",
         search: "搜索…",
@@ -444,6 +506,30 @@ export default {
         priority: "优先"
     },
     config: {
+        antigravity: {
+            loading: "正在加载配置…",
+            metrics: {
+                authValidation: "鉴权校验",
+                controlPlane: "控制面监听",
+                dataPlane: "数据平面地址",
+                refreshStatus: "刷新状态"
+            },
+            notesEmpty: "未填写备注",
+            notesPresent: "已填写备注",
+            notesStatus: "备注状态",
+            refreshDisabled: "自动刷新已关闭",
+            refreshEnabled: "自动刷新已开启",
+            refreshIntervalLabel: "刷新间隔",
+            reset: "重置",
+            saveFailed: "保存配置失败。",
+            section: {
+                connection: "连接",
+                refresh: "刷新"
+            },
+            runtimePanelTitle: "运行时同步状态",
+            synced: "与服务端配置一致",
+            unsavedChanges: "有未保存更改"
+        },
         controlPlane: {
             authValidateUrl: "鉴权校验地址",
             dataPlaneUrl: "转发服务地址",
@@ -458,6 +544,46 @@ export default {
             intervalSec: "刷新间隔（秒）",
             notes: "备注",
             title: "自动刷新设置"
+        },
+        themeLab: {
+            title: "Theme Lab",
+            description: "让默认视觉更贴近 HeroUI Pro 原生，并在当前浏览器里做轻量微调。",
+            localOnly: "仅当前浏览器生效",
+            currentMode: "当前模式：{{value}}",
+            resolvedMode: "实际生效：{{value}}",
+            modeTitle: "主题模式",
+            modeDescription: "切换浅色、深色或跟随系统。这里会直接驱动全局 HeroUI 主题，而不是页面局部样式。",
+            modeLightHint: "始终使用 HeroUI 浅色主题。",
+            modeDarkHint: "始终使用 HeroUI 深色主题。",
+            modeSystemHint: "跟随系统外观偏好自动切换。",
+            radiusTitle: "圆角密度",
+            radiusDescription: "调整全局卡片、输入框和面板的弧度强弱。",
+            densityTitle: "页面密度",
+            densityDescription: "调整全局间距与壳层留白，观察 HeroUI Pro 工作台的呼吸感。",
+            footer: "这些设置会即时作用到当前管理台，并保存在本地浏览器。运行时配置的保存与重置不会影响这里。",
+            reset: "恢复 HeroUI Pro 默认",
+            previewTitle: "实时预览",
+            previewDescription: "用一组标准卡片、表单和操作按钮，快速检查当前基线是否贴近官方风格。",
+            previewMetric: "预览指标",
+            previewMetricHint: "观察背景层级、字重、边框与阴影关系。",
+            previewInputLabel: "预览输入",
+            previewInputValue: "当前主题已经开始影响这一行。",
+            previewPrimaryAction: "主操作",
+            previewSecondaryAction: "次操作",
+            previewChipHealthy: "状态健康",
+            previewChipAttention: "需要关注",
+            previewResolvedChip: "已套用：{{value}}",
+            previewChipRadius: "圆角：{{value}}",
+            previewChipDensity: "密度：{{value}}",
+            density: {
+                compact: "紧凑",
+                comfortable: "舒展"
+            },
+            radius: {
+                compact: "利落",
+                default: "原生默认",
+                relaxed: "更柔和"
+            }
         },
         runtimeHint: {
             desc: "修改会立即生效。服务重启后，仍以环境变量和 config.toml 为准。",
@@ -490,8 +616,17 @@ export default {
     },
     dashboard: {
         actions: {
+            openMenu: "打开操作菜单",
+            viewAccounts: "查看账号池",
             viewBilling: "查看账单",
+            viewImports: "查看导入批次",
             viewLogs: "查看请求日志"
+        },
+        antigravity: {
+            activeAccounts: "{{count}} 个活跃账号",
+            last24Hours: "过去 24 小时",
+            loading: "正在加载总览数据…",
+            signal: "运行信号"
         },
         alerts: {
             checkRoutes: "检查路由",
@@ -504,6 +639,7 @@ export default {
                 time: "时间"
             },
             empty: "系统运行稳定",
+            emptyDescription: "当前时间窗口内没有活跃的基础设施或用量链路告警。",
             resolve: "标为解决",
             searchPlaceholder: "搜索告警内容…",
             subtitle: "需要干预处置的系统隐患",
@@ -622,45 +758,32 @@ export default {
             usagePipeline: "用量链路"
         },
         poolOverview: {
-            eyebrow: "池子总览",
-            title: "库存与运行池",
-            description: "把 vault 准入和 runtime 池子放在一起看，能更早发现激活压力。",
-            inventoryDesc: "已进入账号池，但暂时还不能参与路由。",
-            routableDesc: "当前足够健康，可直接承接路由流量。",
-            coolingDesc: "因冷却或等待重新探测，暂时退出路由。",
-            pendingDeleteDesc: "因致命健康判定而进入待删除。",
-            queued: "库存排队",
-            queuedDesc: "已导入，等待准入探测。",
-            ready: "库存就绪",
-            readyDesc: "无需 refresh 即可进入 active。",
-            needsRefresh: "库存待刷新",
-            needsRefreshDesc: "进入 active 前需要一次 refresh。",
-            noQuota: "库存无额度",
-            noQuotaDesc: "探测成功，但当前额度已耗尽。",
-            active: "活跃",
-            activeDesc: "当前可路由的运行账号。",
-            quarantine: "隔离",
-            quarantineDesc: "等待重试或重置中的运行账号。",
-            pendingPurge: "待清理",
-            pendingPurgeDesc: "已判定致命并从路由摘除。"
+            title: "账号池总览",
+            description: "查看库存、可路由容量、冷却中账号与待删除记录的当前分布。",
+            totalLabel: "总计",
+            inventory: "库存中",
+            inventoryDesc: "已纳入池子但暂未进入可路由集合。",
+            routable: "可路由",
+            routableDesc: "当前健康并可参与路由的账号。",
+            cooling: "冷却中",
+            coolingDesc: "正在等待限额恢复或重新探测的账号。",
+            pendingDelete: "待删除",
+            pendingDeleteDesc: "已进入待删除清理流程的记录。",
+            shareOfPool: "账号池占比"
         },
         healthSignals: {
-            eyebrow: "健康信号",
-            title: "近期运行时信号",
-            description: "集中查看 live-result 成功与失败信号，让隔离和待清理在翻日志前就暴露出来。",
-            healthyDesc: "当前被归类为健康的账号。",
-            quotaDesc: "因限流或额度耗尽而处于冷却中的账号。",
-            fatalDesc: "因致命鉴权或账号问题被标记的账号。",
-            transientDesc: "因瞬时网络或上游问题等待恢复的账号。",
-            adminDesc: "因人工运营动作而被保留或暂停的账号。",
-            liveOk: "Live-result 成功",
-            liveOkDesc: "近期从运行账号收到的成功信号。",
-            liveFailed: "Live-result 失败",
-            liveFailedDesc: "近期从运行账号收到的失败信号。",
-            quarantine: "隔离信号",
-            quarantineDesc: "把运行账号推入 quarantine 的信号数量。",
-            pendingPurge: "待清理信号",
-            pendingPurgeDesc: "已把运行账号推出路由的致命信号数量。"
+            title: "健康信号",
+            description: "按原因分类区分健康容量、限额冷却、瞬时故障、致命问题和人工操作。",
+            healthy: "健康",
+            healthyDesc: "当前带有健康运行信号的账号。",
+            quota: "限额",
+            quotaDesc: "因限流或额度耗尽而进入冷却的账号。",
+            fatal: "致命",
+            fatalDesc: "通常需要恢复或删除决策的致命信号。",
+            transient: "瞬时",
+            transientDesc: "可以通过重新探测恢复的临时故障。",
+            admin: "人工",
+            adminDesc: "由运营动作或人工决策导致的状态。"
         },
         tokenComponents: {
             cached: "缓存输入",
@@ -713,21 +836,67 @@ export default {
             retryFailed: "重试失败",
             removeFromList: "从列表移除"
         },
+        antigravity: {
+            loading: "正在加载导入任务…",
+            intakeTitle: "导入入口",
+            intakeDescription: "在这里选择凭证模式并发起新的文件导入批次。",
+            intakeHint: "上传多份 .json/.jsonl 文件后，后端会把它们合并为同一个导入任务，并继续在左侧队列里追踪状态。",
+            newImport: "新建导入",
+            pause: "暂停",
+            recentHint: "集中查看最近追踪的导入任务，并从同一队列恢复已暂停任务或重试失败项。",
+            resume: "恢复",
+            status: {
+                paused: "已暂停"
+            }
+        },
+        admission: {
+            ready: "可投入",
+            readyDesc: "准入已通过，下一步可以进入运行态。",
+            needsRefresh: "待刷新",
+            needsRefreshDesc: "已接受，但进入运行态前还需要 refresh。",
+            noQuota: "无配额",
+            noQuotaDesc: "准入阶段已识别到 quota 或 rate limit 阻塞。",
+            failed: "准入失败",
+            failedDesc: "准入或激活阶段已经进入终态失败。",
+            status: {
+                ready: "可投入",
+                needsRefresh: "待刷新",
+                noQuota: "无配额",
+                failed: "失败",
+                queued: "排队中",
+                unknown: "未知"
+            },
+            failureStage: {
+                admissionProbe: "准入探测",
+                activationRefresh: "激活刷新",
+                activationRateLimits: "激活配额检查",
+                runtimeRefresh: "运行时刷新"
+            }
+        },
         detail: {
             columns: {
                 admission: "准入",
                 error: "错误信息",
+                failure: "失败阶段",
                 label: "标签",
                 line: "行号",
-                quota: "额度",
-                reason: "原因",
+                message: "结果说明",
+                retry: "重试",
+                source: "来源",
                 status: "状态"
             },
-            admissionFilterAll: "全部结果",
-            admissionFilterLabel: "准入筛选",
             filterLabel: "状态筛选",
+            description: "查看所选导入任务的准入统计与逐条结果。",
+            filters: {
+                admission: "准入筛选",
+                allAdmissions: "全部准入结果",
+                allStatuses: "全部导入状态",
+                status: "导入状态"
+            },
             itemsEmpty: "没有匹配的任务条目。",
+            itemsDescription: "按准入结果、失败阶段和可重试性检查每一条导入记录。",
             itemsLoading: "正在加载任务条目…",
+            itemsTitle: "导入条目审计",
             jobIdLabel: "任务 ID：{{jobId}}",
             loadMore: "加载更多",
             loadedCount: "已加载 {{count}} 条记录",
@@ -787,33 +956,18 @@ export default {
             accessToken: "导入 AK",
             accessTokenHint: "适合只做一次性导入，避免 refresh 轮转压力。"
         },
-        admission: {
-            eyebrow: "准入结果",
-            quotaExhausted: "额度已耗尽，等待重新探测。",
-            quotaReady: "探测成功且当前有额度。",
-            quotaNotApplicable: "暂无额度摘要。",
-            failureStage: "失败阶段",
-            attempts: "尝试次数",
-            transientRetries: "瞬时重试次数",
-            nextRetryAt: "下一次重试",
-            terminalReason: "终态原因",
-            status: {
-                queued: "排队中",
-                ready: "已就绪",
-                needsRefresh: "需刷新",
-                noQuota: "无额度",
-                failed: "失败",
-                unknown: "未知"
-            }
-        },
         metrics: {
             created: "新建",
+            createdDesc: "本批次新建的账号池记录数量。",
             failed: "失败",
+            failedDesc: "最终停在失败状态的条目数量。",
             processed: "已处理",
             status: "状态",
             throughput: "吞吐",
+            throughputDesc: "任务运行期间的近似每分钟导入速度。",
             total: "总数",
-            updated: "已存在/已更新"
+            updated: "已存在/已更新",
+            updatedDesc: "已存在记录被刷新或合并的数量。"
         },
         precheck: {
             createdNotice: "导入任务已创建：{{id}}",
@@ -849,6 +1003,7 @@ export default {
             columns: {
                 jobId: "任务 ID"
             },
+            description: "浏览器会保留最近追踪的任务，点选即可切换批次详情。",
             descRecent: "队列会自动轮询任务状态，点击任意任务查看明细项与错误信息。",
             emptyRecent: "暂无可追踪任务，请先上传文件或手动输入 job_id。",
             titleRecent: "最近导入任务",
@@ -868,6 +1023,7 @@ export default {
             created: "新建",
             failed: "失败",
             pending: "待处理",
+            paused: "已暂停",
             processing: "处理中",
             queued: "排队中",
             running: "处理中",
@@ -884,6 +1040,7 @@ export default {
             descNew: "下载 JSONL 模板，并根据当前选择的凭证模式填写 refresh_token 或 access_token。"
         },
         title: "批量导入任务",
+        description: "上传凭据文件、跟踪准入结果，并在同一个工作台审计每一条导入记录。",
         validation: {
             fileTooLarge: "文件 {{name}} 超过 20MB，请拆分后再导入",
             unsupportedFormat: "文件 {{name}} 格式不支持，仅支持 .json / .jsonl",
@@ -920,81 +1077,28 @@ export default {
         },
         subtitle: "通过严格格式的 CSV/TXT 文件安全地上传账号凭证。"
     },
-    inventory: {
-        eyebrow: "库存",
-        title: "OAuth 库存",
-        subtitle: "在激活前观察 vault 中的 OAuth 库存，避免 queued、ready、no_quota 和在线池混在一起。",
-        loading: "加载库存中…",
-        empty: "当前筛选条件下没有库存记录。",
-        searchPlaceholder: "按邮箱、标签、账号 ID 或准入原因搜索…",
-        meta: {
-            total: "总计 {{count}}",
-            filtered: "当前显示 {{count}}"
-        },
-        metrics: {
-            total: "记录总数"
-        },
-        filters: {
-            status: "库存状态",
-            all: "全部库存"
-        },
-        status: {
-            queued: "排队中",
-            ready: "已就绪",
-            needsRefresh: "需刷新",
-            noQuota: "无额度",
-            failed: "失败",
-            unknown: "未知"
-        },
-        credentials: {
-            hasRt: "具备 RT",
-            noRt: "无 RT",
-            hasAk: "具备 AK 回退",
-            noAk: "无 AK"
-        },
-        columns: {
-            account: "账号",
-            chatgptAccountId: "ChatGPT 账号 ID",
-            vaultStatus: "库存状态",
-            credentials: "凭证",
-            quota: "额度摘要",
-            timeline: "准入时间线",
-            reason: "原因"
-        },
-        fields: {
-            checkedAt: "探测时间",
-            retryAfter: "重试时间",
-            nextRetryAt: "下一次重试",
-            failureStage: "失败阶段",
-            retryPolicy: "重试策略",
-            attempts: "尝试次数",
-            transientRetries: "瞬时重试次数",
-            terminalReason: "终态原因",
-            source: "来源"
-        },
-        retryable: {
-            yes: "系统将自动重试",
-            no: "不会自动重试"
-        },
-        failureStage: {
-            admissionProbe: "准入探测",
-            activationRefresh: "激活刷新",
-            activationRateLimits: "激活额度探测",
-            runtimeRefresh: "运行时刷新",
-            unknown: "未知阶段"
-        },
-        table: {
-            eyebrow: "Vault 视图",
-            title: "准入库存记录",
-            description: "这个表只展示 vault 库存。运行时激活与隔离仍在 Accounts 里查看。"
-        }
-    },
     oauthImport: {
         title: "OAuth 登录导入",
         subtitle: "通过 Codex OAuth 登录，并将登录账号直接导入账号池。",
+        wizard: {
+            label: "导入向导",
+            description: "按步骤完成 OAuth 登录、回调兜底和结果确认，让账号顺畅进入账号池。",
+            progress: "流程进度",
+            current: "当前步骤",
+            completed: "已完成",
+            noSession: "当前还没有登录会话，请从第一步开始打开 OAuth 流程。",
+            setupHint: "创建会话后会立即打开 OAuth 窗口，并开始轮询回调结果。"
+        },
         start: {
             title: "开始 Codex OAuth 登录",
             description: "先创建登录会话，完成 OAuth 授权后自动导入账号。"
+        },
+        authorize: {
+            title: "完成 OAuth 授权",
+            description: "打开授权窗口，完成登录后等待回调送达后端。",
+            callbackLabel: "回调地址",
+            helperTitle: "处理提示",
+            helperDescription: "如果浏览器拦截了弹窗，或者自动回调迟迟没有到达，下一块里就可以直接提交手动回调 URL。"
         },
         form: {
             label: "账号标签（可选）",
@@ -1002,6 +1106,12 @@ export default {
             baseUrl: "基础 URL",
             priority: "优先级",
             enabled: "导入后立即启用账号"
+        },
+        monitor: {
+            title: "观察换令牌与导入过程",
+            description: "后端正在换取凭据，并把账号写入账号池。",
+            activeLabel: "导入仍在进行中",
+            activeHint: "可以留在此页继续观察，也可以稍后去账号池查看。左侧状态卡会持续自动刷新。"
         },
         actions: {
             startLogin: "开始 OAuth 登录",
@@ -1030,6 +1140,11 @@ export default {
             accountId: "账号 ID：{{id}}",
             accountLabel: "标签：{{label}}",
             email: "邮箱：{{email}}",
+            reviewTitle: "确认导入结果",
+            reviewDescription: "确认账号是新建、更新，还是需要重新发起一次导入。",
+            chatgptAccountId: "ChatGPT 账号 ID：{{id}}",
+            chatgptPlanType: "套餐类型：{{plan}}",
+            pending: "流程已经进入最后一步，但后端结果负载还没有完全返回。",
             created: "新建",
             updated: "已存在"
         },
@@ -1069,11 +1184,13 @@ export default {
             sessionExpired: "登录状态已过期，请重新登录。"
         },
         password: "密码",
+        hidePassword: "隐藏密码",
+        showPassword: "显示密码",
         passwordPlaceholder: "请输入管理员密码",
         securityHint: "连续登录失败会写入审计日志，方便后续排查。",
         submit: "登录",
-        subtitle: "使用管理员账号登录控制台",
-        title: "Codex-Pool 管理台",
+        subtitle: "OpenAI 兼容代理 · 账号池化管理台",
+        title: "登录",
         username: "用户名",
         usernamePlaceholder: "请输入管理员用户名"
     },
@@ -1133,93 +1250,6 @@ export default {
             timestamp: "时间戳"
         },
         export: "导出日志",
-        events: {
-            categories: {
-                accountPool: "账号池",
-                adminAction: "管理操作",
-                import: "导入",
-                infra: "基础设施",
-                patrol: "巡检",
-                request: "请求",
-                unknown: "未知"
-            },
-            actions: {
-                viewDetail: "查看详情"
-            },
-            columns: {
-                account: "账号",
-                actions: "操作",
-                category: "分类",
-                createdAt: "时间",
-                eventType: "事件",
-                message: "消息",
-                reason: "原因",
-                requestId: "请求 ID",
-                severity: "严重级别"
-            },
-            detail: {
-                description: "{{eventType}} · {{category}}",
-                loading: "正在加载事件详情…",
-                timelineEmpty: "暂无可关联的请求时间线。",
-                title: "事件详情",
-                labels: {
-                    accountId: "账号 ID",
-                    accountLabel: "账号标签",
-                    eventId: "事件 ID",
-                    failoverScope: "切换范围",
-                    jobId: "任务 ID",
-                    latency: "延迟",
-                    method: "方法",
-                    model: "模型",
-                    nextActionAt: "下一次动作时间",
-                    path: "路径",
-                    requestId: "请求 ID",
-                    routingDecision: "路由决策",
-                    secretPreview: "敏感信息预览",
-                    selectedAccountId: "选中账号",
-                    selectedProxyId: "选中代理",
-                    statusCode: "状态码",
-                    traceRequestId: "链路请求 ID",
-                    upstreamStatusCode: "上游状态码"
-                },
-                sections: {
-                    message: "消息",
-                    payload: "载荷",
-                    timeline: "请求时间线"
-                }
-            },
-            description: "范围：统一收录启用新事件流后的请求、账号池、巡检、导入与基础设施事件。",
-            empty: "暂无统一事件数据。新事件流仅展示上线后的新事件。",
-            filters: {
-                accountAriaLabel: "账号筛选",
-                accountPlaceholder: "账号 ID",
-                allCategories: "全部分类",
-                allSeverities: "全部级别",
-                categoryAriaLabel: "分类筛选",
-                jobIdAriaLabel: "任务 ID 筛选",
-                jobIdPlaceholder: "任务 ID",
-                keywordAriaLabel: "关键词筛选",
-                keywordPlaceholder: "关键词（事件 / 消息 / 请求 / 账号）",
-                rangeAriaLabel: "时间范围",
-                reasonCodeAriaLabel: "原因码筛选",
-                reasonCodePlaceholder: "原因码",
-                requestIdAriaLabel: "请求 ID 筛选",
-                requestIdPlaceholder: "请求 ID",
-                severityAriaLabel: "严重级别筛选",
-                tenantAriaLabel: "租户筛选"
-            },
-            severities: {
-                debug: "调试",
-                error: "错误",
-                info: "信息",
-                unknown: "未知",
-                warn: "警告"
-            },
-            summary: {
-                total: "总计 {{count}}"
-            },
-            title: "统一事件流"
-        },
         filters: {
             allTenants: "所有租户"
         },
@@ -1251,7 +1281,7 @@ export default {
                 apiKey: "API 密钥",
                 createdAt: "时间",
                 errorCode: "错误",
-                latency: "延迟（毫秒）",
+                latency: "延迟",
                 path: "路径",
                 requestId: "请求 ID",
                 serviceTier: "服务层级",
@@ -1274,6 +1304,154 @@ export default {
             },
             title: "请求日志"
         },
+        events: {
+            title: "统一事件流",
+            description: "在一个工作台里查看请求、账号池、巡检、导入、基础设施和管理动作事件。",
+            meta: "排查问题时先从 request_id 出发，再向关联事件和详细载荷钻取。",
+            summaryTitle: "当前信号窗口",
+            summaryDescription: "快速判断控制面此刻流经的运行噪音规模与重点类别。",
+            tableTitle: "事件流",
+            tableDescription: "按分类和严重级别筛选事件，再查看载荷与关联链。",
+            searchPlaceholder: "搜索事件、请求 ID、账号、原因…",
+            empty: "当前时间窗口内没有事件。",
+            categories: {
+                request: "请求",
+                accountPool: "账号池",
+                patrol: "巡检",
+                import: "导入",
+                infra: "基础设施",
+                adminAction: "管理操作",
+                unknown: "未知"
+            },
+            severities: {
+                debug: "调试",
+                info: "信息",
+                warn: "警告",
+                error: "错误",
+                unknown: "未知"
+            },
+            metrics: {
+                total: "事件数",
+                totalDesc: "统一收录的请求、账号池、巡检、导入、基础设施和管理事件。",
+                error: "错误",
+                errorDesc: "当前窗口内严重级别为 error 的事件数。",
+                accountPool: "账号池",
+                accountPoolDesc: "状态迁移、恢复、删除与人工运营动作。",
+                request: "请求",
+                requestDesc: "当前窗口内属于 request 分类的事件数。"
+            },
+            columns: {
+                time: "时间",
+                category: "分类",
+                severity: "级别",
+                event: "事件",
+                context: "上下文"
+            },
+            actions: {
+                inspect: "查看详情"
+            },
+            filters: {
+                category: "分类",
+                range: "时间范围",
+                severity: "严重级别",
+                allCategories: "全部分类",
+                allSeverities: "全部级别"
+            },
+            fields: {
+                requestId: "请求 ID",
+                account: "账号",
+                reasonCode: "原因码",
+                time: "时间",
+                path: "路径",
+                method: "方法",
+                jobId: "任务 ID",
+                model: "模型",
+                tenant: "租户",
+                authProvider: "鉴权方式",
+                reasonClass: "原因分类",
+                routeDecision: "路由决策",
+                nextActionAt: "下一步动作",
+                statusCode: "状态码",
+                upstreamStatusCode: "上游状态码",
+                latency: "延迟"
+            },
+            eventTypes: {
+                requestReceived: "收到请求",
+                requestCompleted: "请求完成",
+                requestFailed: "请求失败",
+                routingCandidateSelected: "已选择路由候选",
+                sameAccountRetry: "同账号重试",
+                crossAccountFailover: "跨账号故障切换",
+                continuationCursorSaved: "已保存 continuation cursor",
+                continuationCursorRestored: "已恢复 continuation cursor",
+                wsHttpFallback: "WebSocket 已回退到 HTTP",
+                proxySelectionFailed: "代理选择失败",
+                probeSucceeded: "探测成功",
+                activePatrolBatchCompleted: "主动巡检批次完成",
+                rateLimitRefreshBatchCompleted: "用量刷新批次完成",
+                pendingDeleteBatchCompleted: "待删除清理批次完成",
+                accountPoolStateTransition: "账号池状态已变更",
+                accountDeleted: "账号已删除",
+                importJobCreated: "导入任务已创建",
+                importJobCompleted: "导入任务已完成",
+                importJobFailed: "导入任务失败",
+                upstreamEvent: "上游事件",
+                unknown: "未知事件"
+            },
+            reasonCodes: {
+                requestReceived: "请求已进入系统",
+                routingCandidateSelected: "已选定候选路由",
+                rateLimited: "触发速率限制",
+                transportError: "网络传输异常",
+                proxyUnavailable: "代理不可用",
+                continuationCursorRestored: "continuation cursor 已恢复",
+                rateLimitRefreshBatchCompleted: "用量刷新批次完成",
+                pendingDeleteBatchCompleted: "待删除清理批次完成",
+                accountDeactivated: "账号已停用",
+                previousResponseNotFound: "未找到上一个响应",
+                upstreamRequestFailed: "上游请求失败",
+                invalidRefreshToken: "Refresh Token 无效",
+                refreshTokenReused: "Refresh Token 已复用",
+                upstreamUnavailable: "上游不可用",
+                unknown: "未知原因"
+            },
+            reasonClasses: {
+                healthy: "健康",
+                quota: "限额",
+                fatal: "致命",
+                transient: "瞬时",
+                admin: "人工",
+                unknown: "未知分类"
+            },
+            routingDecisions: {
+                recentSuccess: "优先最近成功账号",
+                freshProbe: "优先新鲜探测结果",
+                roundRobin: "轮询分配",
+                sameAccountRetry: "同账号重试",
+                crossAccountFailover: "跨账号故障切换",
+                requestReceived: "请求刚进入系统",
+                unknown: "未知决策"
+            },
+            authProviders: {
+                oauthRefreshToken: "OAuth Refresh Token",
+                legacyBearer: "Legacy Bearer",
+                codexOauth: "Codex OAuth",
+                unknown: "未知鉴权方式"
+            },
+            insightsTitle: "事件聚焦",
+            insightsDescription: "先看最常见的事件类型和原因码，再决定是追 request_id 还是直接打开详情。",
+            topEventTypes: "高频事件类型",
+            topReasons: "高频原因码",
+            noInsights: "当前筛选条件下还没有足够的事件摘要。",
+            previewTitle: "摘要预览",
+            detailTitle: "事件详情",
+            detailDescription: "查看事件原始载荷、消息摘要与关联链。",
+            detailDescriptionWithRequest: "请求 ID：{{requestId}}",
+            payloadTitle: "载荷 JSON",
+            payloadDescription: "统一事件流中记录的原始载荷。",
+            correlationTitle: "关联链",
+            correlationDescription: "同一个 request_id 下的全部事件。"
+        },
         search: "搜索载荷或服务名…",
         subtitle: "实时的审计追踪与运行时上下文。",
         time: {
@@ -1282,7 +1460,6 @@ export default {
         },
         tabs: {
             audit: "审计日志",
-            events: "统一事件流",
             request: "请求日志",
             system: "系统日志"
         },
@@ -1297,6 +1474,9 @@ export default {
             modelsList: "拉取模型列表",
             modelsProbe: "模型探测",
             unknown: "未知操作（{{action}}）"
+        },
+        antigravity: {
+            stream: "流式"
         }
     },
     models: {
@@ -1379,7 +1559,63 @@ export default {
         },
         filters: {
             allProviders: "全部提供商",
-            providerLabel: "提供商筛选"
+            providerLabel: "提供商筛选",
+            availabilityLabel: "可用性筛选",
+            allAvailability: "全部可用性"
+        },
+        antigravity: {
+            notAvailable: "暂无",
+            summaryTitle: "目录总览",
+            summaryDescription: "从可用性、提供商和目录覆盖面上快速判断当前模型池状态。",
+            catalogTitle: "探测与同步状态",
+            catalogDescription: "这里集中展示 probe cache、新鲜度与官方目录同步状态。",
+            maintenance: "目录维护",
+            maintenanceProbeDescription: "立即刷新当前账号池的模型可用性探测。",
+            maintenanceSyncDescription: "重新同步官方模型目录与元数据快照。",
+            cacheFresh: "探测缓存新鲜",
+            cacheStale: "探测缓存过期",
+            catalogNeedsSync: "目录需要同步",
+            catalogReady: "目录已同步",
+            cacheUpdatedAt: "缓存更新时间",
+            probeSource: "探测来源账号",
+            catalogSyncedAt: "目录同步时间",
+            cacheTtl: "缓存时长",
+            cacheTtlHours: "{{hours}} 小时",
+            catalogLastError: "最近目录错误",
+            catalogAttentionTitle: "需要运维关注",
+            catalogAttentionSyncRequired: "官方目录还没有完成最新同步。请执行目录同步，再检查模型目录是否恢复完整。",
+            catalogAttentionRetry: "最近一次目录同步或探测没有完成。当前页面保留了状态摘要，详细技术原因请到统一事件流继续排查。",
+            catalogAttentionCacheStale: "探测缓存已经过期。建议重新执行一次可用性探测，避免按过期结果判断模型状态。",
+            directoryTitle: "模型目录",
+            directoryDescription: "按提供商和可用性筛选模型，再查看定价与官方元数据。",
+            noDescription: "暂无官方描述。",
+            copyModelIdSuccess: "已复制模型 ID：{{modelId}}",
+            copyModelIdFailed: "复制模型 ID 失败。",
+            effectivePricingSource: "实际定价来源",
+            officialPageStatus: "官方目录页",
+            officialPageReady: "可打开",
+            officialPageMissing: "未提供",
+            availabilityOutcomeLabel: "最近探测结果",
+            availabilityOutcome: {
+                available: "最近一次探测显示可用。",
+                unavailable: "最近一次探测显示暂不可用，请结合事件流继续排查。",
+                unavailableWithStatus: "最近一次探测返回 HTTP {{status}}，当前暂不可用。",
+                unknown: "当前还没有稳定的探测结论。"
+            },
+            metrics: {
+                total: "模型总数",
+                totalDesc: "当前模型池暴露和映射的目录总量。",
+                available: "可用模型",
+                availableDesc: "最近探测返回可用的模型。",
+                unavailable: "不可用模型",
+                unavailableDesc: "最近探测仍存在错误或不可达的模型。",
+                providers: "提供商数",
+                providersDesc: "当前目录覆盖的 provider / hub 数量。"
+            },
+            sections: {
+                operational: "运行状态",
+                pricing: "价格快照"
+            }
         },
         form: {
             modelId: "模型 ID",
@@ -1540,146 +1776,11 @@ export default {
             month: "按月"
         }
     },
-    accountPool: {
-        eyebrow: "统一运营视图",
-        title: "账号池",
-        subtitle: "用一套运营状态统一观察库存、可路由、冷却中和待删除账号。",
-        loading: "正在加载账号池…",
-        empty: "当前筛选下没有账号。",
-        searchPlaceholder: "搜索邮箱、标签、账号 ID 或原因…",
-        meta: {
-            total: "总计 {{count}} 个账号",
-            filtered: "筛选后 {{count}} 个"
-        },
-        filters: {
-            state: "状态",
-            scope: "范围",
-            reasonClass: "原因分类",
-            allStates: "全部状态",
-            allScopes: "全部范围",
-            allReasons: "全部原因分类"
-        },
-        state: {
-            inventory: "库存中",
-            routable: "可路由",
-            cooling: "冷却中",
-            pendingDelete: "待删除"
-        },
-        scope: {
-            runtime: "运行池",
-            inventory: "库存"
-        },
-        reasonClass: {
-            healthy: "健康",
-            quota: "限额",
-            fatal: "致命",
-            transient: "瞬时",
-            admin: "人工"
-        },
-        reasonCode: {
-            none: "暂无阻断原因",
-            tokenInvalidated: "令牌已失效",
-            accountDeactivated: "账号已停用",
-            invalidRefreshToken: "刷新令牌无效",
-            refreshTokenRevoked: "刷新令牌已撤销",
-            refreshTokenReused: "刷新令牌被复用",
-            rateLimited: "命中限流",
-            quotaExhausted: "额度耗尽",
-            upstreamUnavailable: "上游暂不可用",
-            transportError: "传输错误",
-            overloaded: "上游过载",
-            operatorRetiredInvalidRefreshToken: "因终态无效刷新令牌被运营下线",
-            unknown: "未知原因"
-        },
-        routeEligible: {
-            yes: "可参与路由",
-            no: "不可参与路由"
-        },
-        signalSource: {
-            active: "主动巡检",
-            passive: "被动信号",
-            unknown: "暂无信号"
-        },
-        actions: {
-            inspect: "查看",
-            reprobe: "重新探测",
-            restore: "恢复",
-            delete: "删除",
-            refresh: "刷新视图"
-        },
-        columns: {
-            account: "账号",
-            state: "状态",
-            reason: "原因",
-            credentials: "凭证",
-            quota: "额度",
-            nextAction: "时间线",
-            actions: "操作"
-        },
-        metrics: {
-            inventory: "库存中",
-            routable: "可路由",
-            cooling: "冷却中",
-            pendingDelete: "待删除",
-            healthy: "健康",
-            quota: "限额",
-            fatal: "致命",
-            transient: "瞬时",
-            admin: "人工",
-            stateDescription: "当前运营视角下属于“{{state}}”的账号数。",
-            reasonDescription: "当前被归类为“{{reason}}”的账号数。"
-        },
-        sections: {
-            stateOverview: "运营状态",
-            stateOverviewTitle: "用一套主状态串起库存和运行池",
-            stateOverviewDescription: "用同一套状态理解哪些账号可路由、哪些在冷却、哪些即将被清理。",
-            reasonOverview: "原因分类",
-            reasonOverviewTitle: "为什么账号会落在当前状态",
-            reasonOverviewDescription: "原因分类用来区分限额、致命鉴权、瞬时故障或人工操作带来的状态变化。",
-            records: "统一队列",
-            recordsTitle: "单一账号池列表",
-            recordsDescription: "每条记录只展示一个主状态、一个原因分类和一个下一步动作。",
-            detail: "记录详情"
-        },
-        detail: {
-            description: "查看这个账号最新的运营状态、原因、凭证和额度摘要。"
-        },
-        fields: {
-            currentState: "当前状态",
-            routeEligible: "路由资格",
-            nextAction: "下一步动作",
-            credentials: "凭证",
-            timeline: "时间线",
-            identity: "身份信息",
-            email: "邮箱",
-            chatgptAccountId: "ChatGPT 账号 ID",
-            plan: "套餐",
-            sourceType: "来源类型",
-            mode: "模式",
-            authProvider: "认证提供方",
-            credentialKind: "凭证类型",
-            refreshState: "刷新凭证状态",
-            lastSignalAt: "最近信号时间",
-            lastSignalSource: "信号来源",
-            createdAt: "创建时间",
-            updatedAt: "更新时间",
-            quota: "额度摘要"
-        },
-        messages: {
-            confirmDeleteTitle: "确认把 {{label}} 从账号池删除？",
-            confirmDeleteDescription: "删除后该记录将从账号池中移除，且无法恢复。",
-            actionSuccessTitle: "已完成{{action}}",
-            actionSuccessDescription: "{{label}} 已更新。",
-            actionPartialTitle: "{{action}}部分失败",
-            actionFailedTitle: "{{action}}失败",
-            actionFailed: "操作失败"
-        }
-    },
     nav: {
         accounts: "账号池",
         modelRouting: "模型调度",
         apiKeyGroups: "分组管理",
-        apiKeys: "API 密钥",
+        apiKeys: "密钥池",
         billing: "计费",
         config: "全局配置",
         dashboard: "服务总览",
@@ -1703,6 +1804,196 @@ export default {
         usage: "用量账单",
         cleanup: "凭证治理",
         closeNavigation: "关闭导航"
+    },
+    accountPool: {
+        title: "账号池",
+        subtitle: "用统一的四态模型查看库存、可路由、冷却中和待删除账号。",
+        meta: "当前正式运营状态为 inventory / routable / cooling / pending_delete。",
+        empty: "当前筛选下没有账号池记录。",
+        searchPlaceholder: "搜索邮箱、标签、账号 ID、原因…",
+        filters: {
+            state: "状态",
+            scope: "范围",
+            reasonClass: "原因分类",
+            allStates: "全部状态",
+            allScopes: "全部范围",
+            allReasons: "全部原因分类"
+        },
+        state: {
+            inventory: "库存中",
+            routable: "可路由",
+            cooling: "冷却中",
+            pendingDelete: "待删除",
+            unknown: "未知状态"
+        },
+        scope: {
+            runtime: "运行池",
+            inventory: "库存"
+        },
+        reasonClass: {
+            healthy: "健康",
+            quota: "限额",
+            fatal: "致命",
+            transient: "瞬时",
+            admin: "人工",
+            unknown: "未知原因分类"
+        },
+        refreshState: {
+            healthy: "健康",
+            degraded: "降级",
+            missing: "缺失",
+            invalid: "无效",
+            unknown: "未知"
+        },
+        healthFreshness: {
+            fresh: "新鲜",
+            stale: "过期",
+            unknown: "未知"
+        },
+        probeOutcome: {
+            ok: "通过",
+            quota: "限额",
+            transient: "瞬时异常",
+            fatal: "致命异常",
+            unknown: "未探测"
+        },
+        signalSource: {
+            active: "主动巡检",
+            passive: "被动信号",
+            unknown: "未知"
+        },
+        reasonCode: {
+            none: "暂无阻断原因",
+            tokenInvalidated: "令牌已失效",
+            accountDeactivated: "账号已停用",
+            invalidRefreshToken: "Refresh Token 无效",
+            refreshTokenRevoked: "Refresh Token 已撤销",
+            refreshTokenReused: "Refresh Token 已复用",
+            rateLimited: "触发速率限制",
+            quotaExhausted: "用量已耗尽",
+            upstreamUnavailable: "上游不可用",
+            transportError: "网络传输异常",
+            overloaded: "上游过载",
+            operatorRetiredInvalidRefreshToken: "账号因无效 Refresh Token 被运营下线",
+            unknown: "未知阻断原因"
+        },
+        routeEligible: {
+            yes: "可参与路由",
+            no: "不可路由"
+        },
+        actions: {
+            inspect: "查看",
+            more: "更多操作",
+            reprobe: "重新探测",
+            restore: "恢复",
+            delete: "删除"
+        },
+        columns: {
+            account: "账号",
+            state: "状态",
+            reason: "原因",
+            credentials: "凭证",
+            operationalStatus: "运营状态",
+            quota: "用量",
+            updatedAt: "更新时间",
+            recentSignal: "最近信号",
+            actions: "操作"
+        },
+        metrics: {
+            inventory: "库存中",
+            routable: "可路由",
+            cooling: "冷却中",
+            pendingDelete: "待删除",
+            records: "{{count}} 条记录",
+            totalRecords: "总记录数",
+            filteredRecords: "筛选后记录数",
+            inventoryDesc: "仍在库存阶段，尚未进入可路由集合。",
+            routableDesc: "当前健康且可参与路由的记录。",
+            coolingDesc: "因限额或瞬时问题处于冷却窗口的记录。",
+            pendingDeleteDesc: "已进入待删除清理阶段的记录。"
+        },
+        rateLimits: {
+            defaultLabel: "额度",
+            empty: "暂无额度快照",
+            unavailable: "不可用",
+            fiveHoursShort: "5h",
+            oneWeekShort: "7d",
+            githubShort: "GitHub"
+        },
+        recentSignal: {
+            updatedFallback: "最近更新",
+            window12h: "近 12h",
+            window24h: "近 24h",
+            active: "活跃",
+            sparse: "稀疏",
+            silent: "静默",
+            busy: "高频",
+            noHeatmap: "暂无可展示的信号热图",
+            summaryWithDetail: "{{relative}} · {{detail}}",
+            bucketTooltip: "{{time}} · {{count}} 条信号 · 主动 {{active}} / 被动 {{passive}}",
+            legend: {
+                success: "成功",
+                mixed: "部分失败",
+                error: "全部失败"
+            }
+        },
+        cooling: {
+            imminent: "即将恢复",
+            thawIn: "{{hours}}h {{minutes}}m 后解冻"
+        },
+        sections: {
+            stateOverviewTitle: "状态总览",
+            stateOverviewDescription: "先看库存、可路由、冷却中与待删除的分布。",
+            reasonOverviewTitle: "原因分类",
+            reasonOverviewDescription: "再区分健康、限额、致命、瞬时与人工原因。",
+            recordsTitle: "账号池记录",
+            recordsDescription: "按状态、范围和原因分类筛选记录并执行动作。"
+        },
+        detail: {
+            modalTitle: "账号池记录详情",
+            description: "查看选中记录的当前运营状态、凭证和用量摘要。",
+            empty: "暂未加载到该记录详情。",
+            sections: {
+                status: "运营状态",
+                profile: "账号画像",
+                recentSignal: "最近信号热图",
+                credentials: "凭证状态",
+                quota: "用量概览"
+            }
+        },
+        fields: {
+            nextAction: "下一步动作",
+            routeEligible: "路由资格",
+            healthFreshness: "健康新鲜度",
+            lastSignalAt: "最近信号",
+            lastSignalSource: "信号来源",
+            lastProbeAt: "最近探测时间",
+            lastProbeOutcome: "最近探测结果",
+            updatedAt: "更新时间",
+            createdAt: "创建时间",
+            email: "邮箱",
+            chatgptAccountId: "ChatGPT 账号 ID",
+            plan: "套餐",
+            sourceType: "来源类型",
+            recordScope: "记录范围",
+            mode: "模式",
+            authProvider: "认证提供方",
+            credentialKind: "凭证类型",
+            refreshState: "刷新凭证状态",
+            reasonCode: "原因码",
+            hasRefreshCredential: "持有 Refresh 凭证",
+            accessTokenFallback: "保留 Access Token 回退",
+            rateLimitsFetchedAt: "用量快照时间"
+        },
+        messages: {
+            confirmDeleteTitle: "确认删除 {{label}}？",
+            confirmDeleteDescription: "删除后该记录会从账号池移除。",
+            actionSuccessTitle: "已完成{{action}}",
+            actionSuccessDescription: "{{label}} 已更新。",
+            actionPartialTitle: "{{action}}部分失败",
+            actionFailedTitle: "{{action}}失败",
+            actionFailed: "操作失败，请稍后重试。"
+        }
     },
     notifications: {
         dismiss: "关闭通知",
@@ -1759,6 +2050,15 @@ export default {
             edit: "编辑",
             test: "测试",
             testAll: "测试全部"
+        },
+        antigravity: {
+            auth: "鉴权",
+            authConfigured: "已配置",
+            lastErrorSummary: "最近一次探测失败，请到统一事件流继续排查。",
+            authNone: "无",
+            emptyDescription: "添加第一个代理节点后，系统才能通过管理员维护的代理池转发流量。",
+            latency: "延迟",
+            scheme: "协议"
         },
         badges: {
             auth: "带鉴权"
@@ -1868,6 +2168,93 @@ export default {
         title: "出站代理池"
     },
     system: {
+        antigravity: {
+            billingMode: {
+                costReportOnly: "仅成本报表",
+                creditEnforced: "积分强校验"
+            },
+            capabilitiesDescription: "把 edition 能力边界和租户相关开关放在同一块里查看。",
+            capabilitiesTitle: "能力边界",
+            category: {
+                config: "配置",
+                diagnostics: "诊断",
+                runtime: "运行时"
+            },
+            componentsDescription: "确认控制面、数据面和用量仓库都在按预期响应。",
+            componentsTitle: "核心组件",
+            config: {
+                authValidateUrl: "鉴权校验地址",
+                controlPlaneListen: "控制面监听地址",
+                dataPlaneUrl: "数据面地址",
+                oauthRefresh: "OAuth 自动刷新",
+                refreshInterval: "刷新间隔"
+            },
+            counts: {
+                apiKeys: "API 密钥数",
+                enabledAccounts: "启用账号数",
+                oauthAccounts: "OAuth 账号数",
+                tenants: "租户数",
+                totalAccounts: "账号总数"
+            },
+            dataPlane: {
+                accounts: "账号数",
+                active: "活跃"
+            },
+            dataPlaneIssue: "数据面运行诊断报告当前存在异常。",
+            debug: {
+                authValidatorEnabled: "鉴权校验器",
+                billingReconcileAdjust: "计费对账调账数",
+                billingReconcileFailed: "计费对账失败数",
+                billingReconcileReleased: "计费对账释放数",
+                billingReconcileScanned: "计费对账扫描数",
+                failoverEnabled: "故障切换开关",
+                quickRetryMax: "快速重试上限",
+                requestFailoverWait: "切号等待时间",
+                retryPollInterval: "重试轮询间隔",
+                sharedRoutingCache: "共享路由缓存",
+                snapshotRevision: "快照版本"
+            },
+            debugSignals: "调试信号",
+            debugSignalsDescription: "把当前自动切号、鉴权校验、缓存与计费对账信号集中在一个视图里。",
+            disabled: "已关闭",
+            edition: {
+                business: "企业版",
+                personal: "个人版",
+                team: "团队版"
+            },
+            enabled: "已开启",
+            features: {
+                costReports: "成本报表",
+                costReportsHint: "适合 personal 和 team 的成本可见性模式。",
+                creditBilling: "信用计费",
+                creditBillingHint: "启用后才会进入积分强约束与预授权链路。",
+                multiTenant: "多租户",
+                multiTenantHint: "控制面是否按租户维度隔离资源与工作流。",
+                tenantPortal: "租户门户",
+                tenantPortalHint: "是否提供 tenant 自助工作台入口。",
+                tenantRecharge: "租户充值",
+                tenantRechargeHint: "是否允许租户侧自助充值与余额管理。",
+                tenantSelfService: "租户自助",
+                tenantSelfServiceHint: "是否开放注册、密码重置等租户自助流程。"
+            },
+            generatedAtHint: "最近一次运行时快照生成时间",
+            loading: "正在加载系统状态…",
+            milliseconds: "{{value}}ms",
+            runtimeConfig: "运行时配置",
+            runtimeConfigDescription: "这里聚合了当前实例真正生效的控制面、数据面与 OAuth 刷新配置。",
+            runtimeCounts: "运行时计数",
+            runtimeCountsDescription: "快速判断当前实例承载的账号、密钥和租户规模。",
+            seconds: "{{value}} 秒",
+            summary: {
+                billingMode: "计费模式",
+                billingModeHint: "当前生效的计费契约模式",
+                edition: "产品层级",
+                editionHint: "当前运行版本及能力边界",
+                generatedAt: "生成时间",
+                generatedAtHint: "最近一次运行时快照生成时间",
+                uptimeHint: "控制面连续运行时长"
+            }
+        },
         columns: {
             component: "组件",
             details: "详情",
@@ -1898,9 +2285,9 @@ export default {
             badges: {
                 failoverOff: "故障切换：关闭",
                 failoverOn: "故障切换：开启",
-                failoverWait: "切号等待 {{value}} ms",
+                failoverWait: "切号等待 {{value}}ms",
                 quickRetry: "同账号快速重试 ≤ {{value}}",
-                retryPoll: "轮询间隔 {{value}} ms",
+                retryPoll: "轮询间隔 {{value}}ms",
                 sharedCacheOff: "共享缓存：关闭",
                 sharedCacheOn: "共享缓存：开启",
                 stickyConflictAvoidOff: "粘性冲突回避：关闭",
@@ -2263,6 +2650,40 @@ export default {
             title: "消耗趋势"
         }
     },
+    modelRouting: {
+        actions: {
+            add: "新增规则",
+            delete: "删除",
+            edit: "编辑规则"
+        },
+        columns: {
+            actions: "操作",
+            exactModels: "精确模型",
+            fallbackProfiles: "回退配置",
+            family: "模型族",
+            modelPrefixes: "前缀",
+            name: "策略",
+            priority: "优先级",
+            status: "状态"
+        },
+        empty: "后端暂未返回任何路由策略",
+        loading: "正在加载路由策略…",
+        searchPlaceholder: "搜索策略…",
+        status: {
+            disabled: "已禁用",
+            enabled: "已启用"
+        },
+        subtitle: "这里展示的 profiles 与 policies 已对齐到真实的管理员路由契约。",
+        summary: {
+            enabledProfiles: "启用中的配置",
+            enabledProfilesHint: "当前仍可参与选路的配置数",
+            profiles: "配置总数",
+            profilesHint: "后端返回的路由配置档案",
+            selectedAccounts: "显式选定账号",
+            selectedAccountsHint: "所有配置中显式绑定的账号总数"
+        },
+        title: "模型路由"
+    },
     groupsPage: {
         actions: {
             create: "新建分组",
@@ -2278,14 +2699,44 @@ export default {
             multipliers: "倍率",
             name: "分组",
             status: "状态",
+            updated: "最近更新",
             usage: "使用情况"
         },
         editor: {
             createTitle: "新建分组",
             description: "配置分组倍率以及模型级价格覆盖。",
-            editTitle: "编辑分组"
+            editTitle: "编辑分组",
+            groupSettingsTitle: "分组设置",
+            groupSettingsDescription: "维护分组名称、倍率和默认行为。"
         },
         empty: "暂无分组",
+        antigravity: {
+            allowAllModels: "允许全部目录模型",
+            catalogCount: "目录 {{count}} 项",
+            coverage: "覆盖 {{coverage}}",
+            listTitle: "分组目录",
+            listDescription: "用统一账号分组策略组织 API Key、模型覆盖范围和计费倍率。",
+            metrics: {
+                total: "分组总数",
+                totalDesc: "当前工作区内可管理的 API Key 分组总量。",
+                enabled: "启用中分组",
+                enabledDesc: "当前仍可供运营使用的活跃分组数量。",
+                defaults: "默认分组",
+                defaultsDesc: "作为默认承接策略生效的分组数量。",
+                catalog: "目录模型数",
+                catalogDesc: "可供分组策略选择的统一模型目录总量。"
+            },
+            scopedPolicy: "限定模型策略",
+            serviceUnavailableDescription: "当前运行形态没有提供 API Key 分组存储，因此这一页暂时不可用。",
+            updatedAt: "更新于 {{value}}"
+        },
+        filters: {
+            statusLabel: "状态筛选",
+            all: "全部分组",
+            enabled: "已启用",
+            disabled: "已禁用",
+            deleted: "已删除"
+        },
         form: {
             allowAllModels: "允许全部目录模型",
             cachedInputMultiplier: "缓存输入倍率（ppm）",
@@ -2319,6 +2770,7 @@ export default {
             title: "模型策略"
         },
         preview: {
+            basePricingSummary: "{{provider}} · {{title}} · 基准价：输入 {{input}} · 缓存 {{cached}} · 输出 {{output}}",
             columns: {
                 finalPrice: "最终价格",
                 formulaPrice: "公式价格",
@@ -2326,6 +2778,7 @@ export default {
                 model: "模型"
             },
             description: "展示当前分组下对租户可见的最终价格。",
+            empty: "尚未配置任何模型。",
             moreHidden: "还有 {{count}} 个模型已折叠",
             mode: {
                 absolute: "绝对价覆盖",
@@ -2568,10 +3021,7 @@ export default {
             },
             locales: {
                 en: "英语",
-                zhCN: "简体中文",
-                zhTW: "繁体中文",
-                ja: "日语",
-                ru: "俄语"
+                zhCN: "简体中文"
             }
         },
         common: {
@@ -2729,6 +3179,25 @@ export default {
                 tenantUser: "租户用户",
                 unknown: "未知操作者"
             },
+            payloadSummary: {
+                empty: "无附加上下文",
+                present: "包含附加上下文"
+            },
+            reasonValues: {
+                none: "无附加说明",
+                present: "包含操作备注"
+            },
+            targetTypes: {
+                requestLogs: "请求日志",
+                requestCorrelation: "请求关联链",
+                auditLogs: "审计日志",
+                usageSummary: "用量汇总",
+                usageTrendsHourly: "逐小时用量趋势",
+                upstreamErrorTemplate: "上游错误模板",
+                builtinErrorTemplate: "内置错误模板",
+                upstreamErrorLearningSettings: "错误学习设置",
+                unknown: "未知目标"
+            },
             columns: {
                 action: "操作",
                 actor: "操作者",
@@ -2771,7 +3240,7 @@ export default {
             columns: {
                 apiKey: "API 密钥",
                 error: "错误",
-                latency: "延迟（毫秒）",
+                latency: "延迟",
                 path: "路径",
                 requestId: "请求 ID",
                 serviceTier: "服务层级",
@@ -2908,12 +3377,15 @@ export default {
             },
             planValues: {
                 credit: "积分计划",
-                unknown: "自定义（{{value}}）"
+                standard: "标准计划",
+                unknown: "未知计划"
             },
             statusValues: {
                 active: "生效",
                 inactive: "停用",
-                unknown: "未知（{{value}}）"
+                suspended: "已暂停",
+                disabled: "已禁用",
+                unknown: "未知状态"
             },
             defaultBadge: "默认",
             empty: "暂无租户数据",
@@ -2998,16 +3470,51 @@ export default {
             }
         }
     },
+    layout: {
+        theme: {
+            quickSwitchFromSystem: "当前跟随系统：{{current}}，点击切换到 {{next}}"
+        }
+    },
     theme: {
         aurora: "极光",
         colorful: "彩色",
         dark: "深色",
-        light: "浅色"
+        light: "浅色",
+        system: "跟随系统"
     },
     usage: {
         actions: {
             export: "导出报表",
             filters: "高级筛选"
+        },
+        antigravity: {
+            estimatedCost: "预估成本",
+            estimatedCostHint: "基于当前请求结构推算的近似支出。",
+            avgLatency: "首 Token 平均延迟",
+            avgLatencyHint: "近 30 天请求的平均首 Token 响应时间。",
+            last30Days: "过去 30 天",
+            loading: "正在加载用量分析…",
+            modelMixDescription: "观察当前请求量主要集中在哪些模型上。",
+            modelMixEmpty: "当前没有可展示的模型分布数据。",
+            modelMixTitle: "模型负载分布",
+            peakDay: "峰值日",
+            peakDayValue: "{{date}} · {{requests}} 次请求",
+            requestsSummaryHint: "近 30 天总请求量。",
+            requestsCount: "{{value}} 次请求",
+            shareValue: "{{value}}%",
+            signalsDescription: "把近 30 天最值得关注的峰值、头部模型和头部密钥收在一起。",
+            signalsTitle: "关键观察点",
+            timeWindow: "分析窗口",
+            tokenTrendDescription: "展示输入、缓存与输出 token 在时间窗口里的变化。",
+            tokenTrendEmpty: "当前没有 token 趋势数据。",
+            tokenTrendTitle: "Token 趋势",
+            topApiKey: "头部 API Key",
+            topApiKeyValue: "{{value}} 次请求",
+            topModel: "头部模型",
+            topModelValue: "{{value}} 次请求",
+            tokensCount: "{{value}} 个 Token",
+            topKeysHint: "从请求次数和总 token 负载两个维度查看模型集中度。",
+            totalTokensHint: "包含输入、缓存、输出和推理 token 的总量。"
         },
         chart: {
             empty: "此时段内无数据记录。",
@@ -3096,8 +3603,9 @@ export default {
         }
     },
     apiKeys: {
-        title: "API 密钥",
-        subtitle: "为客户端应用程序签发和管理安全访问凭据。",
+        title: "密钥池",
+        subtitle: "管理当前单机工作区的密钥池，并签发安全访问凭据。",
+        listTitle: "密钥池",
         createPanelDescription: "为当前单机工作区创建可调用 Data Plane 的访问密钥。创建后会返回一次明文 key，请立即保存。",
         create: "创建密钥",
         search: "搜索密钥名称或前缀…",
@@ -3154,6 +3662,12 @@ export default {
                 close: "关闭",
                 copyPlaintext: "复制明文密钥"
             }
+        },
+        antigravity: {
+            lastUsed: "最近使用",
+            revoke: "撤销",
+            rotate: "轮换密钥",
+            view: "查看详情"
         }
     }
 }

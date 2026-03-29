@@ -78,6 +78,11 @@ export interface SystemEventSummaryResponse {
   by_severity: SystemEventSummarySeverityCount[]
 }
 
+export interface SystemEventCorrelationResponse {
+  request_id: string
+  items: SystemEventItem[]
+}
+
 export interface SystemEventQueryParams {
   start_ts?: number
   end_ts?: number
@@ -95,17 +100,34 @@ export interface SystemEventQueryParams {
 }
 
 export const eventStreamApi = {
-  adminList: (params: SystemEventQueryParams) =>
-    apiClient.get<SystemEventListResponse>('/admin/event-stream', { params }),
-  adminSummary: (params: SystemEventQueryParams) =>
-    apiClient.get<SystemEventSummaryResponse>('/admin/event-stream/summary', { params }),
-  adminCorrelation: (requestId: string, params?: Omit<SystemEventQueryParams, 'request_id'>) =>
-    apiClient.get<{ request_id: string; items: SystemEventItem[] }>(
+  adminList: async (params: SystemEventQueryParams) => {
+    const response = await apiClient.get<SystemEventListResponse>('/admin/event-stream', { params })
+    return response.data
+  },
+
+  adminSummary: async (params: SystemEventQueryParams) => {
+    const response = await apiClient.get<SystemEventSummaryResponse>(
+      '/admin/event-stream/summary',
+      { params },
+    )
+    return response.data
+  },
+
+  adminCorrelation: async (
+    requestId: string,
+    params?: Omit<SystemEventQueryParams, 'request_id'>,
+  ) => {
+    const response = await apiClient.get<SystemEventCorrelationResponse>(
       `/admin/event-stream/correlation/${encodeURIComponent(requestId)}`,
       { params },
-    ),
-  adminDetail: (eventId: string) =>
-    apiClient.get<{ item: SystemEventItem }>(
+    )
+    return response.data
+  },
+
+  adminDetail: async (eventId: string) => {
+    const response = await apiClient.get<{ item: SystemEventItem }>(
       `/admin/event-stream/${encodeURIComponent(eventId)}`,
-    ),
+    )
+    return response.data
+  },
 }

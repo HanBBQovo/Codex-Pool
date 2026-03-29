@@ -23,7 +23,7 @@ interface LoadingScreenProps extends LoadingBaseProps {
 function LoadingBackdrop() {
   return (
     <>
-      <div className="absolute inset-0 bg-background/76 backdrop-blur-[3px]" />
+      <div className="absolute inset-0 bg-content1/76 backdrop-blur-[3px]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(84%_64%_at_50%_10%,hsl(var(--primary)/0.14),transparent_64%)]" />
     </>
   )
@@ -39,11 +39,11 @@ function LoadingContent({
 
   return (
     <div className={cn('max-w-[560px] px-6', compact && 'max-w-[420px] px-4')}>
-      <div className="rounded-[1.1rem] border border-border/75 bg-background/88 px-5 py-5 text-center shadow-[0_18px_36px_rgba(67,79,97,0.08),inset_0_1px_0_rgba(255,255,255,0.28)] backdrop-blur-sm dark:bg-card/88 dark:shadow-[0_20px_40px_rgba(0,0,0,0.24)]">
+      <div className="rounded-large border-small border-default-200 bg-content1 px-5 py-5 text-center shadow-medium backdrop-blur-sm">
         <div className="mx-auto flex justify-center">
           <div
             className={cn(
-              'relative flex items-center justify-center rounded-full border border-primary/16 bg-background/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]',
+              'relative flex items-center justify-center rounded-full border-small border-primary-200 bg-content1 shadow-small',
               compact ? 'h-10 w-10' : 'h-12 w-12',
             )}
           >
@@ -69,7 +69,7 @@ function LoadingContent({
             {description}
           </p>
         ) : null}
-        <div className="mt-4 overflow-hidden rounded-full border border-border/70 bg-background/76 p-[2px] dark:bg-background/46">
+        <div className="mt-4 overflow-hidden rounded-full border border-default-200/80 bg-content2/36 p-[2px] dark:bg-content2/24">
           {reducedMotion ? (
             <div className="h-1.5 rounded-full bg-primary/35" />
           ) : (
@@ -141,7 +141,7 @@ export function LoadingScreen({
 
   return (
     <div
-      className={cn('relative flex h-full min-h-[280px] w-full items-center justify-center overflow-hidden bg-background', className)}
+      className={cn('relative flex h-full min-h-[280px] w-full items-center justify-center overflow-hidden bg-content1', className)}
       role="status"
       aria-live="polite"
       aria-busy="true"

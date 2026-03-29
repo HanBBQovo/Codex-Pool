@@ -1,16 +1,42 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ColumnDef } from '@tanstack/react-table'
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Chip,
+  Divider,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+  Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  Pagination,
+  Progress,
+  Select,
+  SelectItem,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+  type Selection,
+} from '@heroui/react'
 import {
   Archive,
-  CheckCircle2,
   Eye,
-  Gauge,
+  MoreHorizontal,
   RefreshCcw,
-  RefreshCw,
   RotateCcw,
-  ShieldAlert,
-  Snowflake,
+  Search,
   Trash2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -24,82 +50,120 @@ import {
   type AccountPoolRecordScope,
 } from '@/api/accounts'
 import { localizeApiErrorDisplay, localizeOAuthErrorCodeDisplay } from '@/api/errorI18n'
+import { SignalHeatmapCanvas, SignalHeatmapMini } from '@/features/accounts/signal-heatmap-canvas'
 import {
-  DashboardMetricCard,
-  DashboardMetricGrid,
-  PageIntro,
-  PagePanel,
-  SectionHeader,
+  DockedPageIntro,
+  PageContent,
 } from '@/components/layout/page-archetypes'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { useConfirmDialog } from '@/components/ui/confirm-dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
-import { PLAN_UNKNOWN_VALUE } from '@/features/accounts/types'
 import {
   bucketLabel,
   extractRateLimitDisplaysFromSnapshots,
   formatAbsoluteDateTime,
   formatRateLimitResetText,
-  normalizePlanValue,
+  getPlanLabel,
 } from '@/features/accounts/utils'
-import { formatExactCount } from '@/lib/count-number-format'
+import { formatRelativeTime } from '@/lib/time'
 import { notify } from '@/lib/notification'
+import { cn } from '@/lib/utils'
 
 type StateFilter = 'all' | AccountPoolOperatorState
 type ScopeFilter = 'all' | AccountPoolRecordScope
 type ReasonClassFilter = 'all' | AccountPoolReasonClass
 
-function formatOptionalDateTime(value?: string) {
+const TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50]
+
+function normalizeSelection(selection: Selection) {
+  if (selection === 'all') {
+    return ''
+  }
+
+  const [first] = Array.from(selection)
+  return first === undefined ? '' : String(first)
+}
+
+function formatDateTime(value?: string) {
   if (!value) {
     return '-'
   }
   return formatAbsoluteDateTime(value)
 }
 
-function getStateBadgeVariant(state: AccountPoolOperatorState) {
+function getStateColor(state: AccountPoolOperatorState) {
   switch (state) {
     case 'routable':
-      return 'success'
+      return 'success' as const
     case 'cooling':
-      return 'warning'
+      return 'warning' as const
     case 'pending_delete':
-      return 'destructive'
+      return 'danger' as const
     case 'inventory':
     default:
-      return 'secondary'
+      return 'default' as const
   }
 }
 
-function getReasonBadgeVariant(reasonClass: AccountPoolReasonClass) {
+function getStateLabel(state: AccountPoolOperatorState, t: ReturnType<typeof useTranslation>['t']) {
+  switch (state) {
+    case 'inventory':
+      return t('accountPool.state.inventory')
+    case 'routable':
+      return t('accountPool.state.routable')
+    case 'cooling':
+      return t('accountPool.state.cooling')
+    case 'pending_delete':
+      return t('accountPool.state.pendingDelete')
+    default:
+      return t('accountPool.state.unknown')
+  }
+}
+
+function getReasonColor(reasonClass: AccountPoolReasonClass) {
   switch (reasonClass) {
     case 'healthy':
-      return 'success'
+      return 'success' as const
     case 'quota':
-      return 'warning'
+      return 'warning' as const
     case 'fatal':
-      return 'destructive'
+      return 'danger' as const
     case 'transient':
-      return 'info'
+      return 'primary' as const
     case 'admin':
     default:
-      return 'secondary'
+      return 'default' as const
   }
 }
 
-function getScopeBadgeVariant(scope: AccountPoolRecordScope) {
-  return scope === 'runtime' ? 'outline' : 'secondary'
+function getReasonLabel(
+  reasonClass: AccountPoolReasonClass,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  switch (reasonClass) {
+    case 'healthy':
+      return t('accountPool.reasonClass.healthy')
+    case 'quota':
+      return t('accountPool.reasonClass.quota')
+    case 'fatal':
+      return t('accountPool.reasonClass.fatal')
+    case 'transient':
+      return t('accountPool.reasonClass.transient')
+    case 'admin':
+      return t('accountPool.reasonClass.admin')
+    default:
+      return t('accountPool.reasonClass.unknown')
+  }
 }
 
-function getModeLabel(mode: string | undefined, t: ReturnType<typeof useTranslation>['t']) {
-  switch ((mode ?? '').trim().toLowerCase()) {
+function getScopeLabel(
+  scope: AccountPoolRecordScope,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  return scope === 'runtime'
+    ? t('accountPool.scope.runtime')
+    : t('accountPool.scope.inventory')
+}
+
+function getModeLabel(mode: AccountPoolRecord['mode'], t: ReturnType<typeof useTranslation>['t']) {
+  switch (mode) {
     case 'chat_gpt_session':
       return t('accounts.mode.chatgptSession')
     case 'codex_oauth':
@@ -121,85 +185,71 @@ function getAuthProviderLabel(
     case 'oauth_refresh_token':
       return t('accounts.oauth.provider.refreshToken')
     default:
-      return '-'
+      return t('accounts.oauth.provider.unknown')
   }
 }
 
 function getCredentialKindLabel(
-  kind: AccountPoolRecord['credential_kind'],
+  credentialKind: AccountPoolRecord['credential_kind'],
   t: ReturnType<typeof useTranslation>['t'],
 ) {
-  switch (kind) {
+  switch (credentialKind) {
     case 'refresh_rotatable':
       return t('accounts.oauth.kind.refreshRotatable')
     case 'one_time_access_token':
       return t('accounts.oauth.kind.oneTime')
     default:
-      return '-'
+      return t('accounts.oauth.kind.unknown')
   }
 }
 
-function getRefreshCredentialStateLabel(
-  state: AccountPoolRecord['refresh_credential_state'],
+function getRefreshStateLabel(
+  refreshState: AccountPoolRecord['refresh_credential_state'],
   t: ReturnType<typeof useTranslation>['t'],
 ) {
-  switch (state) {
+  switch (refreshState) {
     case 'healthy':
-      return t('accounts.refreshCredentialState.healthy')
+      return t('accountPool.refreshState.healthy')
     case 'degraded':
-      return t('accounts.refreshCredentialState.degraded')
-    case 'invalid':
-      return t('accounts.refreshCredentialState.invalid')
+      return t('accountPool.refreshState.degraded')
     case 'missing':
-      return t('accounts.refreshCredentialState.missing')
+      return t('accountPool.refreshState.missing')
+    case 'invalid':
+      return t('accountPool.refreshState.invalid')
     default:
-      return '-'
+      return t('accountPool.refreshState.unknown')
   }
 }
 
-function getStateLabel(
-  state: AccountPoolOperatorState,
+function getHealthFreshnessLabel(
+  freshness: AccountPoolRecord['health_freshness'],
   t: ReturnType<typeof useTranslation>['t'],
 ) {
-  switch (state) {
-    case 'inventory':
-      return t('accountPool.state.inventory')
-    case 'routable':
-      return t('accountPool.state.routable')
-    case 'cooling':
-      return t('accountPool.state.cooling')
-    case 'pending_delete':
-      return t('accountPool.state.pendingDelete')
+  switch (freshness) {
+    case 'fresh':
+      return t('accountPool.healthFreshness.fresh')
+    case 'stale':
+      return t('accountPool.healthFreshness.stale')
+    default:
+      return t('accountPool.healthFreshness.unknown')
   }
 }
 
-function getScopeLabel(
-  scope: AccountPoolRecordScope,
+function getProbeOutcomeLabel(
+  outcome: AccountPoolRecord['last_probe_outcome'],
   t: ReturnType<typeof useTranslation>['t'],
 ) {
-  switch (scope) {
-    case 'runtime':
-      return t('accountPool.scope.runtime')
-    case 'inventory':
-      return t('accountPool.scope.inventory')
-  }
-}
-
-function getReasonClassLabel(
-  reasonClass: AccountPoolReasonClass,
-  t: ReturnType<typeof useTranslation>['t'],
-) {
-  switch (reasonClass) {
-    case 'healthy':
-      return t('accountPool.reasonClass.healthy')
+  switch (outcome) {
+    case 'ok':
+      return t('accountPool.probeOutcome.ok')
     case 'quota':
-      return t('accountPool.reasonClass.quota')
-    case 'fatal':
-      return t('accountPool.reasonClass.fatal')
+      return t('accountPool.probeOutcome.quota')
     case 'transient':
-      return t('accountPool.reasonClass.transient')
-    case 'admin':
-      return t('accountPool.reasonClass.admin')
+      return t('accountPool.probeOutcome.transient')
+    case 'fatal':
+      return t('accountPool.probeOutcome.fatal')
+    default:
+      return t('accountPool.probeOutcome.unknown')
   }
 }
 
@@ -214,6 +264,18 @@ function getSignalSourceLabel(
       return t('accountPool.signalSource.passive')
     default:
       return t('accountPool.signalSource.unknown')
+  }
+}
+
+function getSourceTypeLabel(
+  sourceType: AccountPoolRecord['source_type'],
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  switch (sourceType) {
+    case 'codex':
+      return t('accounts.oauth.sourceType.codex')
+    default:
+      return t('accounts.oauth.sourceType.unknown')
   }
 }
 
@@ -259,23 +321,129 @@ function getReasonCodeLabel(
   }
 }
 
-function buildQuotaSummary(
+function buildUsageRows(
   record: AccountPoolRecord,
-  locale: string,
   t: ReturnType<typeof useTranslation>['t'],
 ) {
-  const displays = extractRateLimitDisplaysFromSnapshots(record.rate_limits)
-  if (displays.length === 0) {
-    return '-'
+  return extractRateLimitDisplaysFromSnapshots(record.rate_limits).map((item) => {
+    const remainingPercent = Math.max(0, Math.min(100, item.remainingPercent))
+
+    return {
+      key: item.bucket,
+      bucketLabel: bucketLabel(item.bucket, t),
+      compactLabel:
+        item.bucket === 'five_hours'
+          ? t('accountPool.rateLimits.fiveHoursShort')
+          : item.bucket === 'one_week'
+            ? t('accountPool.rateLimits.oneWeekShort')
+            : t('accountPool.rateLimits.githubShort'),
+      remainingPercent,
+      remainingText: `${Math.round(remainingPercent)}%`,
+      resetText: formatRateLimitResetText({
+        resetsAt: item.resetsAt,
+        t,
+      }),
+    }
+  })
+}
+
+function getUsageProgressColor(value: number): 'success' | 'warning' | 'danger' {
+  if (value <= 20) {
+    return 'danger'
+  }
+  if (value <= 50) {
+    return 'warning'
+  }
+  return 'success'
+}
+
+function getRecordLabel(record: AccountPoolRecord) {
+  return record.email?.trim() || record.label
+}
+
+function getRecordSecondaryLabel(record: AccountPoolRecord) {
+  const primary = getRecordLabel(record)
+  const email = record.email?.trim()
+
+  if (email && email !== primary) {
+    return email
   }
 
-  return displays
-    .map((item) => {
-      const remaining = `${Math.max(0, Math.min(100, item.remainingPercent)).toFixed(0)}%`
-      const reset = formatRateLimitResetText({ resetsAt: item.resetsAt, locale, t })
-      return `${bucketLabel(item.bucket, t)} ${remaining} · ${reset}`
+  return null
+}
+
+function getRecentSignalDisplay(
+  record: AccountPoolRecord,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (record.last_signal_at) {
+    return {
+      label: t('accountPool.fields.lastSignalAt'),
+      timestamp: formatDateTime(record.last_signal_at),
+      detail: getSignalSourceLabel(record.last_signal_source, t),
+    }
+  }
+
+  if (record.last_probe_at) {
+    return {
+      label: t('accountPool.fields.lastProbeAt'),
+      timestamp: formatDateTime(record.last_probe_at),
+      detail: getProbeOutcomeLabel(record.last_probe_outcome, t),
+    }
+  }
+
+  return {
+    label: t('accountPool.fields.updatedAt'),
+    timestamp: formatDateTime(record.updated_at),
+    detail: t('accountPool.recentSignal.updatedFallback'),
+  }
+}
+
+function getRecentSignalSummaryText(
+  record: AccountPoolRecord,
+  language: string,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (record.last_signal_at) {
+    return t('accountPool.recentSignal.summaryWithDetail', {
+      relative: formatRelativeTime(record.last_signal_at, language, true),
+      detail: getSignalSourceLabel(record.last_signal_source, t),
     })
-    .join('\n')
+  }
+
+  if (record.last_probe_at) {
+    return t('accountPool.recentSignal.summaryWithDetail', {
+      relative: formatRelativeTime(record.last_probe_at, language, true),
+      detail: getProbeOutcomeLabel(record.last_probe_outcome, t),
+    })
+  }
+
+  return t('accountPool.recentSignal.summaryWithDetail', {
+    relative: formatRelativeTime(record.updated_at, language, true),
+    detail: t('accountPool.recentSignal.updatedFallback'),
+  })
+}
+
+function getHeatmapActivityLabel(
+  heatmap: Pick<NonNullable<AccountPoolRecord['recent_signal_heatmap']>, 'intensity_levels'> | null | undefined,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (!heatmap || heatmap.intensity_levels.length === 0) {
+    return t('accountPool.recentSignal.noHeatmap')
+  }
+
+  const maxIntensity = Math.max(...heatmap.intensity_levels, 0)
+  const nonZeroBuckets = heatmap.intensity_levels.filter((value) => value > 0).length
+  if (maxIntensity === 0) {
+    return t('accountPool.recentSignal.silent')
+  }
+  if (maxIntensity >= 3 || nonZeroBuckets >= 24) {
+    return t('accountPool.recentSignal.busy')
+  }
+  if (nonZeroBuckets <= 8) {
+    return t('accountPool.recentSignal.sparse')
+  }
+  return t('accountPool.recentSignal.active')
 }
 
 function matchesAccountPoolSearch(record: AccountPoolRecord, keyword: string) {
@@ -291,6 +459,7 @@ function matchesAccountPoolSearch(record: AccountPoolRecord, keyword: string) {
     record.record_scope,
     record.operator_state,
   ]
+
   return values.some((value) => value?.toLowerCase().includes(keyword))
 }
 
@@ -301,29 +470,73 @@ function canRunAccountPoolAction(record: AccountPoolRecord, action: AccountPoolA
     case 'restore':
       return record.record_scope === 'inventory'
     case 'reprobe':
-      if (record.record_scope === 'inventory') {
-        return true
-      }
-      return record.auth_provider === 'oauth_refresh_token'
+      return true // 测活不依赖认证方式，所有账号均可触发
   }
+}
+
+/** 冷却账号解冻倒计时：每分钟更新一次，显示"Xh Ym 后解冻" */
+function CoolingCountdown({
+  nextActionAt,
+  t,
+}: {
+  nextActionAt?: string
+  t: ReturnType<typeof useTranslation>['t']
+}) {
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  if (!nextActionAt) return null
+  const ms = new Date(nextActionAt).getTime() - nowMs
+  if (ms <= 0) {
+    return (
+      <span className="text-xs text-warning-600 tabular-nums">
+        {t('accountPool.cooling.imminent', { defaultValue: '即将恢复' })}
+      </span>
+    )
+  }
+
+  const hours = Math.floor(ms / 3_600_000)
+  const mins = Math.floor((ms % 3_600_000) / 60_000)
+  const label = t('accountPool.cooling.thawIn', {
+    defaultValue: hours > 0 ? '{{hours}}h {{minutes}}m 后解冻' : '{{minutes}}m 后解冻',
+    hours,
+    minutes: mins,
+  })
+  return <span className="text-xs tabular-nums text-warning-600">{label}</span>
 }
 
 export default function Accounts() {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
-  const { confirm, confirmDialog } = useConfirmDialog()
-
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all')
   const [reasonClassFilter, setReasonClassFilter] = useState<ReasonClassFilter>('all')
-  const [detailRecordId, setDetailRecordId] = useState<string | null>(null)
+  const [searchValue, setSearchValue] = useState('')
+  const [rowsPerPage, setRowsPerPage] = useState(20)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
+  /** 乐观反馈：记录 ID → 当前动效状态 */
+  const [rowFeedback, setRowFeedback] = useState<Map<string, 'pending' | 'success' | 'error'>>(new Map())
 
-  const {
-    data: summary,
-    isLoading: isSummaryLoading,
-    isFetching: isSummaryFetching,
-    refetch: refetchSummary,
-  } = useQuery({
+  const setFeedback = useCallback((id: string, state: 'pending' | 'success' | 'error' | null) => {
+    setRowFeedback((prev) => {
+      const next = new Map(prev)
+      if (state === null) next.delete(id)
+      else next.set(id, state)
+      return next
+    })
+  }, [])
+
+  const openRecord = useCallback((id: string) => setSelectedRecordId(id), [])
+  const closeRecord = useCallback(() => setSelectedRecordId(null), [])
+  const [deleteTarget, setDeleteTarget] = useState<AccountPoolRecord | null>(null)
+  const locale = i18n.resolvedLanguage ?? i18n.language
+
+  const { data: summary, isLoading: isSummaryLoading, refetch: refetchSummary } = useQuery({
     queryKey: ['accountPoolSummary'],
     queryFn: accountPoolApi.getSummary,
     staleTime: 60_000,
@@ -331,12 +544,7 @@ export default function Accounts() {
     refetchOnWindowFocus: 'always',
   })
 
-  const {
-    data: records = [],
-    isLoading: isRecordsLoading,
-    isFetching: isRecordsFetching,
-    refetch: refetchRecords,
-  } = useQuery({
+  const { data: records = [], isLoading: isRecordsLoading, refetch: refetchRecords } = useQuery({
     queryKey: ['accountPoolRecords'],
     queryFn: accountPoolApi.listRecords,
     staleTime: 60_000,
@@ -344,26 +552,25 @@ export default function Accounts() {
     refetchOnWindowFocus: 'always',
   })
 
-  const detailRecordFallback = useMemo(
-    () => records.find((record) => record.id === detailRecordId),
-    [detailRecordId, records],
-  )
-
-  const {
-    data: detailRecordData,
-    isFetching: isDetailFetching,
-    refetch: refetchDetailRecord,
-  } = useQuery({
-    queryKey: ['accountPoolRecord', detailRecordId],
-    queryFn: () => accountPoolApi.getRecord(detailRecordId!),
-    enabled: Boolean(detailRecordId),
+  const { data: selectedRecord, isFetching: isFetchingSelectedRecord } = useQuery({
+    queryKey: ['accountPoolRecord', selectedRecordId],
+    queryFn: () => accountPoolApi.getRecord(selectedRecordId!),
+    enabled: Boolean(selectedRecordId),
     staleTime: 15_000,
     refetchOnWindowFocus: 'always',
   })
 
-  const detailRecord = detailRecordData ?? detailRecordFallback ?? null
+  const { data: selectedSignalHeatmap, isFetching: isFetchingSelectedSignalHeatmap } = useQuery({
+    queryKey: ['accountPoolRecordSignalHeatmap', selectedRecordId],
+    queryFn: () => accountPoolApi.getSignalHeatmap(selectedRecordId!),
+    enabled: Boolean(selectedRecordId),
+    staleTime: 15_000,
+    refetchOnWindowFocus: 'always',
+  })
 
   const filteredRecords = useMemo(() => {
+    const keyword = searchValue.trim().toLowerCase()
+
     return records.filter((record) => {
       if (stateFilter !== 'all' && record.operator_state !== stateFilter) {
         return false
@@ -374,621 +581,917 @@ export default function Accounts() {
       if (reasonClassFilter !== 'all' && record.reason_class !== reasonClassFilter) {
         return false
       }
+      if (keyword && !matchesAccountPoolSearch(record, keyword)) {
+        return false
+      }
       return true
     })
-  }, [reasonClassFilter, records, scopeFilter, stateFilter])
+  }, [reasonClassFilter, records, scopeFilter, searchValue, stateFilter])
 
-  const invalidateAccountPoolQueries = useCallback(async () => {
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / rowsPerPage))
+  const resolvedPage = Math.min(currentPage, totalPages)
+  const paginatedRecords = useMemo(() => {
+    const start = (resolvedPage - 1) * rowsPerPage
+    return filteredRecords.slice(start, start + rowsPerPage)
+  }, [filteredRecords, resolvedPage, rowsPerPage])
+  const visibleRangeStart = filteredRecords.length === 0 ? 0 : (resolvedPage - 1) * rowsPerPage + 1
+  const visibleRangeEnd =
+    filteredRecords.length === 0 ? 0 : Math.min(filteredRecords.length, resolvedPage * rowsPerPage)
+
+  const invalidateQueries = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['accountPoolSummary'] }),
       queryClient.invalidateQueries({ queryKey: ['accountPoolRecords'] }),
       queryClient.invalidateQueries({ queryKey: ['accountPoolRecord'] }),
-      queryClient.invalidateQueries({ queryKey: ['upstreamAccounts'] }),
-      queryClient.invalidateQueries({ queryKey: ['oauthInventorySummary'] }),
-      queryClient.invalidateQueries({ queryKey: ['oauthRuntimePoolSummary'] }),
-      queryClient.invalidateQueries({ queryKey: ['oauthHealthSignalsSummary'] }),
+      queryClient.invalidateQueries({ queryKey: ['accountPoolRecordSignalHeatmap'] }),
     ])
   }, [queryClient])
 
   const actionMutation = useMutation({
-    mutationFn: async ({
-      action,
-      record,
-    }: {
-      action: AccountPoolAction
-      record: AccountPoolRecord
-    }) => {
-      if (action === 'delete') {
-        const confirmed = await confirm({
-          title: t('accountPool.messages.confirmDeleteTitle', {
-            label: record.email?.trim() || record.label,
-          }),
-          description: t('accountPool.messages.confirmDeleteDescription'),
-          confirmText: t('accountPool.actions.delete'),
-          variant: 'destructive',
-        })
-        if (!confirmed) {
-          return null
+    mutationFn: ({ action, record }: { action: AccountPoolAction; record: AccountPoolRecord }) =>
+      accountPoolApi.runAction(action, [record.id]),
+    onSuccess: async (response, variables) => {
+      if (variables.action === 'delete') {
+        setDeleteTarget(null)
+        if (selectedRecordId === variables.record.id) {
+          setSelectedRecordId(null)
         }
       }
 
-      return accountPoolApi.runAction(action, [record.id])
-    },
-    onSuccess: async (response, variables) => {
-      if (!response) {
-        return
-      }
+      await invalidateQueries()
 
-      await invalidateAccountPoolQueries()
-
-      const failedItem = response.items.find((item) => !item.ok)
-      if (failedItem?.error) {
-        const localized = localizeApiErrorDisplay(
-          t,
-          failedItem.error,
-          t('accountPool.messages.actionFailed'),
-        )
+      const failed = response.items.find((item) => !item.ok)
+      if (failed?.error) {
+        setFeedback(variables.record.id, 'error')
+        window.setTimeout(() => setFeedback(variables.record.id, null), 800)
+        const errorDisplay = localizeOAuthErrorCodeDisplay(t, failed.error.code)
         notify({
           variant: 'warning',
           title: t('accountPool.messages.actionPartialTitle', {
             action: t(`accountPool.actions.${variables.action}`),
           }),
-          description: localized.label,
+          description:
+            errorDisplay.label !== '-'
+              ? errorDisplay.label
+              : t('accountPool.messages.actionFailed'),
         })
         return
       }
 
-      if (variables.action === 'delete' && detailRecordId === variables.record.id) {
-        setDetailRecordId(null)
-      }
-
+      setFeedback(variables.record.id, 'success')
+      window.setTimeout(() => setFeedback(variables.record.id, null), 900)
       notify({
         variant: 'success',
         title: t('accountPool.messages.actionSuccessTitle', {
           action: t(`accountPool.actions.${variables.action}`),
         }),
         description: t('accountPool.messages.actionSuccessDescription', {
-          label: variables.record.email?.trim() || variables.record.label,
+          label: getRecordLabel(variables.record),
         }),
       })
     },
     onError: (error, variables) => {
-      const localized = localizeApiErrorDisplay(
-        t,
-        error,
-        t('accountPool.messages.actionFailed'),
-      )
+      setFeedback(variables.record.id, 'error')
+      window.setTimeout(() => setFeedback(variables.record.id, null), 800)
+      const fallback = t('accountPool.messages.actionFailed')
       notify({
         variant: 'error',
         title: t('accountPool.messages.actionFailedTitle', {
           action: t(`accountPool.actions.${variables.action}`),
         }),
-        description: localized.label,
+        description: localizeApiErrorDisplay(t, error, fallback).label,
       })
     },
   })
 
-  const handleRefresh = useCallback(async () => {
-    await Promise.all([
-      refetchSummary({ throwOnError: false }),
-      refetchRecords({ throwOnError: false }),
-      detailRecordId
-        ? refetchDetailRecord({ throwOnError: false })
-        : Promise.resolve(undefined),
-    ])
-  }, [detailRecordId, refetchDetailRecord, refetchRecords, refetchSummary])
+  const runAccountAction = useCallback(
+    (record: AccountPoolRecord, action: AccountPoolAction) => {
+      if (action === 'delete') {
+        setDeleteTarget(record)
+        return
+      }
 
-  const metricCards = [
+      setFeedback(record.id, 'pending')
+      actionMutation.mutate({ action, record })
+    },
+    [actionMutation, setFeedback],
+  )
+
+  const summaryCards = [
     {
-      id: 'inventory',
+      key: 'inventory' as const,
       title: t('accountPool.metrics.inventory'),
       value: summary?.inventory ?? 0,
-      icon: Archive,
+      description: t('accountPool.metrics.inventoryDesc'),
     },
     {
-      id: 'routable',
+      key: 'routable' as const,
       title: t('accountPool.metrics.routable'),
       value: summary?.routable ?? 0,
-      icon: CheckCircle2,
+      description: t('accountPool.metrics.routableDesc'),
     },
     {
-      id: 'cooling',
+      key: 'cooling' as const,
       title: t('accountPool.metrics.cooling'),
       value: summary?.cooling ?? 0,
-      icon: Snowflake,
+      description: t('accountPool.metrics.coolingDesc'),
     },
     {
-      id: 'pendingDelete',
+      key: 'pending_delete' as const,
       title: t('accountPool.metrics.pendingDelete'),
       value: summary?.pending_delete ?? 0,
-      icon: ShieldAlert,
+      description: t('accountPool.metrics.pendingDeleteDesc'),
     },
   ]
 
   const reasonCards = [
-    {
-      id: 'healthy',
-      title: t('accountPool.metrics.healthy'),
-      value: summary?.healthy ?? 0,
-      icon: CheckCircle2,
-    },
-    {
-      id: 'quota',
-      title: t('accountPool.metrics.quota'),
-      value: summary?.quota ?? 0,
-      icon: Gauge,
-    },
-    {
-      id: 'fatal',
-      title: t('accountPool.metrics.fatal'),
-      value: summary?.fatal ?? 0,
-      icon: ShieldAlert,
-    },
-    {
-      id: 'transient',
-      title: t('accountPool.metrics.transient'),
-      value: summary?.transient ?? 0,
-      icon: RefreshCcw,
-    },
-    {
-      id: 'admin',
-      title: t('accountPool.metrics.admin'),
-      value: summary?.admin ?? 0,
-      icon: Archive,
-    },
+    { key: 'healthy' as const, title: t('accountPool.reasonClass.healthy'), value: summary?.healthy ?? 0, color: 'success' as const },
+    { key: 'quota' as const, title: t('accountPool.reasonClass.quota'), value: summary?.quota ?? 0, color: 'warning' as const },
+    { key: 'fatal' as const, title: t('accountPool.reasonClass.fatal'), value: summary?.fatal ?? 0, color: 'danger' as const },
+    { key: 'transient' as const, title: t('accountPool.reasonClass.transient'), value: summary?.transient ?? 0, color: 'primary' as const },
+    { key: 'admin' as const, title: t('accountPool.reasonClass.admin'), value: summary?.admin ?? 0, color: 'default' as const },
   ]
 
-  const columns = useMemo<ColumnDef<AccountPoolRecord>[]>(
-    () => [
-      {
-        id: 'account',
-        accessorFn: (row) =>
-          `${row.email ?? ''} ${row.label} ${row.chatgpt_account_id ?? ''}`.toLowerCase(),
-        header: t('accountPool.columns.account'),
-        cell: ({ row }) => {
-          const record = row.original
-          const planValue = normalizePlanValue(record.chatgpt_plan_type)
-          return (
-            <div className="min-w-[230px] space-y-1">
-              <div className="font-medium text-foreground">
-                {record.email?.trim() || record.label}
-              </div>
-              <div className="text-xs text-muted-foreground">{record.label}</div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={getScopeBadgeVariant(record.record_scope)}>
-                  {getScopeLabel(record.record_scope, t)}
-                </Badge>
-                <Badge variant="secondary">
-                  {planValue === PLAN_UNKNOWN_VALUE
-                    ? t('accounts.filters.planUnknown')
-                    : planValue}
-                </Badge>
-                {record.source_type ? (
-                  <Badge variant="outline" className="text-[11px] font-normal">
-                    {record.source_type}
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'state',
-        accessorFn: (row) => row.operator_state,
-        header: t('accountPool.columns.state'),
-        cell: ({ row }) => {
-          const record = row.original
-          return (
-            <div className="min-w-[180px] space-y-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={getStateBadgeVariant(record.operator_state)}>
-                  {getStateLabel(record.operator_state, t)}
-                </Badge>
-                <Badge variant={record.route_eligible ? 'success' : 'secondary'}>
-                  {record.route_eligible
-                    ? t('accountPool.routeEligible.yes')
-                    : t('accountPool.routeEligible.no')}
-                </Badge>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {t('accountPool.fields.nextAction')}: {formatOptionalDateTime(record.next_action_at)}
-              </div>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'reason',
-        accessorFn: (row) => `${row.reason_class}:${row.reason_code ?? ''}`,
-        header: t('accountPool.columns.reason'),
-        cell: ({ row }) => {
-          const record = row.original
-          return (
-            <div className="min-w-[220px] space-y-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={getReasonBadgeVariant(record.reason_class)}>
-                  {getReasonClassLabel(record.reason_class, t)}
-                </Badge>
-              </div>
-              <div className="text-sm text-foreground/88">
-                {getReasonCodeLabel(record.reason_code, t)}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {t('accountPool.fields.lastSignalAt')}: {formatOptionalDateTime(record.last_signal_at)}
-                {' · '}
-                {getSignalSourceLabel(record.last_signal_source, t)}
-              </div>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'credentials',
-        accessorFn: (row) =>
-          `${row.mode ?? ''} ${row.auth_provider ?? ''} ${row.credential_kind ?? ''}`.toLowerCase(),
-        header: t('accountPool.columns.credentials'),
-        cell: ({ row }) => {
-          const record = row.original
-          return (
-            <div className="min-w-[220px] space-y-1.5 text-xs text-muted-foreground">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{getModeLabel(record.mode, t)}</Badge>
-                <Badge variant="outline">{getAuthProviderLabel(record.auth_provider, t)}</Badge>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">{getCredentialKindLabel(record.credential_kind, t)}</Badge>
-                <Badge variant="secondary">
-                  {getRefreshCredentialStateLabel(record.refresh_credential_state, t)}
-                </Badge>
-              </div>
-            </div>
-          )
-        },
-      },
-      {
-        id: 'quota',
-        accessorFn: (row) =>
-          row.rate_limits.map((item) => item.limit_id ?? item.limit_name ?? '').join(' '),
-        header: t('accountPool.columns.quota'),
-        cell: ({ row }) => (
-          <div className="min-w-[250px] whitespace-pre-line text-xs leading-5 text-muted-foreground">
-            {buildQuotaSummary(row.original, i18n.resolvedLanguage ?? i18n.language, t)}
-          </div>
-        ),
-      },
-      {
-        id: 'timeline',
-        accessorFn: (row) => row.next_action_at ?? row.updated_at,
-        header: t('accountPool.columns.nextAction'),
-        cell: ({ row }) => (
-          <div className="min-w-[170px] space-y-1 text-xs text-muted-foreground">
-            <div>
-              {t('accountPool.fields.nextAction')}: {formatOptionalDateTime(row.original.next_action_at)}
-            </div>
-            <div>
-              {t('accountPool.fields.updatedAt')}: {formatOptionalDateTime(row.original.updated_at)}
-            </div>
-          </div>
-        ),
-      },
-      {
-        id: 'actions',
-        header: t('accountPool.columns.actions'),
-        accessorFn: (row) => row.id,
-        cell: ({ row }) => {
-          const record = row.original
-          const busy =
-            actionMutation.isPending && actionMutation.variables?.record.id === record.id
-          return (
-            <div className="flex min-w-[220px] flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDetailRecordId(record.id)}
-              >
-                <Eye className="mr-1.5 h-3.5 w-3.5" />
-                {t('accountPool.actions.inspect')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!canRunAccountPoolAction(record, 'reprobe') || busy}
-                onClick={() => actionMutation.mutate({ action: 'reprobe', record })}
-              >
-                <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
-                {t('accountPool.actions.reprobe')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!canRunAccountPoolAction(record, 'restore') || busy}
-                onClick={() => actionMutation.mutate({ action: 'restore', record })}
-              >
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                {t('accountPool.actions.restore')}
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={!canRunAccountPoolAction(record, 'delete') || busy}
-                onClick={() => actionMutation.mutate({ action: 'delete', record })}
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                {t('accountPool.actions.delete')}
-              </Button>
-            </div>
-          )
-        },
-      },
-    ],
-    [actionMutation, i18n.language, i18n.resolvedLanguage, t],
-  )
+  const selectedLabel = selectedRecord ? getRecordLabel(selectedRecord) : null
 
   return (
-    <div className="flex-1 w-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
-      <div className="space-y-6">
-        <PageIntro
-          archetype="workspace"
-          eyebrow={t('accountPool.eyebrow')}
-          title={t('accountPool.title')}
-          description={t('accountPool.subtitle')}
-          meta={(
-            <div className="flex flex-wrap gap-2 text-sm leading-6">
-              <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
-                {t('accountPool.meta.total', { count: summary?.total ?? 0 })}
-              </span>
-              <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
-                {t('accountPool.meta.filtered', { count: filteredRecords.length })}
-              </span>
+    <PageContent className="space-y-6">
+      <DockedPageIntro
+        archetype="workspace"
+        title={t('accountPool.title')}
+        description={t('accountPool.subtitle')}
+        actions={(
+          <Button
+            color="primary"
+            isLoading={isSummaryLoading || isRecordsLoading}
+            startContent={isSummaryLoading || isRecordsLoading ? undefined : <RefreshCcw className="h-4 w-4" />}
+            variant="flat"
+            onPress={() => {
+              void refetchSummary()
+              void refetchRecords()
+            }}
+          >
+            {t('common.refresh')}
+          </Button>
+        )}
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.95fr)]">
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('accountPool.sections.stateOverviewTitle')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('accountPool.sections.stateOverviewDescription')}
+              </p>
             </div>
-          )}
-          actions={(
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void handleRefresh()}
-              disabled={isSummaryFetching || isRecordsFetching}
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              {t('accountPool.actions.refresh')}
-            </Button>
-          )}
-        />
-
-        <PagePanel className="space-y-4">
-          <SectionHeader
-            eyebrow={t('accountPool.sections.stateOverview')}
-            title={t('accountPool.sections.stateOverviewTitle')}
-            description={t('accountPool.sections.stateOverviewDescription')}
-          />
-          <DashboardMetricGrid className="xl:grid-cols-4">
-            {metricCards.map((metric) => (
-              <DashboardMetricCard
-                key={metric.id}
-                title={metric.title}
-                value={formatExactCount(metric.value)}
-                valueTitle={formatExactCount(metric.value)}
-                description={t('accountPool.metrics.stateDescription', {
-                  state: metric.title,
-                })}
-                icon={<metric.icon className="h-4 w-4" />}
-                loading={isSummaryLoading}
-              />
+          </CardHeader>
+          <CardBody className="grid gap-3 px-5 pb-5 pt-1 sm:grid-cols-2">
+            {summaryCards.map((card) => (
+              <Card
+                key={card.title}
+                isPressable
+                aria-pressed={stateFilter === card.key}
+                className={cn(
+                  'w-full border px-4 py-4 text-left transition-colors',
+                  stateFilter === card.key
+                    ? 'border-primary/50 bg-primary/5'
+                    : 'border-default-200 bg-content2/55 hover:bg-content2',
+                )}
+                onPress={() => {
+                  setCurrentPage(1)
+                  setStateFilter((current) => (current === card.key ? 'all' : card.key))
+                }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                    {card.title}
+                  </div>
+                  <Chip color={stateFilter === card.key ? 'primary' : 'default'} size="sm" variant="flat">
+                    {t('accountPool.metrics.records', { count: card.value })}
+                  </Chip>
+                </div>
+                <div className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+                  {card.value}
+                </div>
+                <p className="mt-1.5 text-xs leading-5 text-default-500">
+                  {card.description}
+                </p>
+              </Card>
             ))}
-          </DashboardMetricGrid>
-        </PagePanel>
+          </CardBody>
+        </Card>
 
-        <PagePanel className="space-y-4">
-          <SectionHeader
-            eyebrow={t('accountPool.sections.reasonOverview')}
-            title={t('accountPool.sections.reasonOverviewTitle')}
-            description={t('accountPool.sections.reasonOverviewDescription')}
-          />
-          <DashboardMetricGrid className="xl:grid-cols-5">
-            {reasonCards.map((metric) => (
-              <DashboardMetricCard
-                key={metric.id}
-                title={metric.title}
-                value={formatExactCount(metric.value)}
-                valueTitle={formatExactCount(metric.value)}
-                description={t('accountPool.metrics.reasonDescription', {
-                  reason: metric.title,
-                })}
-                icon={<metric.icon className="h-4 w-4" />}
-                loading={isSummaryLoading}
-              />
-            ))}
-          </DashboardMetricGrid>
-        </PagePanel>
-
-        <PagePanel className="space-y-4">
-          <SectionHeader
-            eyebrow={t('accountPool.sections.records')}
-            title={t('accountPool.sections.recordsTitle')}
-            description={t('accountPool.sections.recordsDescription')}
-          />
-          <StandardDataTable
-            columns={columns}
-            data={filteredRecords}
-            defaultPageSize={20}
-            searchPlaceholder={t('accountPool.searchPlaceholder')}
-            searchFn={matchesAccountPoolSearch}
-            emptyText={
-              isRecordsLoading
-                ? t('accountPool.loading')
-                : t('accountPool.empty')
-            }
-            filters={(
-              <>
-                <Select value={stateFilter} onValueChange={(value) => setStateFilter(value as StateFilter)}>
-                  <SelectTrigger className="w-[180px]" aria-label={t('accountPool.filters.state')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t('accountPool.filters.allStates')}</SelectItem>
-                    <SelectItem value="inventory">{t('accountPool.state.inventory')}</SelectItem>
-                    <SelectItem value="routable">{t('accountPool.state.routable')}</SelectItem>
-                    <SelectItem value="cooling">{t('accountPool.state.cooling')}</SelectItem>
-                    <SelectItem value="pending_delete">{t('accountPool.state.pendingDelete')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={scopeFilter} onValueChange={(value) => setScopeFilter(value as ScopeFilter)}>
-                  <SelectTrigger className="w-[180px]" aria-label={t('accountPool.filters.scope')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t('accountPool.filters.allScopes')}</SelectItem>
-                    <SelectItem value="runtime">{t('accountPool.scope.runtime')}</SelectItem>
-                    <SelectItem value="inventory">{t('accountPool.scope.inventory')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={reasonClassFilter}
-                  onValueChange={(value) => setReasonClassFilter(value as ReasonClassFilter)}
+        <Card className="border-small border-default-200 bg-content1 shadow-small">
+          <CardHeader className="px-5 pb-3 pt-5">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t('accountPool.sections.reasonOverviewTitle')}
+              </h2>
+              <p className="text-sm leading-6 text-default-600">
+                {t('accountPool.sections.reasonOverviewDescription')}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="gap-3 px-5 pb-5 pt-1">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {reasonCards.map((card) => (
+                <Card
+                  key={card.title}
+                  isPressable
+                  aria-pressed={reasonClassFilter === card.key}
+                  className={cn(
+                    'w-full border px-4 py-2.5 text-left transition-colors',
+                    reasonClassFilter === card.key
+                      ? 'border-primary/50 bg-primary/5'
+                      : 'border-default-200 bg-content2/55 hover:bg-content2',
+                  )}
+                  onPress={() => {
+                    setCurrentPage(1)
+                    setReasonClassFilter((current) => (current === card.key ? 'all' : card.key))
+                  }}
                 >
-                  <SelectTrigger className="w-[180px]" aria-label={t('accountPool.filters.reasonClass')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t('accountPool.filters.allReasons')}</SelectItem>
-                    <SelectItem value="healthy">{t('accountPool.reasonClass.healthy')}</SelectItem>
-                    <SelectItem value="quota">{t('accountPool.reasonClass.quota')}</SelectItem>
-                    <SelectItem value="fatal">{t('accountPool.reasonClass.fatal')}</SelectItem>
-                    <SelectItem value="transient">{t('accountPool.reasonClass.transient')}</SelectItem>
-                    <SelectItem value="admin">{t('accountPool.reasonClass.admin')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </>
-            )}
-          />
-        </PagePanel>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-foreground">{card.title}</div>
+                    <Chip color={reasonClassFilter === card.key ? 'primary' : card.color} size="sm" variant="flat">
+                      {card.value}
+                    </Chip>
+                  </div>
+                </Card>
+              ))}
+            </div>
+            <Divider />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t('accountPool.metrics.totalRecords')}
+                </div>
+                <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                  {summary?.total ?? records.length}
+                </div>
+              </div>
+              <div className="rounded-large border border-default-200 bg-content2/55 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {t('accountPool.metrics.filteredRecords')}
+                </div>
+                <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                  {filteredRecords.length}
+                </div>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
 
-        {detailRecord ? (
-          <PagePanel className="space-y-4">
-            <SectionHeader
-              eyebrow={t('accountPool.sections.detail')}
-              title={detailRecord.email?.trim() || detailRecord.label}
-              description={t('accountPool.detail.description')}
-              actions={(
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!canRunAccountPoolAction(detailRecord, 'reprobe') || actionMutation.isPending}
-                    onClick={() => actionMutation.mutate({ action: 'reprobe', record: detailRecord })}
-                  >
-                    <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
-                    {t('accountPool.actions.reprobe')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!canRunAccountPoolAction(detailRecord, 'restore') || actionMutation.isPending}
-                    onClick={() => actionMutation.mutate({ action: 'restore', record: detailRecord })}
-                  >
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                    {t('accountPool.actions.restore')}
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={!canRunAccountPoolAction(detailRecord, 'delete') || actionMutation.isPending}
-                    onClick={() => actionMutation.mutate({ action: 'delete', record: detailRecord })}
-                  >
-                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                    {t('accountPool.actions.delete')}
-                  </Button>
+      <Card className="border-small border-default-200 bg-content1 shadow-small">
+        <CardHeader className="flex flex-col items-start gap-4 px-5 pb-3 pt-5">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+              {t('accountPool.sections.recordsTitle')}
+            </h2>
+            <p className="text-sm leading-6 text-default-600">
+              {t('accountPool.sections.recordsDescription')}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <Input
+                aria-label={t('accountPool.searchPlaceholder')}
+                className="xl:col-span-1"
+                placeholder={t('accountPool.searchPlaceholder')}
+                size="sm"
+                startContent={<Search className="h-4 w-4 text-default-400" />}
+                value={searchValue}
+                onValueChange={(value) => {
+                  setCurrentPage(1)
+                  setSearchValue(value)
+                }}
+              />
+
+              <Select
+                aria-label={t('accountPool.filters.state')}
+                selectedKeys={new Set([stateFilter])}
+                size="sm"
+                onSelectionChange={(selection) => {
+                  const nextValue = normalizeSelection(selection)
+                  if (!nextValue) {
+                    return
+                  }
+                  setCurrentPage(1)
+                  setStateFilter(nextValue as StateFilter)
+                }}
+              >
+                <SelectItem key="all">{t('accountPool.filters.allStates')}</SelectItem>
+                <SelectItem key="inventory">{getStateLabel('inventory', t)}</SelectItem>
+                <SelectItem key="routable">{getStateLabel('routable', t)}</SelectItem>
+                <SelectItem key="cooling">{getStateLabel('cooling', t)}</SelectItem>
+                <SelectItem key="pending_delete">{getStateLabel('pending_delete', t)}</SelectItem>
+              </Select>
+
+              <Select
+                aria-label={t('accountPool.filters.scope')}
+                selectedKeys={new Set([scopeFilter])}
+                size="sm"
+                onSelectionChange={(selection) => {
+                  const nextValue = normalizeSelection(selection)
+                  if (!nextValue) {
+                    return
+                  }
+                  setCurrentPage(1)
+                  setScopeFilter(nextValue as ScopeFilter)
+                }}
+              >
+                <SelectItem key="all">{t('accountPool.filters.allScopes')}</SelectItem>
+                <SelectItem key="runtime">{getScopeLabel('runtime', t)}</SelectItem>
+                <SelectItem key="inventory">{getScopeLabel('inventory', t)}</SelectItem>
+              </Select>
+
+              <Select
+                aria-label={t('accountPool.filters.reasonClass')}
+                selectedKeys={new Set([reasonClassFilter])}
+                size="sm"
+                onSelectionChange={(selection) => {
+                  const nextValue = normalizeSelection(selection)
+                  if (!nextValue) {
+                    return
+                  }
+                  setCurrentPage(1)
+                  setReasonClassFilter(nextValue as ReasonClassFilter)
+                }}
+              >
+                <SelectItem key="all">{t('accountPool.filters.allReasons')}</SelectItem>
+                <SelectItem key="healthy">{getReasonLabel('healthy', t)}</SelectItem>
+                <SelectItem key="quota">{getReasonLabel('quota', t)}</SelectItem>
+                <SelectItem key="fatal">{getReasonLabel('fatal', t)}</SelectItem>
+                <SelectItem key="transient">{getReasonLabel('transient', t)}</SelectItem>
+                <SelectItem key="admin">{getReasonLabel('admin', t)}</SelectItem>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-default-500">
+              <span>{t('common.table.rowsPerPage')}</span>
+              <Select
+                aria-label={t('common.table.rowsPerPage')}
+                className="w-[106px]"
+                selectedKeys={new Set([String(rowsPerPage)])}
+                size="sm"
+                onSelectionChange={(selection) => {
+                  const nextValue = normalizeSelection(selection)
+                  if (!nextValue) {
+                    return
+                  }
+                  setRowsPerPage(Number(nextValue))
+                }}
+              >
+                {TABLE_PAGE_SIZE_OPTIONS.map((size) => (
+                  <SelectItem key={String(size)} textValue={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardBody className="gap-4 px-5 pb-5 pt-0">
+          <Table
+            isHeaderSticky
+            aria-label={t('accountPool.sections.recordsTitle')}
+            classNames={{
+              base: 'min-h-[30rem]',
+              wrapper: 'bg-transparent px-0 py-0 shadow-none',
+              th: 'bg-default-100/60 text-xs font-semibold uppercase tracking-[0.12em] text-default-500',
+              td: 'align-top py-4 text-sm text-foreground',
+              tr: 'data-[hover=true]:bg-content2/35 transition-colors',
+              emptyWrapper: 'h-56',
+            }}
+          >
+            <TableHeader>
+              <TableColumn>{t('accountPool.columns.account')}</TableColumn>
+              <TableColumn>{t('accountPool.columns.operationalStatus')}</TableColumn>
+              <TableColumn>{t('accountPool.columns.quota')}</TableColumn>
+              <TableColumn>{t('accountPool.columns.recentSignal')}</TableColumn>
+              <TableColumn>{t('accountPool.columns.actions')}</TableColumn>
+            </TableHeader>
+            <TableBody
+              emptyContent={(
+                <div className="flex flex-col items-center gap-3 py-12 text-default-500">
+                  <Archive className="h-10 w-10 opacity-35" />
+                  <div className="text-sm font-medium">{t('accountPool.empty')}</div>
                 </div>
               )}
-            />
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[0.9rem] border border-border/70 bg-background/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {t('accountPool.fields.currentState')}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge variant={getStateBadgeVariant(detailRecord.operator_state)}>
-                      {getStateLabel(detailRecord.operator_state, t)}
-                    </Badge>
-                    <Badge variant={getReasonBadgeVariant(detailRecord.reason_class)}>
-                      {getReasonClassLabel(detailRecord.reason_class, t)}
-                    </Badge>
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {getReasonCodeLabel(detailRecord.reason_code, t)}
-                  </p>
-                </div>
-                <div className="rounded-[0.9rem] border border-border/70 bg-background/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {t('accountPool.fields.routeEligible')}
-                  </p>
-                  <p className="mt-3 text-lg font-semibold text-foreground">
-                    {detailRecord.route_eligible
-                      ? t('accountPool.routeEligible.yes')
-                      : t('accountPool.routeEligible.no')}
-                  </p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {t('accountPool.fields.nextAction')}: {formatOptionalDateTime(detailRecord.next_action_at)}
-                  </p>
-                </div>
-                <div className="rounded-[0.9rem] border border-border/70 bg-background/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {t('accountPool.fields.credentials')}
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                    <div>{t('accountPool.fields.mode')}: {getModeLabel(detailRecord.mode, t)}</div>
-                    <div>{t('accountPool.fields.authProvider')}: {getAuthProviderLabel(detailRecord.auth_provider, t)}</div>
-                    <div>{t('accountPool.fields.credentialKind')}: {getCredentialKindLabel(detailRecord.credential_kind, t)}</div>
-                    <div>{t('accountPool.fields.refreshState')}: {getRefreshCredentialStateLabel(detailRecord.refresh_credential_state, t)}</div>
-                  </div>
-                </div>
-                <div className="rounded-[0.9rem] border border-border/70 bg-background/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {t('accountPool.fields.timeline')}
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                    <div>{t('accountPool.fields.lastSignalAt')}: {formatOptionalDateTime(detailRecord.last_signal_at)}</div>
-                    <div>{t('accountPool.fields.lastSignalSource')}: {getSignalSourceLabel(detailRecord.last_signal_source, t)}</div>
-                    <div>{t('accountPool.fields.createdAt')}: {formatOptionalDateTime(detailRecord.created_at)}</div>
-                    <div>{t('accountPool.fields.updatedAt')}: {formatOptionalDateTime(detailRecord.updated_at)}</div>
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-[0.9rem] border border-border/70 bg-background/70 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  {t('accountPool.fields.identity')}
-                </p>
-                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                  <div>{t('accountPool.fields.email')}: {detailRecord.email?.trim() || '-'}</div>
-                  <div>{t('accountPool.fields.chatgptAccountId')}: {detailRecord.chatgpt_account_id ?? '-'}</div>
-                  <div>
-                    {t('accountPool.fields.plan')}:{' '}
-                    {normalizePlanValue(detailRecord.chatgpt_plan_type) === PLAN_UNKNOWN_VALUE
-                      ? t('accounts.filters.planUnknown')
-                      : normalizePlanValue(detailRecord.chatgpt_plan_type)}
-                  </div>
-                  <div>{t('accountPool.fields.sourceType')}: {detailRecord.source_type ?? '-'}</div>
-                </div>
-                <div className="mt-5 space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {t('accountPool.fields.quota')}
-                  </p>
-                  <div className="whitespace-pre-line text-sm leading-6 text-muted-foreground">
-                    {buildQuotaSummary(detailRecord, i18n.resolvedLanguage ?? i18n.language, t)}
-                  </div>
-                </div>
-              </div>
-            </div>
-            {isDetailFetching ? (
-              <p className="text-xs text-muted-foreground">{t('accountPool.loading')}</p>
-            ) : null}
-          </PagePanel>
-        ) : null}
+              isLoading={isRecordsLoading}
+              items={paginatedRecords}
+              loadingContent={<Spinner label={t('common.loading')} />}
+            >
+              {(record) => (
+                <TableRow
+                  key={record.id}
+                  className={cn(
+                    rowFeedback.get(record.id) === 'success' && 'row-action-success',
+                    rowFeedback.get(record.id) === 'error' && 'row-action-error',
+                    rowFeedback.get(record.id) === 'pending' && 'opacity-60 transition-opacity',
+                  )}
+                >
+                  <TableCell>
+                    <div className="min-w-[240px] space-y-2">
+                      <div className="font-medium text-foreground">
+                        {getRecordLabel(record)}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs leading-5 text-default-500">
+                        <Chip size="sm" variant="flat">
+                          {getScopeLabel(record.record_scope, t)}
+                        </Chip>
+                        {getRecordSecondaryLabel(record) ? (
+                          <span>{getRecordSecondaryLabel(record)}</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[250px] space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Chip
+                          color={getStateColor(record.operator_state)}
+                          size="sm"
+                          variant="flat"
+                          className={record.operator_state === 'cooling' ? 'cooling-pulse' : undefined}
+                        >
+                          {getStateLabel(record.operator_state, t)}
+                        </Chip>
+                        <Chip color={getReasonColor(record.reason_class)} size="sm" variant="flat">
+                          {getReasonLabel(record.reason_class, t)}
+                        </Chip>
+                        {record.operator_state === 'cooling' && (
+                          <CoolingCountdown nextActionAt={record.next_action_at} t={t} />
+                        )}
+                      </div>
+                      <div className="text-xs leading-5 text-default-600">
+                        {getReasonCodeLabel(record.reason_code, t)}
+                      </div>
+                      <div className="text-xs text-default-500">
+                        {t('accountPool.fields.nextAction')}: {formatDateTime(record.next_action_at)}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const usageRows = buildUsageRows(record, t)
 
-        {confirmDialog}
-      </div>
-    </div>
+                      if (usageRows.length === 0) {
+                        return (
+                          <div className="min-w-[190px] text-xs leading-5 text-default-500">
+                            {t('accounts.rateLimits.unavailable')}
+                          </div>
+                        )
+                      }
+
+                      const multi = usageRows.length > 1
+                      return (
+                        <div className={cn('min-w-[190px]', multi ? 'space-y-1' : 'space-y-2')}>
+                          {usageRows.map((item) => (
+                            <div
+                              key={item.key}
+                              className={cn(
+                                'rounded-large border border-default-200 bg-content2/35',
+                                multi ? 'px-3 py-1' : 'px-3 py-2',
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-default-500">
+                                  {item.compactLabel}
+                                </div>
+                                <div className="tabular-nums text-sm font-semibold text-foreground">
+                                  {item.remainingText}
+                                </div>
+                              </div>
+                              <Progress
+                                aria-label={`${item.bucketLabel} ${item.remainingText}`}
+                                className={multi ? 'mt-1' : 'mt-2'}
+                                color={getUsageProgressColor(item.remainingPercent)}
+                                size="sm"
+                                value={item.remainingPercent}
+                              />
+                              {!multi && (
+                                <div className="mt-1 text-xs leading-4 text-default-500">
+                                  {item.resetText}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const signal = getRecentSignalDisplay(record, t)
+                      const heatmap = record.recent_signal_heatmap
+
+                      return (
+                        <div className="min-w-[208px] space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-default-500">
+                              {heatmap ? t('accountPool.recentSignal.window12h') : signal.label}
+                            </div>
+                            {heatmap ? (
+                              <Chip size="sm" variant="flat">
+                                {getHeatmapActivityLabel(heatmap, t)}
+                              </Chip>
+                            ) : null}
+                          </div>
+                          {heatmap ? (
+                            <>
+                              <SignalHeatmapMini
+                                intensityLevels={heatmap.intensity_levels}
+                                successCounts={heatmap.success_counts}
+                                errorCounts={heatmap.error_counts}
+                                bucketMinutes={heatmap.bucket_minutes}
+                                windowStart={heatmap.window_start}
+                                visibleCount={12}
+                              />
+                              <div className="text-xs leading-5 text-default-500">
+                                {getRecentSignalSummaryText(record, locale, t)}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="text-sm font-medium text-foreground">
+                                {signal.timestamp}
+                              </div>
+                              <div className="text-xs leading-5 text-default-500">
+                                {signal.detail}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex min-w-[88px] items-center gap-1">
+                      <Button
+                        isIconOnly
+                        aria-label={t('accountPool.actions.inspect')}
+                        title={t('accountPool.actions.inspect')}
+                        size="sm"
+                        variant="flat"
+                        onPress={() => openRecord(record.id)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Dropdown>
+                        <DropdownTrigger>
+                          <Button
+                            isIconOnly
+                            aria-label={t('accountPool.actions.more')}
+                            title={t('accountPool.actions.more')}
+                            isDisabled={actionMutation.isPending}
+                            size="sm"
+                            variant="light"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownTrigger>
+                        <DropdownMenu
+                          aria-label={t('accountPool.actions.more')}
+                          disabledKeys={[
+                            ...(!canRunAccountPoolAction(record, 'reprobe') || actionMutation.isPending
+                              ? ['reprobe']
+                              : []),
+                            ...(!canRunAccountPoolAction(record, 'restore') || actionMutation.isPending
+                              ? ['restore']
+                              : []),
+                            ...(actionMutation.isPending ? ['delete'] : []),
+                          ]}
+                          onAction={(key) => runAccountAction(record, String(key) as AccountPoolAction)}
+                        >
+                          <DropdownItem key="reprobe" startContent={<RefreshCcw className="h-4 w-4" />}>
+                            {t('accountPool.actions.reprobe')}
+                          </DropdownItem>
+                          <DropdownItem key="restore" startContent={<RotateCcw className="h-4 w-4" />}>
+                            {t('accountPool.actions.restore')}
+                          </DropdownItem>
+                          <DropdownItem key="delete" className="text-danger" color="danger" startContent={<Trash2 className="h-4 w-4" />}>
+                            {t('accountPool.actions.delete')}
+                          </DropdownItem>
+                        </DropdownMenu>
+                      </Dropdown>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+
+          <div className="flex flex-col gap-3 border-t border-default-200 pt-3 text-xs text-default-500 sm:flex-row sm:items-center sm:justify-between">
+            <div className="tabular-nums">
+              {t('common.table.range', {
+                start: visibleRangeStart,
+                end: visibleRangeEnd,
+                total: filteredRecords.length,
+              })}
+            </div>
+            <Pagination
+              color="primary"
+              isCompact
+              page={resolvedPage}
+              total={totalPages}
+              onChange={setCurrentPage}
+            />
+          </div>
+        </CardBody>
+      </Card>
+
+      <Modal
+        backdrop="blur"
+        classNames={{
+          base: 'border-small border-default-200 bg-content1 shadow-large',
+          body: 'pt-0',
+          backdrop: 'bg-black/52 backdrop-blur-[2px]',
+          wrapper: 'px-2 py-2 sm:px-6 sm:py-6',
+        }}
+        isOpen={Boolean(selectedRecordId)}
+        placement="center"
+        scrollBehavior="inside"
+        size="5xl"
+        onOpenChange={(open) => {
+          if (!open) closeRecord()
+        }}
+      >
+        <ModalContent>
+          {() => (
+            <>
+              <ModalHeader className="flex flex-col gap-3">
+                <div className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                  {selectedLabel ?? t('accountPool.detail.modalTitle')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedRecord ? (
+                    <>
+                      <Chip color={getStateColor(selectedRecord.operator_state)} size="sm" variant="flat">
+                        {getStateLabel(selectedRecord.operator_state, t)}
+                      </Chip>
+                      <Chip color={getReasonColor(selectedRecord.reason_class)} size="sm" variant="flat">
+                        {getReasonLabel(selectedRecord.reason_class, t)}
+                      </Chip>
+                      <Chip size="sm" variant="flat">
+                        {getScopeLabel(selectedRecord.record_scope, t)}
+                      </Chip>
+                    </>
+                  ) : null}
+                </div>
+                <div className="text-sm leading-6 text-default-600">
+                  {t('accountPool.detail.description')}
+                </div>
+              </ModalHeader>
+              <ModalBody className="pb-5">
+                {selectedRecord ? (
+                  <div className="space-y-5">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="space-y-3 rounded-large border border-default-200/70 px-4 py-4">
+                        <h3 className="text-sm font-semibold text-foreground">
+                          {t('accountPool.detail.sections.status')}
+                        </h3>
+                        <div className="space-y-2 text-sm text-default-600">
+                          <div>{t('accountPool.fields.routeEligible')}: {selectedRecord.route_eligible ? t('common.yes') : t('common.no')}</div>
+                          <div>{t('accountPool.fields.healthFreshness')}: {getHealthFreshnessLabel(selectedRecord.health_freshness, t)}</div>
+                          <div>{t('accountPool.fields.nextAction')}: {formatDateTime(selectedRecord.next_action_at)}</div>
+                          <div>{t('accountPool.fields.lastSignalAt')}: {formatDateTime(selectedRecord.last_signal_at)}</div>
+                          <div>{t('accountPool.fields.lastSignalSource')}: {getSignalSourceLabel(selectedRecord.last_signal_source, t)}</div>
+                          <div>{t('accountPool.fields.lastProbeAt')}: {formatDateTime(selectedRecord.last_probe_at)}</div>
+                          <div>{t('accountPool.fields.lastProbeOutcome')}: {getProbeOutcomeLabel(selectedRecord.last_probe_outcome, t)}</div>
+                          <div>{t('accountPool.fields.reasonCode')}: {getReasonCodeLabel(selectedRecord.reason_code, t)}</div>
+                          <div>{t('accountPool.fields.updatedAt')}: {formatDateTime(selectedRecord.updated_at)}</div>
+                          <div>{t('accountPool.fields.createdAt')}: {formatDateTime(selectedRecord.created_at)}</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 rounded-large border border-default-200/70 px-4 py-4">
+                        <h3 className="text-sm font-semibold text-foreground">
+                          {t('accountPool.detail.sections.profile')}
+                        </h3>
+                        <div className="space-y-2 text-sm text-default-600">
+                          <div>{t('accountPool.fields.email')}: {selectedRecord.email ?? '-'}</div>
+                          <div>{t('accountPool.fields.chatgptAccountId')}: {selectedRecord.chatgpt_account_id ?? '-'}</div>
+                          <div>{t('accountPool.fields.plan')}: {getPlanLabel(selectedRecord.chatgpt_plan_type, t)}</div>
+                          <div>{t('accountPool.fields.sourceType')}: {selectedRecord.source_type ? getSourceTypeLabel(selectedRecord.source_type, t) : '-'}</div>
+                          <div>{t('accountPool.fields.recordScope')}: {getScopeLabel(selectedRecord.record_scope, t)}</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 rounded-large border border-default-200/70 px-4 py-4 lg:col-span-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-foreground">
+                              {t('accountPool.detail.sections.recentSignal')}
+                            </h3>
+                            <div className="mt-1 text-sm text-default-600">
+                              {t('accountPool.recentSignal.window24h')}
+                            </div>
+                          </div>
+                          <Chip size="sm" variant="flat">
+                            {selectedSignalHeatmap
+                              ? getHeatmapActivityLabel(
+                                  {
+                                    intensity_levels: selectedSignalHeatmap.buckets.map((bucket) => bucket.intensity),
+                                  },
+                                  t,
+                                )
+                              : t('accountPool.recentSignal.noHeatmap')}
+                          </Chip>
+                        </div>
+                        {isFetchingSelectedSignalHeatmap ? (
+                          <div className="flex items-center gap-2 py-4 text-sm text-default-600">
+                            <Spinner size="sm" />
+                            {t('common.loading')}
+                          </div>
+                        ) : selectedSignalHeatmap ? (
+                          <div className="space-y-3">
+                            <SignalHeatmapCanvas
+                              buckets={selectedSignalHeatmap.buckets}
+                              bucketMinutes={selectedSignalHeatmap.bucket_minutes}
+                            />
+                            <div className="text-sm leading-6 text-default-600">
+                              {getRecentSignalSummaryText(selectedRecord, locale, t)}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-large border border-dashed border-default-200 bg-content1/65 px-4 py-4 text-sm text-default-600">
+                            {t('accountPool.recentSignal.noHeatmap')}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-3 rounded-large border border-default-200/70 px-4 py-4">
+                        <h3 className="text-sm font-semibold text-foreground">
+                          {t('accountPool.detail.sections.credentials')}
+                        </h3>
+                        <div className="space-y-2 text-sm text-default-600">
+                          <div>{t('accountPool.fields.mode')}: {getModeLabel(selectedRecord.mode, t)}</div>
+                          <div>{t('accountPool.fields.authProvider')}: {getAuthProviderLabel(selectedRecord.auth_provider, t)}</div>
+                          <div>{t('accountPool.fields.credentialKind')}: {getCredentialKindLabel(selectedRecord.credential_kind, t)}</div>
+                          <div>{t('accountPool.fields.refreshState')}: {getRefreshStateLabel(selectedRecord.refresh_credential_state, t)}</div>
+                          <div>{t('accountPool.fields.hasRefreshCredential')}: {selectedRecord.has_refresh_credential ? t('common.yes') : t('common.no')}</div>
+                          <div>{t('accountPool.fields.accessTokenFallback')}: {selectedRecord.has_access_token_fallback ? t('common.yes') : t('common.no')}</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 rounded-large border border-default-200/70 px-4 py-4">
+                        <h3 className="text-sm font-semibold text-foreground">
+                          {t('accountPool.detail.sections.quota')}
+                        </h3>
+                        {(() => {
+                          const usageRows = buildUsageRows(selectedRecord, t)
+
+                          if (usageRows.length === 0) {
+                            return (
+                              <div className="rounded-large border border-default-200 bg-content1/70 px-4 py-3 text-sm text-default-600">
+                                {t('accounts.rateLimits.unavailable')}
+                              </div>
+                            )
+                          }
+
+                          return (
+                            <div className="space-y-3">
+                              {usageRows.map((item) => (
+                                <div
+                                  key={item.key}
+                                  className="rounded-large border border-default-200 bg-content1/70 px-4 py-3"
+                                >
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-default-500">
+                                        {item.bucketLabel}
+                                      </div>
+                                      <div className="mt-1 tabular-nums text-base font-semibold text-foreground">
+                                        {t('accounts.rateLimits.remainingPrefix')} {item.remainingText}
+                                      </div>
+                                    </div>
+                                    <div className="text-sm leading-5 text-default-500">
+                                      {item.resetText}
+                                    </div>
+                                  </div>
+                                  <Progress
+                                    aria-label={`${item.bucketLabel} ${item.remainingText}`}
+                                    className="mt-3"
+                                    color={getUsageProgressColor(item.remainingPercent)}
+                                    size="sm"
+                                    value={item.remainingPercent}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
+                        <div className="text-sm text-default-600">
+                          {t('accountPool.fields.rateLimitsFetchedAt')}: {formatDateTime(selectedRecord.rate_limits_fetched_at)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 py-12 text-sm text-default-600">
+                    <Spinner size="sm" />
+                    {isFetchingSelectedRecord ? t('common.loading') : t('accountPool.detail.empty')}
+                  </div>
+                )}
+              </ModalBody>
+              {selectedRecord ? (
+                <ModalFooter className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      isDisabled={!canRunAccountPoolAction(selectedRecord, 'reprobe') || actionMutation.isPending}
+                      size="sm"
+                      startContent={<RefreshCcw className="h-4 w-4" />}
+                      variant="flat"
+                      onPress={() => runAccountAction(selectedRecord, 'reprobe')}
+                    >
+                      {t('accountPool.actions.reprobe')}
+                    </Button>
+                    <Button
+                      isDisabled={!canRunAccountPoolAction(selectedRecord, 'restore') || actionMutation.isPending}
+                      size="sm"
+                      startContent={<RotateCcw className="h-4 w-4" />}
+                      variant="flat"
+                      onPress={() => runAccountAction(selectedRecord, 'restore')}
+                    >
+                      {t('accountPool.actions.restore')}
+                    </Button>
+                    <Button
+                      color="danger"
+                      isDisabled={actionMutation.isPending}
+                      size="sm"
+                      startContent={<Trash2 className="h-4 w-4" />}
+                      variant="light"
+                      onPress={() => runAccountAction(selectedRecord, 'delete')}
+                    >
+                      {t('accountPool.actions.delete')}
+                    </Button>
+                  </div>
+                  <Button size="sm" variant="light" onPress={() => setSelectedRecordId(null)}>
+                    {t('common.close')}
+                  </Button>
+                </ModalFooter>
+              ) : null}
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <Modal
+        backdrop="blur"
+        classNames={{
+          base: 'border-small border-default-200 bg-content1 shadow-large',
+          backdrop: 'bg-black/48 backdrop-blur-[2px]',
+        }}
+        isOpen={Boolean(deleteTarget)}
+        size="md"
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null)
+          }
+        }}
+      >
+        <ModalContent>
+          {() => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <div className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                  {t('accountPool.messages.confirmDeleteTitle', {
+                    label: deleteTarget ? getRecordLabel(deleteTarget) : '',
+                  })}
+                </div>
+                <div className="text-sm leading-6 text-default-600">
+                  {t('accountPool.messages.confirmDeleteDescription')}
+                </div>
+              </ModalHeader>
+              <ModalFooter>
+                <Button size="sm" variant="light" onPress={() => setDeleteTarget(null)}>
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  color="danger"
+                  isLoading={actionMutation.isPending}
+                  size="sm"
+                  variant="flat"
+                  onPress={() => {
+                    if (!deleteTarget) {
+                      return
+                    }
+                    actionMutation.mutate({ action: 'delete', record: deleteTarget })
+                  }}
+                >
+                  {t('accountPool.actions.delete')}
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+    </PageContent>
   )
 }

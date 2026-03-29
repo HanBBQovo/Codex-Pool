@@ -1,14 +1,15 @@
+import { Button } from '@heroui/react'
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { type ApiKey } from '@/api/settings'
 import type { UsageSummaryQueryResponse } from '@/api/types'
-import { Button } from '@/components/ui/button'
+import { PagePanel } from '@/components/layout/page-archetypes'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { SurfaceCard, SurfaceCardBody, SurfaceInset } from '@/components/ui/surface'
 import { formatExactCount } from '@/lib/count-number-format'
-import { POOL_ELEVATED_SECTION_CLASS_NAME, POOL_METRIC_CARD_CLASS_NAME } from '@/lib/pool-styles'
 import { cn } from '@/lib/utils'
 
 type TenantUsageSectionProps = {
@@ -58,7 +59,7 @@ export function TenantUsageSection({
     : null
 
   return (
-    <section className={POOL_ELEVATED_SECTION_CLASS_NAME}>
+    <PagePanel as="section" className="space-y-4">
       <h3 className="text-base font-medium">
         {t('tenants.usage.sectionTitle', { defaultValue: 'Usage in the last 24 hours' })}
       </h3>
@@ -68,7 +69,8 @@ export function TenantUsageSection({
         {' '}
         <span className="font-mono">{tenantId}</span>
       </p>
-      <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
+      <SurfaceInset tone="muted">
+        <div className="space-y-2">
         <label className={labelClassName}>
           {t('tenants.usage.filter.label', { defaultValue: 'API key filter' })}
         </label>
@@ -83,7 +85,6 @@ export function TenantUsageSection({
         >
           <PopoverTrigger asChild>
             <Button
-              variant="outline"
               className="w-full justify-between"
               disabled={keysForCurrentTenant.length === 0}
             >
@@ -110,11 +111,11 @@ export function TenantUsageSection({
                 autoComplete="off"
                 spellCheck={false}
               />
-              <div className="max-h-56 overflow-y-auto rounded-md border border-border/60 bg-background">
+              <SurfaceInset tone="default" className="max-h-56 overflow-y-auto px-0 py-0">
                 <button
                   type="button"
                   className={cn(
-                    'flex w-full items-center justify-between gap-2 border-b border-border/60 px-3 py-2 text-left text-sm hover:bg-accent',
+                    'flex w-full items-center justify-between gap-2 border-b border-default-200/70 px-3 py-2 text-left text-sm hover:bg-accent',
                     effectiveUsageApiKeyFilter === usageApiKeyFilterAllValue ? 'bg-accent/50' : '',
                   )}
                   onClick={() => {
@@ -135,7 +136,7 @@ export function TenantUsageSection({
                     key={key.id}
                     type="button"
                     className={cn(
-                      'flex w-full items-center justify-between gap-2 border-b border-border/60 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent',
+                      'flex w-full items-center justify-between gap-2 border-b border-default-200/70 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent',
                       effectiveUsageApiKeyFilter === key.id ? 'bg-accent/50' : '',
                     )}
                     onClick={() => {
@@ -160,7 +161,7 @@ export function TenantUsageSection({
                     {t('tenants.usage.filter.noMatches', { defaultValue: 'No matching API keys' })}
                   </div>
                 ) : null}
-              </div>
+              </SurfaceInset>
             </div>
           </PopoverContent>
         </Popover>
@@ -172,9 +173,10 @@ export function TenantUsageSection({
             <span className="font-mono">{selectedUsageApiKey.id}</span>
           ) : (
             t('tenants.usage.filter.allKeys', { defaultValue: 'All API keys' })
-          )}
+            )}
         </p>
-      </div>
+        </div>
+      </SurfaceInset>
 
       {usageSummaryQuery.isFetching ? (
         <div className="flex items-center text-sm text-muted-foreground">
@@ -192,34 +194,41 @@ export function TenantUsageSection({
       {usageSummaryQuery.data ? (
         selectedUsageApiKey ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className={POOL_METRIC_CARD_CLASS_NAME}>
+            <SurfaceCard tone="default" shadow="none">
+              <SurfaceCardBody className="p-4">
               <div className="text-xs text-muted-foreground">
                 {t('tenants.usage.metrics.apiKeyRequests', { defaultValue: 'API key requests' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
                 {formatExactCount(usageSummaryQuery.data.tenant_api_key_total_requests)}
               </div>
-            </div>
-            <div className={POOL_METRIC_CARD_CLASS_NAME}>
+              </SurfaceCardBody>
+            </SurfaceCard>
+            <SurfaceCard tone="default" shadow="none">
+              <SurfaceCardBody className="p-4">
               <div className="text-xs text-muted-foreground">
                 {t('tenants.usage.metrics.activeApiKeys', { defaultValue: 'Active API keys' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
                 {formatExactCount(usageSummaryQuery.data.unique_tenant_api_key_count)}
               </div>
-            </div>
+              </SurfaceCardBody>
+            </SurfaceCard>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className={POOL_METRIC_CARD_CLASS_NAME}>
+            <SurfaceCard tone="default" shadow="none">
+              <SurfaceCardBody className="p-4">
               <div className="text-xs text-muted-foreground">
                 {t('tenants.usage.metrics.accountRequests', { defaultValue: 'Account requests' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
                 {formatExactCount(usageSummaryQuery.data.account_total_requests)}
               </div>
-            </div>
-            <div className={POOL_METRIC_CARD_CLASS_NAME}>
+              </SurfaceCardBody>
+            </SurfaceCard>
+            <SurfaceCard tone="default" shadow="none">
+              <SurfaceCardBody className="p-4">
               <div className="text-xs text-muted-foreground">
                 {t('tenants.usage.metrics.tenantApiKeyRequests', {
                   defaultValue: 'Tenant API key requests',
@@ -228,26 +237,31 @@ export function TenantUsageSection({
               <div className="mt-1 text-xl font-semibold">
                 {formatExactCount(usageSummaryQuery.data.tenant_api_key_total_requests)}
               </div>
-            </div>
-            <div className={POOL_METRIC_CARD_CLASS_NAME}>
+              </SurfaceCardBody>
+            </SurfaceCard>
+            <SurfaceCard tone="default" shadow="none">
+              <SurfaceCardBody className="p-4">
               <div className="text-xs text-muted-foreground">
                 {t('tenants.usage.metrics.activeAccounts', { defaultValue: 'Active accounts' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
                 {formatExactCount(usageSummaryQuery.data.unique_account_count)}
               </div>
-            </div>
-            <div className={POOL_METRIC_CARD_CLASS_NAME}>
+              </SurfaceCardBody>
+            </SurfaceCard>
+            <SurfaceCard tone="default" shadow="none">
+              <SurfaceCardBody className="p-4">
               <div className="text-xs text-muted-foreground">
                 {t('tenants.usage.metrics.activeApiKeys', { defaultValue: 'Active API keys' })}
               </div>
               <div className="mt-1 text-xl font-semibold">
                 {formatExactCount(usageSummaryQuery.data.unique_tenant_api_key_count)}
               </div>
-            </div>
+              </SurfaceCardBody>
+            </SurfaceCard>
           </div>
         )
       ) : null}
-    </section>
+    </PagePanel>
   )
 }

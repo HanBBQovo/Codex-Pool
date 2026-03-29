@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { CHART_SERIES_COLORS } from '@/lib/chart-theme'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { subDays } from 'date-fns'
@@ -7,7 +8,14 @@ import { useTranslation } from 'react-i18next'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
 import { tenantKeysApi } from '@/api/tenantKeys'
 import { tenantUsageApi } from '@/api/tenantUsage'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  DockedPageIntro,
+  PageContent,
+  PagePanel,
+  ReportMetricCard,
+  ReportMetricGrid,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
 import {
   Select,
   SelectContent,
@@ -15,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { DataTable } from '@/components/DataTable'
 import { TrendChart } from '@/components/ui/trend-chart'
 import { formatMicrousd } from '@/lib/cost-format'
 import { formatDateTime, formatNumber } from '@/lib/i18n-format'
@@ -140,50 +148,40 @@ export function TenantCostReportPage() {
   )
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="space-y-2">
-          <CardTitle>{t('costReports.tenant.title')}</CardTitle>
-          <CardDescription>{t('costReports.tenant.description')}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-            <p className="text-sm text-muted-foreground">{t('costReports.summary.totalCost')}</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {formatMicrousd(summary?.estimated_cost_microusd, { locale })}
-            </p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-            <p className="text-sm text-muted-foreground">{t('costReports.summary.totalRequests')}</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {formatNumber(summary?.tenant_api_key_total_requests, {
-                locale,
-                maximumFractionDigits: 0,
-              })}
-            </p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-            <p className="text-sm text-muted-foreground">
-              {t('costReports.summary.avgCostPerRequest')}
-            </p>
-            <p className="mt-2 text-2xl font-semibold">
-              {formatMicrousd(averageCostMicrousd, {
-                locale,
-                minimumFractionDigits: 4,
-                maximumFractionDigits: 4,
-              })}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+    <PageContent className="space-y-6">
+      <DockedPageIntro
+        archetype="workspace"
+        title={t('costReports.tenant.title')}
+        description={t('costReports.tenant.description')}
+      />
+      <ReportMetricGrid>
+        <ReportMetricCard
+          title={t('costReports.summary.totalCost')}
+          value={formatMicrousd(summary?.estimated_cost_microusd, { locale })}
+        />
+        <ReportMetricCard
+          title={t('costReports.summary.totalRequests')}
+          value={formatNumber(summary?.tenant_api_key_total_requests, {
+            locale,
+            maximumFractionDigits: 0,
+          })}
+        />
+        <ReportMetricCard
+          title={t('costReports.summary.avgCostPerRequest')}
+          value={formatMicrousd(averageCostMicrousd, {
+            locale,
+            minimumFractionDigits: 4,
+            maximumFractionDigits: 4,
+          })}
+        />
+      </ReportMetricGrid>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <CardTitle>{t('costReports.chart.title')}</CardTitle>
-            <CardDescription>{t('costReports.chart.description')}</CardDescription>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
+      <PagePanel>
+        <SectionHeader
+          title={t('costReports.chart.title')}
+          description={t('costReports.chart.description')}
+          actions={(
+            <div className="flex flex-col gap-3 sm:flex-row">
             <Select value={selectedApiKeyId} onValueChange={setSelectedApiKeyId}>
               <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue placeholder={t('costReports.filters.apiKey')} />
@@ -191,9 +189,9 @@ export function TenantCostReportPage() {
               <SelectContent>
                 <SelectItem value="all">{t('costReports.filters.allApiKeys')}</SelectItem>
                 {keys.map((key) => (
-                <SelectItem key={key.id} value={key.id}>
+                  <SelectItem key={key.id} value={key.id}>
                     {key.name}
-                </SelectItem>
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -209,16 +207,17 @@ export function TenantCostReportPage() {
                 <SelectItem value="month">{t('costReports.filters.month')}</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
+            </div>
+          )}
+        />
+        <div className="pt-4">
           {chartData.length > 0 ? (
             <TrendChart
               data={chartData}
               lines={[
                 {
                   dataKey: 'cost',
-                  stroke: '#1d4ed8',
+                  stroke: CHART_SERIES_COLORS.primary,
                   name: t('costReports.chart.series.cost'),
                 },
               ]}
@@ -229,10 +228,10 @@ export function TenantCostReportPage() {
           ) : (
             <p className="text-sm text-muted-foreground">{t('costReports.chart.empty')}</p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </PagePanel>
 
-      <StandardDataTable
+      <DataTable
         columns={columns}
         data={requestLogs?.items ?? []}
         defaultPageSize={10}
@@ -252,6 +251,6 @@ export function TenantCostReportPage() {
           </div>
         }
       />
-    </div>
+    </PageContent>
   )
 }

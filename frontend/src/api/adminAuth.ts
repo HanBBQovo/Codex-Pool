@@ -12,10 +12,20 @@ export interface AdminMeResponse {
 }
 
 export const adminAuthApi = {
-  login: (username: string, password: string) =>
-    apiClient.post<AdminLoginResponse>('/admin/auth/login', { username, password }),
+  login: async (username: string, password: string) => {
+    const response = await apiClient.post<AdminLoginResponse>('/admin/auth/login', {
+      username,
+      password,
+    })
+    return response.data
+  },
 
-  logout: () => apiClient.post<void>('/admin/auth/logout'),
+  logout: async () => {
+    await apiClient.post<void>('/admin/auth/logout')
+  },
 
-  me: () => apiClient.get<AdminMeResponse>('/admin/auth/me'),
+  me: async () => {
+    const response = await apiClient.get<AdminMeResponse>('/admin/auth/me')
+    return response.data
+  },
 }

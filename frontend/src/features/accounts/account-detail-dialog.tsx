@@ -3,20 +3,27 @@ import { useTranslation } from 'react-i18next'
 
 import type { OAuthAccountStatusResponse, UpstreamAccount } from '@/api/accounts'
 import { localizeOAuthErrorCodeDisplay } from '@/api/errorI18n'
+import {
+  AntigravityDialogBody,
+  AntigravityDialogShell,
+} from '@/components/layout/dialog-archetypes'
 import { AccessibleTabList } from '@/components/ui/accessible-tabs'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog } from '@/components/ui/dialog'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  SurfaceCard,
+  SurfaceCardBody,
+  SurfaceCardHeader,
+  SurfaceCode,
+  SurfaceDivider,
+  SurfaceInset,
+} from '@/components/ui/surface'
 import { cn } from '@/lib/utils'
 
 import type { AccountDetailTab, RateLimitDisplay } from './types'
 import {
+  getAccountPoolStateBadgeVariant,
+  getAccountPoolStateLabel,
   bucketBarClass,
   bucketLabel,
   clampPercent,
@@ -24,14 +31,12 @@ import {
   formatRateLimitResetText,
   getAuthProviderLabel,
   getCredentialKindLabel,
-  getLiveResultStatusLabel,
   getModeLabel,
-  getPoolStateBadgeVariant,
-  getPoolStateLabel,
   getPlanLabel,
-  getRefreshCredentialStateLabel,
   getRefreshStatusLabel,
   getSourceTypeLabel,
+  isLegacyAccountRouteEligible,
+  resolveLegacyAccountOperatorState,
 } from './utils'
 
 type AccountDetailDialogProps = {
@@ -43,7 +48,6 @@ type AccountDetailDialogProps = {
   oauthStatus?: OAuthAccountStatusResponse
   oauthStatusLoading: boolean
   rateLimitDisplays: RateLimitDisplay[]
-  locale: string
 }
 
 type DetailSectionProps = {
@@ -64,12 +68,13 @@ type DetailFieldProps = {
 
 function DetailSection({ title, children, className }: DetailSectionProps) {
   return (
-    <Card className={cn('gap-0 overflow-hidden border-border/70 py-0 shadow-none', className)}>
-      <CardHeader className="border-b bg-muted/20 px-4 py-3">
-        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="px-4 py-4">{children}</CardContent>
-    </Card>
+    <SurfaceCard tone="muted" shadow="none" className={cn('gap-0 overflow-hidden py-0', className)}>
+      <SurfaceCardHeader className="px-4 py-3">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      </SurfaceCardHeader>
+      <SurfaceDivider />
+      <SurfaceCardBody className="px-4 py-4">{children}</SurfaceCardBody>
+    </SurfaceCard>
   )
 }
 
@@ -87,9 +92,9 @@ function DetailField({
   return (
     <div className={cn('space-y-1.5', containerClassName)}>
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div
+      <SurfaceInset
         className={cn(
-          'rounded-lg border bg-background px-3 py-2 text-sm',
+          'px-3 py-2 text-sm',
           mono ? 'font-mono text-xs break-all' : 'break-words',
           scrollable ? 'max-h-32 overflow-auto' : '',
           className,
@@ -97,7 +102,7 @@ function DetailField({
         title={title}
       >
         {isEmpty ? <span className="text-muted-foreground">-</span> : children}
-      </div>
+      </SurfaceInset>
     </div>
   )
 }
@@ -131,7 +136,6 @@ export function AccountDetailDialog({
   oauthStatus,
   oauthStatusLoading,
   rateLimitDisplays,
-  locale,
 }: AccountDetailDialogProps) {
   const { t } = useTranslation()
   const fieldLabel = (key: string, defaultValue: string) =>
@@ -145,25 +149,26 @@ export function AccountDetailDialog({
   )
   const sourceTypeLabel = getSourceTypeLabel(oauthStatus?.source_type, t)
   const supportedModels = oauthStatus?.supported_models ?? []
+  const operatorState = resolveLegacyAccountOperatorState(oauthStatus, account?.enabled ?? false)
+  const routeEligible = isLegacyAccountRouteEligible(oauthStatus, account?.enabled ?? false)
 
   return (
     <Dialog open={Boolean(account)} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
-        <DialogHeader className="shrink-0 border-b px-6 py-5 pr-14">
-          <DialogTitle>
-            {account
-              ? `${t('accounts.actions.viewDetails', { defaultValue: 'View Details' })} · ${primaryIdentity}`
-              : t('accounts.actions.viewDetails', { defaultValue: 'View Details' })}
-          </DialogTitle>
-          <DialogDescription>
-            {t('accounts.details.description', {
-              defaultValue: 'View account profile, OAuth status, limits, and raw payloads.',
-            })}
-          </DialogDescription>
-        </DialogHeader>
+      <AntigravityDialogShell
+        size="xl"
+        title={
+          account
+            ? `${t('accounts.actions.viewDetails', { defaultValue: 'View Details' })} · ${primaryIdentity}`
+            : t('accounts.actions.viewDetails', { defaultValue: 'View Details' })
+        }
+        description={t('accounts.details.description', {
+          defaultValue: 'View account profile, OAuth status, limits, and raw payloads.',
+        })}
+        bodyClassName="p-0"
+      >
 
         {account ? (
-          <div className="flex min-h-0 flex-1 flex-col">
+          <AntigravityDialogBody className="flex min-h-0 flex-1 flex-col gap-0">
             <div className="shrink-0 border-b px-6 py-4">
               <AccessibleTabList
                 idBase="account-detail"
@@ -304,7 +309,7 @@ export function AccountDetailDialog({
                               <Badge
                                 key={model}
                                 variant="outline"
-                                className="font-mono text-[11px]"
+                                className="font-mono text-xs"
                                 title={model}
                               >
                                 {model}
@@ -359,70 +364,26 @@ export function AccountDetailDialog({
                           <DetailField label={fieldLabel('tokenExpiresAt', 'Token Expires At')}>
                             {formatOptionalDateTime(oauthStatus.token_expires_at)}
                           </DetailField>
-                          <DetailField label={fieldLabel('effectiveEnabled', 'Effective Enabled')}>
-                            <Badge variant={oauthStatus.effective_enabled ? 'success' : 'warning'}>
-                              {oauthStatus.effective_enabled ? t('common.yes') : t('common.no')}
-                            </Badge>
-                          </DetailField>
-                        </div>
-                      </DetailSection>
-
-                      <DetailSection
-                        title={t('accounts.details.sections.runtimeHealth', {
-                          defaultValue: 'Runtime Health',
-                        })}
-                      >
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <DetailField label={fieldLabel('poolState', 'Runtime Pool')}>
-                            <Badge variant={getPoolStateBadgeVariant(oauthStatus.pool_state)}>
-                              {getPoolStateLabel(oauthStatus.pool_state, t)}
+                          <DetailField
+                            label={t('accountPool.columns.state', { defaultValue: 'State' })}
+                          >
+                            <Badge variant={getAccountPoolStateBadgeVariant(operatorState)}>
+                              {getAccountPoolStateLabel(operatorState, t)}
                             </Badge>
                           </DetailField>
                           <DetailField
-                            label={fieldLabel('refreshCredentialState', 'Refresh Credential State')}
+                            label={t('accountPool.fields.routeEligible', {
+                              defaultValue: 'Route eligibility',
+                            })}
                           >
-                            <Badge variant={oauthStatus.has_refresh_credential ? 'success' : 'secondary'}>
-                              {getRefreshCredentialStateLabel(
-                                oauthStatus.refresh_credential_state,
-                                t,
-                              )}
-                            </Badge>
-                          </DetailField>
-                          <DetailField label={fieldLabel('quarantineReason', 'Quarantine Reason')}>
-                            {oauthStatus.quarantine_reason
-                              ? localizeOAuthErrorCodeDisplay(t, oauthStatus.quarantine_reason).label
-                              : '-'}
-                          </DetailField>
-                          <DetailField label={fieldLabel('quarantineUntil', 'Quarantine Until')}>
-                            {formatOptionalDateTime(oauthStatus.quarantine_until)}
-                          </DetailField>
-                          <DetailField label={fieldLabel('pendingPurgeReason', 'Pending Purge Reason')}>
-                            {oauthStatus.pending_purge_reason
-                              ? localizeOAuthErrorCodeDisplay(t, oauthStatus.pending_purge_reason).label
-                              : '-'}
-                          </DetailField>
-                          <DetailField label={fieldLabel('pendingPurgeAt', 'Pending Purge At')}>
-                            {formatOptionalDateTime(oauthStatus.pending_purge_at)}
-                          </DetailField>
-                          <DetailField label={fieldLabel('lastLiveResult', 'Last Live Result')}>
-                            {getLiveResultStatusLabel(oauthStatus.last_live_result_status, t)}
-                          </DetailField>
-                          <DetailField label={fieldLabel('lastLiveResultAt', 'Last Live Result At')}>
-                            {formatOptionalDateTime(oauthStatus.last_live_result_at)}
-                          </DetailField>
-                          <DetailField label={fieldLabel('lastLiveResultError', 'Last Live Error')}>
-                            {oauthStatus.last_live_error_code
-                              ? localizeOAuthErrorCodeDisplay(t, oauthStatus.last_live_error_code).label
-                              : oauthStatus.last_live_error_message_preview ?? '-'}
-                          </DetailField>
-                          <DetailField label={fieldLabel('hasRefreshCredential', 'Has Refresh Credential')}>
-                            <Badge variant={oauthStatus.has_refresh_credential ? 'success' : 'secondary'}>
-                              {oauthStatus.has_refresh_credential ? t('common.yes') : t('common.no')}
-                            </Badge>
-                          </DetailField>
-                          <DetailField label={fieldLabel('hasAccessTokenFallback', 'Has Access Token Fallback')}>
-                            <Badge variant={oauthStatus.has_access_token_fallback ? 'info' : 'secondary'}>
-                              {oauthStatus.has_access_token_fallback ? t('common.yes') : t('common.no')}
+                            <Badge variant={routeEligible ? 'success' : 'secondary'}>
+                              {routeEligible
+                                ? t('accountPool.routeEligible.yes', {
+                                  defaultValue: 'Route eligible',
+                                })
+                                : t('accountPool.routeEligible.no', {
+                                  defaultValue: 'Not routable',
+                                })}
                             </Badge>
                           </DetailField>
                         </div>
@@ -486,7 +447,6 @@ export function AccountDetailDialog({
                           </DetailField>
                           <DetailField
                             label={fieldLabel('lastRefreshErrorCode', 'Last Refresh Error Code')}
-                            title={refreshErrorDisplay.tooltip}
                           >
                             {oauthStatus.last_refresh_error_code ? refreshErrorDisplay.label : '-'}
                           </DetailField>
@@ -521,7 +481,6 @@ export function AccountDetailDialog({
                           </DetailField>
                           <DetailField
                             label={fieldLabel('rateLimitsLastErrorCode', 'Rate Limits Last Error Code')}
-                            title={rateLimitErrorDisplay.tooltip}
                           >
                             {oauthStatus.rate_limits_last_error_code ? rateLimitErrorDisplay.label : '-'}
                           </DetailField>
@@ -580,9 +539,9 @@ export function AccountDetailDialog({
                         {rateLimitDisplays.map((item) => {
                           const remaining = clampPercent(item.remainingPercent)
                           return (
-                            <div
+                            <SurfaceInset
                               key={item.bucket}
-                              className="rounded-lg border border-border/60 bg-muted/20 p-3"
+                              className="p-3"
                             >
                               <div className="flex items-center justify-between gap-2 text-sm">
                                 <span className="font-medium">{bucketLabel(item.bucket, t)}</span>
@@ -605,11 +564,10 @@ export function AccountDetailDialog({
                               <p className="mt-2 text-xs text-muted-foreground">
                                 {formatRateLimitResetText({
                                   resetsAt: item.resetsAt,
-                                  locale,
                                   t,
                                 })}
                               </p>
-                            </div>
+                            </SurfaceInset>
                           )
                         })}
                       </div>
@@ -631,22 +589,22 @@ export function AccountDetailDialog({
                   </h3>
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <DetailSection title={fieldLabel('rawAccount', 'Account Payload')}>
-                      <pre className="max-h-[28rem] overflow-auto rounded-lg border bg-muted/20 p-3 text-xs leading-relaxed">
+                      <SurfaceCode className="max-h-[28rem]">
                         {JSON.stringify(account, null, 2)}
-                      </pre>
+                      </SurfaceCode>
                     </DetailSection>
                     <DetailSection title={fieldLabel('rawOauthStatus', 'OAuth Status Payload')}>
-                      <pre className="max-h-[28rem] overflow-auto rounded-lg border bg-muted/20 p-3 text-xs leading-relaxed">
+                      <SurfaceCode className="max-h-[28rem]">
                         {JSON.stringify(oauthStatus ?? null, null, 2)}
-                      </pre>
+                      </SurfaceCode>
                     </DetailSection>
                   </div>
                 </section>
               ) : null}
             </div>
-          </div>
+          </AntigravityDialogBody>
         ) : null}
-      </DialogContent>
+      </AntigravityDialogShell>
     </Dialog>
   )
 }

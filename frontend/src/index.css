@@ -1,405 +1,226 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-
+@plugin './hero.ts';
+@source '../node_modules/@heroui/theme/dist/**/*.{js,mjs}';
 @custom-variant dark (&:is(.dark *));
 
+/* ── 字体 ──────────────────────────────────────────────────────────────
+ * 主字体：Plus Jakarta Sans（variable font，300-700）
+ * 中文字体：Noto Sans SC（300/400/500/700，Google Fonts unicode-range 分片）
+ *   - 300 细体：用于页面大标题，中文细体比 semibold 精致许多
+ *   - 400 常规：正文、描述
+ *   - 500 中等：次级标签、强调
+ *   - 700 粗体：极少数需要强对比时使用
+ * Fallback：metric-matched Arial，最小化 FOUT 布局抖动。
+ */
+@font-face {
+  font-family: 'Plus Jakarta Sans Fallback';
+  src: local('Arial');
+  size-adjust: 99%;
+  ascent-override: 96%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+
+/* 将 Tailwind v4 的 --font-sans 覆盖为 Plus Jakarta Sans + Noto Sans SC，
+ * 所有使用默认 sans-serif 的组件（含 HeroUI）自动继承。
+ * 字体回退顺序：
+ *   拉丁字符 → Plus Jakarta Sans（variable font，精准数字、紧凑字距）
+ *   CJK 字符 → Noto Sans SC（Google Fonts 按 unicode-range 分片，按需下载）
+ *           → PingFang SC（macOS/iOS 系统中文，零延迟）
+ *           → Microsoft YaHei（Windows 系统中文回退）
+ * 浏览器通过 unicode-range 自动选择字符所属的字体，拉丁与中文不互相干扰。
+ */
 @theme {
-  --color-primary-50: #f2f4f7;
-  --color-primary-100: #e5e9f0;
-  --color-primary-200: #cdd5e1;
-  --color-primary-300: #aab6c8;
-  --color-primary-400: #8899b1;
-  --color-primary-500: #6a7d98;
-  --color-primary-600: #55667f;
-  --color-primary-700: #455267;
-  --color-primary-800: #394353;
-  --color-primary-900: #303845;
-  --color-primary-950: #222833;
+  --font-sans: 'Plus Jakarta Sans', 'Plus Jakarta Sans Fallback',
+               'Noto Sans SC',
+               'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+               ui-sans-serif, system-ui, sans-serif;
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-    font-family:
-      "Avenir Next",
-      "SF Pro Text",
-      "Segoe UI Variable",
-      "PingFang SC",
-      "Hiragino Sans GB",
-      "Microsoft YaHei UI",
-      "Noto Sans",
-      sans-serif;
-    text-rendering: optimizeLegibility;
-  }
-
-  a,
-  button,
-  [role='button'] {
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-  }
-}
-
-@layer components {
-  .page-grid-wash {
-    background:
-      radial-gradient(circle at 10% 10%, rgb(82 98 128 / 0.14), transparent 30%),
-      radial-gradient(circle at 88% 18%, rgb(196 160 94 / 0.11), transparent 28%),
-      repeating-linear-gradient(
-        90deg,
-        rgb(92 103 121 / 0.05) 0,
-        rgb(92 103 121 / 0.05) 1px,
-        transparent 1px,
-        transparent 118px
-      ),
-      linear-gradient(180deg, rgb(251 247 240 / 0.99), rgb(241 235 226 / 0.995)),
-      linear-gradient(120deg, rgb(255 255 255 / 0.48), transparent 42%);
-  }
-
-  .dark .page-grid-wash {
-    background:
-      radial-gradient(circle at 12% 10%, rgb(112 132 168 / 0.16), transparent 32%),
-      radial-gradient(circle at 82% 16%, rgb(175 146 92 / 0.1), transparent 24%),
-      repeating-linear-gradient(
-        90deg,
-        rgb(111 128 154 / 0.045) 0,
-        rgb(111 128 154 / 0.045) 1px,
-        transparent 1px,
-        transparent 118px
-      ),
-      linear-gradient(180deg, rgb(18 22 28 / 0.98), rgb(14 18 24 / 0.995)),
-      linear-gradient(120deg, rgb(255 255 255 / 0.03), transparent 42%);
-  }
-
-  .page-stage-surface {
-    position: relative;
-    border: 1px solid color-mix(in oklch, var(--border) 82%, white 18%);
-    background:
-      linear-gradient(132deg, rgb(74 92 121 / 0.12), transparent 38%),
-      linear-gradient(180deg, rgb(253 250 244 / 0.985), rgb(245 239 229 / 0.99)),
-      linear-gradient(90deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0));
-    box-shadow:
-      0 24px 54px rgb(77 90 112 / 0.08),
-      0 1px 0 rgb(255 255 255 / 0.5),
-      inset 0 1px 0 rgb(255 255 255 / 0.42),
-      inset 0 0 0 1px rgb(255 255 255 / 0.14);
-  }
-
-  .dark .page-stage-surface {
-    border-color: rgb(164 173 188 / 0.1);
-    background:
-      linear-gradient(132deg, rgb(108 127 164 / 0.16), transparent 36%),
-      linear-gradient(180deg, rgb(27 31 39 / 0.97), rgb(22 27 33 / 0.99)),
-      linear-gradient(90deg, rgb(255 255 255 / 0.018), rgb(255 255 255 / 0));
-    box-shadow:
-      0 24px 48px rgb(0 0 0 / 0.28),
-      0 1px 0 rgb(255 255 255 / 0.02),
-      inset 0 1px 0 rgb(255 255 255 / 0.035),
-      inset 0 0 0 1px rgb(255 255 255 / 0.015);
-  }
-
-  .page-panel-surface {
-    border: 1px solid color-mix(in oklch, var(--border) 84%, white 16%);
-    background:
-      linear-gradient(180deg, rgb(70 88 116 / 0.08), transparent 34%),
-      linear-gradient(180deg, rgb(252 248 242 / 0.92), rgb(245 239 230 / 0.95)),
-      color-mix(in oklch, var(--card) 94%, var(--background) 6%);
-    box-shadow:
-      0 12px 28px rgb(78 90 111 / 0.05),
-      inset 0 1px 0 rgb(255 255 255 / 0.42),
-      inset 0 0 0 1px rgb(255 255 255 / 0.08),
-      inset 0 3px 0 rgb(86 102 130 / 0.14);
-  }
-
-  .dark .page-panel-surface {
-    border-color: rgb(155 166 182 / 0.08);
-    background:
-      linear-gradient(180deg, rgb(111 129 162 / 0.11), transparent 34%),
-      linear-gradient(180deg, rgb(28 33 39 / 0.92), rgb(23 28 34 / 0.96)),
-      color-mix(in oklch, var(--card) 92%, var(--background) 8%);
-    box-shadow:
-      0 14px 26px rgb(0 0 0 / 0.2),
-      inset 0 1px 0 rgb(255 255 255 / 0.03),
-      inset 0 0 0 1px rgb(255 255 255 / 0.012),
-      inset 0 3px 0 rgb(122 142 177 / 0.18);
-  }
-
-  .page-panel-surface-muted {
-    border: 1px solid color-mix(in oklch, var(--border) 84%, white 16%);
-    background:
-      linear-gradient(180deg, rgb(196 160 94 / 0.08), transparent 34%),
-      linear-gradient(180deg, rgb(248 244 237 / 0.78), rgb(243 238 231 / 0.82)),
-      color-mix(in oklch, var(--card) 82%, var(--muted) 18%);
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.24),
-      inset 0 3px 0 rgb(196 160 94 / 0.12);
-  }
-
-  .dark .page-panel-surface-muted {
-    border-color: rgb(155 166 182 / 0.06);
-    background:
-      linear-gradient(180deg, rgb(184 153 97 / 0.09), transparent 30%),
-      linear-gradient(180deg, rgb(27 31 37 / 0.74), rgb(23 27 33 / 0.8)),
-      color-mix(in oklch, var(--card) 82%, var(--background) 18%);
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.03),
-      inset 0 3px 0 rgb(184 153 97 / 0.16);
-  }
-
-  .app-shell-sidebar {
-    background:
-      linear-gradient(180deg, rgb(247 243 236 / 0.98), rgb(239 234 225 / 0.995)),
-      linear-gradient(180deg, rgb(77 95 124 / 0.1), transparent 18%);
-    box-shadow:
-      inset -1px 0 0 rgb(255 255 255 / 0.38),
-      18px 0 48px rgb(67 79 97 / 0.05);
-  }
-
-  .dark .app-shell-sidebar {
-    background:
-      linear-gradient(180deg, rgb(24 28 35 / 0.99), rgb(18 22 28 / 0.995)),
-      linear-gradient(180deg, rgb(111 128 160 / 0.12), transparent 18%);
-    box-shadow:
-      inset -1px 0 0 rgb(255 255 255 / 0.03),
-      18px 0 44px rgb(0 0 0 / 0.24);
-  }
-
-  .app-shell-header {
-    background:
-      linear-gradient(180deg, rgb(251 247 241 / 0.92), rgb(248 244 238 / 0.82)),
-      linear-gradient(90deg, rgb(70 88 116 / 0.05), transparent 36%);
-    backdrop-filter: blur(16px);
-  }
-
-  .dark .app-shell-header {
-    background:
-      linear-gradient(180deg, rgb(20 24 31 / 0.9), rgb(18 22 28 / 0.82)),
-      linear-gradient(90deg, rgb(111 128 160 / 0.08), transparent 36%);
-  }
-}
-
+/* shadcn/ui → HeroUI token 桥接
+ * 将 shadcn 惯例 token 映射到 HeroUI CSS 变量，使两套系统在同一项目中共存。
+ * HeroUI 的 default-* 使用 zinc 色阶，danger 使用 red 色阶。
+ * 使用 @theme inline 确保值在运行时随主题切换动态更新。
+ */
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-success-muted: var(--success-muted);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-warning-muted: var(--warning-muted);
-  --color-info: var(--info);
-  --color-info-foreground: var(--info-foreground);
-  --color-info-muted: var(--info-muted);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-muted-foreground: hsl(var(--heroui-default-600));
+  --color-muted: hsl(var(--heroui-default-100));
+  --color-destructive: hsl(var(--heroui-danger));
+  --color-destructive-foreground: hsl(var(--heroui-danger-foreground));
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
 }
 
 :root {
-  color-scheme: light;
-  --radius: 0.75rem;
-  --background: oklch(0.968 0.004 85);
-  --foreground: oklch(0.282 0.011 255);
-  --card: oklch(0.984 0.003 82);
-  --card-foreground: oklch(0.282 0.011 255);
-  --popover: oklch(0.986 0.003 82);
-  --popover-foreground: oklch(0.282 0.011 255);
-  --primary: oklch(0.39 0.05 255);
-  --primary-foreground: oklch(0.985 0.003 82);
-  --secondary: oklch(0.949 0.004 82);
-  --secondary-foreground: oklch(0.31 0.011 255);
-  --muted: oklch(0.955 0.004 83);
-  --muted-foreground: oklch(0.5 0.011 255);
-  --accent: oklch(0.94 0.005 252);
-  --accent-foreground: oklch(0.3 0.013 255);
-  --destructive: oklch(0.577 0.245 27.325);
-  --success: #10b981;
-  --success-foreground: #047857;
-  --success-muted: #ecfdf5;
-  --warning: #f59e0b;
-  --warning-foreground: #b45309;
-  --warning-muted: #fffbeb;
-  --info: #627590;
-  --info-foreground: #415671;
-  --info-muted: #eef2f6;
-  --border: oklch(0.886 0.005 80);
-  --input: oklch(0.884 0.005 80);
-  --ring: oklch(0.55 0.045 255);
-  --chart-1: oklch(0.39 0.05 255);
-  --chart-2: oklch(0.56 0.028 224);
-  --chart-3: oklch(0.65 0.07 155);
-  --chart-4: oklch(0.77 0.126 82);
-  --chart-5: oklch(0.61 0.126 27);
-  --sidebar: oklch(0.944 0.006 84);
-  --sidebar-foreground: oklch(0.282 0.011 255);
-  --sidebar-primary: oklch(0.39 0.05 255);
-  --sidebar-primary-foreground: oklch(0.985 0.003 82);
-  --sidebar-accent: oklch(0.94 0.004 80);
-  --sidebar-accent-foreground: oklch(0.32 0.012 256);
-  --sidebar-border: oklch(0.876 0.005 80);
-  --sidebar-ring: oklch(0.61 0.032 249);
+  --app-page-padding: 1rem;
+  --app-page-padding-sm: 1.5rem;
+  --app-page-padding-lg: 1.5rem;
+  --app-panel-padding: 1rem;
+  --app-panel-padding-sm: 1.25rem;
+  --app-panel-padding-lg: 1.25rem;
 }
 
-.dark {
-  color-scheme: dark;
-  --background: oklch(0.19 0.007 255);
-  --foreground: oklch(0.935 0.005 92);
-  --card: oklch(0.232 0.008 255);
-  --card-foreground: oklch(0.935 0.005 92);
-  --popover: oklch(0.232 0.008 255);
-  --popover-foreground: oklch(0.935 0.005 92);
-  --primary: oklch(0.75 0.04 252);
-  --primary-foreground: oklch(0.205 0.008 255);
-  --secondary: oklch(0.268 0.008 255);
-  --secondary-foreground: oklch(0.935 0.005 92);
-  --muted: oklch(0.262 0.008 255);
-  --muted-foreground: oklch(0.72 0.01 90);
-  --accent: oklch(0.282 0.009 252);
-  --accent-foreground: oklch(0.935 0.005 92);
-  --destructive: oklch(0.704 0.191 22.216);
-  --success: #34d399;
-  --success-foreground: #6ee7b7;
-  --success-muted: rgb(16 185 129 / 0.16);
-  --warning: #fbbf24;
-  --warning-foreground: #fcd34d;
-  --warning-muted: rgb(245 158 11 / 0.16);
-  --info: #9fb1c8;
-  --info-foreground: #c3d1e3;
-  --info-muted: rgb(111 130 162 / 0.16);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.76 0.038 252);
-  --chart-1: oklch(0.75 0.04 252);
-  --chart-2: oklch(0.68 0.028 226);
-  --chart-3: oklch(0.76 0.122 156);
-  --chart-4: oklch(0.8 0.14 84);
-  --chart-5: oklch(0.72 0.126 29);
-  --sidebar: oklch(0.214 0.008 255);
-  --sidebar-foreground: oklch(0.935 0.005 92);
-  --sidebar-primary-foreground: oklch(0.205 0.008 255);
-  --sidebar-accent: oklch(0.27 0.008 255);
-  --sidebar-accent-foreground: oklch(0.935 0.005 92);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.74 0.028 248);
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  font-kerning: normal;
 }
 
-.colorful {
-  color-scheme: light;
-  --background: oklch(0.99 0.01 280);
-  --foreground: oklch(0.15 0.05 280);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.15 0.05 280);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.15 0.05 280);
-  --primary: oklch(0.6 0.2 285);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.95 0.05 290);
-  --secondary-foreground: oklch(0.2 0.1 285);
-  --muted: oklch(0.96 0.02 280);
-  --muted-foreground: oklch(0.5 0.05 280);
-  --accent: oklch(0.95 0.05 320);
-  --accent-foreground: oklch(0.2 0.1 320);
-  --destructive: oklch(0.6 0.25 25);
-  --success: #10b981;
-  --success-foreground: #047857;
-  --success-muted: #ecfdf5;
-  --warning: #f59e0b;
-  --warning-foreground: #b45309;
-  --warning-muted: #fffbeb;
-  --info: #3b82f6;
-  --info-foreground: #1d4ed8;
-  --info-muted: #eff6ff;
-  --border: oklch(0.9 0.02 280);
-  --input: oklch(0.9 0.02 280);
-  --ring: oklch(0.6 0.2 285);
-  --chart-1: oklch(0.6 0.2 285);
-  --chart-2: oklch(0.7 0.15 200);
-  --chart-3: oklch(0.75 0.18 80);
-  --chart-4: oklch(0.65 0.2 320);
-  --chart-5: oklch(0.65 0.2 20);
+/* 数字对齐：表格、统计数字、货币金额、百分比均使用等宽数字，
+ * 防止滚动/更新时列宽抖动。
+ */
+td, th,
+.tabular,
+[class*="font-mono"] {
+  font-variant-numeric: tabular-nums;
 }
 
-.aurora {
-  color-scheme: dark;
-  --background: oklch(0.12 0.02 240);
-  --foreground: oklch(0.95 0.05 150);
-  --card: oklch(0.15 0.03 240);
-  --card-foreground: oklch(0.95 0.05 150);
-  --popover: oklch(0.15 0.03 240);
-  --popover-foreground: oklch(0.95 0.05 150);
-  --primary: oklch(0.75 0.2 150);
-  --primary-foreground: oklch(0.12 0.02 240);
-  --secondary: oklch(0.2 0.05 240);
-  --secondary-foreground: oklch(0.85 0.1 150);
-  --muted: oklch(0.2 0.04 240);
-  --muted-foreground: oklch(0.65 0.08 160);
-  --accent: oklch(0.22 0.06 240);
-  --accent-foreground: oklch(0.85 0.1 150);
-  --destructive: oklch(0.6 0.2 20);
-  --success: #34d399;
-  --success-foreground: #6ee7b7;
-  --success-muted: rgb(16 185 129 / 0.16);
-  --warning: #fbbf24;
-  --warning-foreground: #fcd34d;
-  --warning-muted: rgb(245 158 11 / 0.16);
-  --info: #60a5fa;
-  --info-foreground: #93c5fd;
-  --info-muted: rgb(59 130 246 / 0.16);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.75 0.2 150);
-  --chart-1: oklch(0.75 0.2 150);
-  --chart-2: oklch(0.65 0.2 280);
-  --chart-3: oklch(0.7 0.15 200);
-  --chart-4: oklch(0.8 0.18 100);
-  --chart-5: oklch(0.65 0.2 320);
+#root {
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:root[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: rgba(17, 24, 28, 0.14);
+  border-radius: 999px;
+}
+
+:root[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: rgba(236, 237, 238, 0.16);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.38);
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── 页面内容交错登场 ──────────────────────────────────────────────────
+ * 每次路由切换时，PageContent 的直接子元素以 50ms 间隔依次淡入。
+ * y 轴移动由外层 Framer Motion motion.div (y: 8→0, 150ms) 处理，
+ * 这里只做 opacity stagger，避免位移叠加过重。
+ *
+ * fill-mode: both
+ *   - delay 期间: opacity=0（保持 from 帧）
+ *   - 动画结束后: opacity=1（保持 to 帧）
+ *
+ * 支持最多 7 个直接子元素（覆盖所有页面的结构）。
+ * prefers-reduced-motion: 直接移除动画，不影响布局。
+ */
+@keyframes page-section-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.page-stagger > *:nth-child(1) { animation: page-section-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both 0ms; }
+.page-stagger > *:nth-child(2) { animation: page-section-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both 50ms; }
+.page-stagger > *:nth-child(3) { animation: page-section-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both 100ms; }
+.page-stagger > *:nth-child(4) { animation: page-section-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both 150ms; }
+.page-stagger > *:nth-child(5) { animation: page-section-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both 200ms; }
+.page-stagger > *:nth-child(6) { animation: page-section-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both 250ms; }
+.page-stagger > *:nth-child(7) { animation: page-section-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both 300ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page-stagger > * { animation: none !important; }
+}
+
+/* ── Cooling 账号脉冲 (@property 驱动发光半径，CSS 原生插值) ─────────────────
+ * 使用 @property 注册类型化的自定义属性，让 box-shadow 半径可被 CSS 动画插值。
+ * 不使用 @property 时 box-shadow 无法单独动画化半径。
+ */
+/* ── 账号操作乐观反馈动画 ──────────────────────────────────────────────────── */
+
+@keyframes row-flash-success {
+  0%   { background-color: transparent; }
+  20%  { background-color: oklch(92% 0.08 180 / 0.55); }
+  100% { background-color: transparent; }
+}
+@keyframes row-shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-5px); }
+  40%       { transform: translateX(4px); }
+  60%       { transform: translateX(-3px); }
+  80%       { transform: translateX(2px); }
+}
+
+.row-action-success {
+  animation: row-flash-success 700ms ease-out both;
+}
+.row-action-error {
+  animation: row-shake 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  .row-action-success,
+  .row-action-error { animation: none; }
+}
+
+/* ── Cooling 账号脉冲 ─────────────────────────────────────────────────────── */
+
+@property --cooling-glow {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes cooling-pulse {
+  0%,  100% { --cooling-glow: 0px; opacity: 1; }
+  50%        { --cooling-glow: 6px; opacity: 0.82; }
+}
+
+.cooling-pulse {
+  animation: cooling-pulse 2.8s ease-in-out infinite;
+  box-shadow: 0 0 var(--cooling-glow) 1px oklch(78% 0.16 80deg / 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cooling-pulse { animation: none; box-shadow: none; }
+}
+
+/* ── View Transitions ─────────────────────────────────────────────────
+ * 仅当浏览器支持 View Transitions API 且用户未开启减少动效时生效。
+ * main-content 区域独立过渡，侧边栏不参与（避免导航栏闪烁）。
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (view-transition-name: main-content) {
+    ::view-transition-old(main-content) {
+      animation: 160ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both vt-slide-out;
+    }
+    ::view-transition-new(main-content) {
+      animation: 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both vt-slide-in;
+    }
+    @keyframes vt-slide-out {
+      from { opacity: 1; transform: translateY(0); }
+      to   { opacity: 0; transform: translateY(-6px); }
+    }
+    @keyframes vt-slide-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
   }
 }
+
+

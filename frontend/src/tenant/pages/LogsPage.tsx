@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
+import { Button } from '@heroui/react'
 import type { TFunction } from 'i18next'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -9,13 +10,13 @@ import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
 import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
 import {
-  PageIntro,
+  DockedPageIntro,
+  PageContent,
   PagePanel,
   SectionHeader,
 } from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
+import { DataTable } from '@/components/DataTable'
 import {
   getServiceTierBadgeTone,
   getServiceTierDefaultLabel,
@@ -28,7 +29,8 @@ import {
   LogsFilterInput,
   LogsFilterSelect,
 } from '@/features/logs/filter-controls'
-import { formatUtcDateTime, getUserTimeZone } from '@/lib/i18n-format'
+import { formatDurationMs } from '@/lib/duration-format'
+import { formatUtcDateTime } from '@/lib/i18n-format'
 import { describeLogsWorkbenchLayout } from '@/lib/page-archetypes'
 import { formatDateTime, currentRangeByDays } from '@/tenant/lib/format'
 
@@ -130,6 +132,48 @@ function localizeTenantAuditAction(action: string | undefined, t: TFunction): st
   return t('tenantLogs.audit.actionValues.unknown', { defaultValue: 'Unknown action' })
 }
 
+function localizeTenantAuditTargetType(targetType: string | undefined, t: TFunction): string {
+  switch (normalizeAuditValue(targetType)) {
+    case 'request_logs':
+      return t('tenantLogs.audit.targetTypes.requestLogs', { defaultValue: 'Request logs' })
+    case 'request_correlation':
+      return t('tenantLogs.audit.targetTypes.requestCorrelation', { defaultValue: 'Request correlation' })
+    case 'audit_logs':
+      return t('tenantLogs.audit.targetTypes.auditLogs', { defaultValue: 'Audit logs' })
+    case 'usage_summary':
+      return t('tenantLogs.audit.targetTypes.usageSummary', { defaultValue: 'Usage summary' })
+    case 'usage_trends_hourly':
+      return t('tenantLogs.audit.targetTypes.usageTrendsHourly', { defaultValue: 'Hourly usage trends' })
+    case 'upstream_error_template':
+      return t('tenantLogs.audit.targetTypes.upstreamErrorTemplate', { defaultValue: 'Upstream error template' })
+    case 'builtin_error_template':
+      return t('tenantLogs.audit.targetTypes.builtinErrorTemplate', { defaultValue: 'Built-in error template' })
+    case 'upstream_error_learning_settings':
+      return t('tenantLogs.audit.targetTypes.upstreamErrorLearningSettings', { defaultValue: 'Error learning settings' })
+    case '':
+      return '-'
+    default:
+      return t('tenantLogs.audit.targetTypes.unknown', { defaultValue: 'Unknown target' })
+  }
+}
+
+function summarizeTenantAuditReason(reason: string | undefined, t: TFunction): string {
+  return normalizeAuditValue(reason)
+    ? t('tenantLogs.audit.reasonValues.present', { defaultValue: 'Contains operator notes' })
+    : t('tenantLogs.audit.reasonValues.none', { defaultValue: 'No extra notes' })
+}
+
+function summarizeTenantAuditPayload(payload: AuditLogItem['payload_json'], t: TFunction): string {
+  const hasPayload =
+    payload !== null
+    && typeof payload === 'object'
+    && Object.keys(payload).length > 0
+
+  return hasPayload
+    ? t('tenantLogs.audit.payloadSummary.present', { defaultValue: 'Contains extra context' })
+    : t('tenantLogs.audit.payloadSummary.empty', { defaultValue: 'No extra context' })
+}
+
 export function TenantLogsPage() {
   const { t, i18n } = useTranslation()
   const [searchParams] = useSearchParams()
@@ -164,7 +208,6 @@ export function TenantLogsPage() {
   const [auditKeyword, setAuditKeyword] = useState(
     () => searchParams.get('audit_keyword') || '',
   )
-  const currentTimeZone = useMemo(() => getUserTimeZone(), [])
   const locale = i18n.resolvedLanguage
 
   const parsedStatusCode = Number(statusCode)
@@ -285,9 +328,9 @@ export function TenantLogsPage() {
       },
       {
         id: 'latency',
-        header: t('tenantLogs.request.columns.latency', { defaultValue: 'Latency (ms)' }),
+        header: t('tenantLogs.request.columns.latency', { defaultValue: 'Latency' }),
         accessorFn: (row) => row.latency_ms,
-        cell: ({ row }) => <span className="font-mono">{row.original.latency_ms}</span>,
+        cell: ({ row }) => <span className="font-mono">{formatDurationMs(row.original.latency_ms)}</span>,
       },
       {
         id: 'errorCode',
@@ -297,7 +340,7 @@ export function TenantLogsPage() {
         cell: ({ row }) => {
           const display = localizeRequestLogErrorDisplay(t, row.original.error_code, row.original.status_code)
           return (
-            <span className="text-xs" title={display.tooltip}>
+            <span className="text-xs">
               {display.label}
             </span>
           )
@@ -326,7 +369,7 @@ export function TenantLogsPage() {
           `${localizeTenantAuditActorType(row.actor_type, t)} ${row.actor_id ?? ''}`.toLowerCase(),
         cell: ({ row }) => (
           <div className="space-y-0.5">
-            <div className="text-xs" title={row.original.actor_type}>
+            <div className="text-xs">
               {localizeTenantAuditActorType(row.original.actor_type, t)}
             </div>
             <div className="font-mono text-xs text-muted-foreground">{row.original.actor_id ?? '-'}</div>
@@ -338,7 +381,7 @@ export function TenantLogsPage() {
         header: t('tenantLogs.audit.columns.action', { defaultValue: 'Action' }),
         accessorFn: (row) => localizeTenantAuditAction(row.action, t).toLowerCase(),
         cell: ({ row }) => (
-          <span className="text-xs" title={row.original.action}>
+          <span className="text-xs">
             {localizeTenantAuditAction(row.original.action, t)}
           </span>
         ),
@@ -354,7 +397,6 @@ export function TenantLogsPage() {
                 ? 'font-mono text-success-foreground'
                 : 'font-mono text-destructive'
             }
-            title={row.original.result_status}
           >
             {localizeTenantAuditResultStatus(row.original.result_status, t)}
           </span>
@@ -363,10 +405,11 @@ export function TenantLogsPage() {
       {
         id: 'target',
         header: t('tenantLogs.audit.columns.target', { defaultValue: 'Target' }),
-        accessorFn: (row) => `${row.target_type ?? ''} ${row.target_id ?? ''}`.toLowerCase(),
+        accessorFn: (row) =>
+          `${localizeTenantAuditTargetType(row.target_type, t)} ${row.target_id ?? ''}`.toLowerCase(),
         cell: ({ row }) => (
           <div className="space-y-0.5">
-            <div className="text-xs">{row.original.target_type ?? '-'}</div>
+            <div className="text-xs">{localizeTenantAuditTargetType(row.original.target_type, t)}</div>
             <div className="font-mono text-xs text-muted-foreground">{row.original.target_id ?? '-'}</div>
           </div>
         ),
@@ -374,15 +417,20 @@ export function TenantLogsPage() {
       {
         id: 'reason',
         header: t('tenantLogs.audit.columns.reason', { defaultValue: 'Details' }),
-        accessorFn: (row) => `${row.reason ?? ''} ${JSON.stringify(row.payload_json)}`.toLowerCase(),
-        cell: ({ row }) => (
-          <div className="space-y-0.5">
-            <div className="text-xs">{row.original.reason ?? '-'}</div>
-            <div className="max-w-[360px] truncate font-mono text-xs text-muted-foreground">
-              {JSON.stringify(row.original.payload_json)}
+        accessorFn: (row) =>
+          `${summarizeTenantAuditReason(row.reason, t)} ${summarizeTenantAuditPayload(row.payload_json, t)}`.toLowerCase(),
+        cell: ({ row }) => {
+          const reasonSummary = summarizeTenantAuditReason(row.original.reason, t)
+          const payloadSummary = summarizeTenantAuditPayload(row.original.payload_json, t)
+          return (
+            <div className="space-y-0.5">
+              <div className="text-xs">{reasonSummary}</div>
+              <div className="max-w-[360px] truncate text-xs text-muted-foreground">
+                {payloadSummary}
+              </div>
             </div>
-          </div>
-        ),
+          )
+        },
       },
     ],
     [t, locale],
@@ -397,16 +445,12 @@ export function TenantLogsPage() {
   const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8">
+    <PageContent>
       <div className="space-y-6 md:space-y-8">
-        <PageIntro
+        <DockedPageIntro
           archetype="workspace"
           title={t('tenantLogs.title', { defaultValue: 'Logs' })}
           description={t('tenantLogs.scope', { defaultValue: 'Scope: current tenant only' })}
-          meta={t('tenantLogs.time.displayMode', {
-            defaultValue: 'Displayed in local time ({{timezone}}). UTC is preserved in tooltips.',
-            timezone: currentTimeZone,
-          })}
         />
 
         <PagePanel tone="secondary">
@@ -417,14 +461,16 @@ export function TenantLogsPage() {
             ].filter(Boolean).join(' ')}
           >
             <Button
-              variant={tab === 'request' ? 'default' : 'outline'}
+              color={tab === 'request' ? 'primary' : 'default'}
+              variant={tab === 'request' ? 'solid' : 'bordered'}
               size="sm"
               onClick={() => setTab('request')}
             >
               {t('tenantLogs.tabs.request', { defaultValue: 'Request Logs' })}
             </Button>
             <Button
-              variant={tab === 'audit' ? 'default' : 'outline'}
+              color={tab === 'audit' ? 'primary' : 'default'}
+              variant={tab === 'audit' ? 'solid' : 'bordered'}
               size="sm"
               onClick={() => setTab('audit')}
             >
@@ -494,7 +540,7 @@ export function TenantLogsPage() {
                 />
               </LogsFilterField>
             </LogsFilterGrid>
-            <StandardDataTable
+            <DataTable
               columns={columns}
               data={ledger?.items ?? []}
               defaultPageSize={20}
@@ -572,7 +618,7 @@ export function TenantLogsPage() {
                 />
               </LogsFilterField>
             </LogsFilterGrid>
-            <StandardDataTable
+            <DataTable
               columns={auditColumns}
               data={auditLogs?.items ?? []}
               defaultPageSize={20}
@@ -584,6 +630,6 @@ export function TenantLogsPage() {
           </PagePanel>
         )}
       </div>
-    </div>
+    </PageContent>
   )
 }

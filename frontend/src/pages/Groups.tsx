@@ -1,152 +1,257 @@
-import { useCallback, useMemo, useState } from 'react'
-import { type ColumnDef } from '@tanstack/react-table'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, RotateCw, SquarePen, Trash2 } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
+import { useCallback, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Checkbox,
+  Chip,
+  Input,
+  Pagination,
+  Select,
+  SelectItem,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+  Textarea,
+  type Selection,
+} from "@heroui/react";
+import {
+  Boxes,
+  ChevronDown,
+  ChevronUp,
+  FolderKanban,
+  RefreshCcw,
+  RotateCw,
+  Search,
+  ShieldCheck,
+  SquarePen,
+  Trash2,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
 
+import {
+  AntigravityDialogActions,
+  AntigravityDialogShell,
+} from "@/components/layout/dialog-archetypes";
 import {
   groupsApi,
   type ApiKeyGroupAdminListResponse,
   type ApiKeyGroupCatalogItem,
   type ApiKeyGroupItem,
-} from '@/api/groups'
-import { localizeApiErrorDisplay } from '@/api/errorI18n'
-import { PageIntro } from '@/components/layout/page-archetypes'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
+} from "@/api/groups";
+import { localizeApiErrorDisplay } from "@/api/errorI18n";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { LoadingOverlay } from '@/components/ui/loading-overlay'
-import { StandardDataTable } from '@/components/ui/standard-data-table'
-import { Textarea } from '@/components/ui/textarea'
+  DockedPageIntro,
+  PageContent,
+} from "@/components/layout/page-archetypes";
+import { Dialog } from "@/components/ui/dialog";
+import {
+  SurfaceCard,
+  SurfaceCardBody,
+  SurfaceNotice,
+  SurfaceSection,
+} from "@/components/ui/surface";
+
+type GroupStatusFilter = "all" | "enabled" | "disabled" | "deleted";
+
+const TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50];
+
+function normalizeSelection(selection: Selection) {
+  if (selection === "all") {
+    return "";
+  }
+
+  const [first] = Array.from(selection);
+  return first === undefined ? "" : String(first);
+}
 
 function formatMultiplier(ppm?: number | null) {
-  if (typeof ppm !== 'number') return '-'
-  return `×${(ppm / 1_000_000).toFixed(2)}`
+  if (typeof ppm !== "number") return "-";
+  return `×${(ppm / 1_000_000).toFixed(2)}`;
 }
 
 function formatMicrocredits(value?: number | null) {
-  if (typeof value !== 'number') return '-'
-  return (value / 1_000_000).toFixed(4)
+  if (typeof value !== "number") return "-";
+  return (value / 1_000_000).toFixed(4);
 }
 
-function groupStatusVariant(group: ApiKeyGroupItem): 'success' | 'warning' | 'secondary' | 'destructive' {
-  if (group.deleted_at) return 'destructive'
-  if (!group.enabled) return 'secondary'
-  if (group.is_default) return 'success'
-  return 'warning'
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "-" : parsed.toLocaleString();
 }
 
-function pricingLineForModel(model: ApiKeyGroupItem['models'][number]) {
-  const formula = `in ${formatMicrocredits(model.formula_input_price_microcredits)} · cached ${formatMicrocredits(model.formula_cached_input_price_microcredits)} · out ${formatMicrocredits(model.formula_output_price_microcredits)}`
-  const finalPricing = `in ${formatMicrocredits(model.final_input_price_microcredits)} · cached ${formatMicrocredits(model.final_cached_input_price_microcredits)} · out ${formatMicrocredits(model.final_output_price_microcredits)}`
-  return { formula, finalPricing }
+function buildGroupSearchText(group: ApiKeyGroupItem) {
+  const status = group.deleted_at
+    ? "deleted"
+    : group.enabled
+      ? "enabled"
+      : "disabled";
+  const scope = group.allow_all_models ? "catalog all" : "scoped";
+  return `${group.name} ${group.description ?? ""} ${status} ${scope} ${group.api_key_count} ${group.model_count}`.toLowerCase();
 }
 
-const tableSurfaceClassName =
-  'border border-border/60 bg-background/[0.5] shadow-none backdrop-blur-[2px]'
-const editorSectionClassName =
-  'space-y-4 rounded-[1rem] border border-border/60 bg-background/[0.55] p-4'
+function getGroupStatusColor(group: ApiKeyGroupItem) {
+  if (group.deleted_at) {
+    return "danger" as const;
+  }
+  if (!group.enabled) {
+    return "default" as const;
+  }
+  return "success" as const;
+}
+
+function pricingLineForModel(
+  model: ApiKeyGroupItem["models"][number],
+  t: ReturnType<typeof useTranslation>["t"],
+) {
+  const inputLabel = t("common.tokenSegments.input");
+  const cachedLabel = t("common.tokenSegments.cached");
+  const outputLabel = t("common.tokenSegments.output");
+  const formula = `${inputLabel} ${formatMicrocredits(model.formula_input_price_microcredits)} · ${cachedLabel} ${formatMicrocredits(model.formula_cached_input_price_microcredits)} · ${outputLabel} ${formatMicrocredits(model.formula_output_price_microcredits)}`;
+  const finalPricing = `${inputLabel} ${formatMicrocredits(model.final_input_price_microcredits)} · ${cachedLabel} ${formatMicrocredits(model.final_cached_input_price_microcredits)} · ${outputLabel} ${formatMicrocredits(model.final_output_price_microcredits)}`;
+  return { formula, finalPricing };
+}
 
 export default function Groups() {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
-  const [selectedModel, setSelectedModel] = useState<string>('')
-  const [mobilePreviewExpanded, setMobilePreviewExpanded] = useState(false)
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [mobilePreviewExpanded, setMobilePreviewExpanded] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
+  const [statusFilter, setStatusFilter] = useState<GroupStatusFilter>("all");
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
   const [groupForm, setGroupForm] = useState({
-    id: '',
-    name: '',
-    description: '',
+    id: "",
+    name: "",
+    description: "",
     enabled: true,
     is_default: false,
     allow_all_models: false,
-    input_multiplier_ppm: '1000000',
-    cached_input_multiplier_ppm: '1000000',
-    output_multiplier_ppm: '1000000',
-  })
+    input_multiplier_ppm: "1000000",
+    cached_input_multiplier_ppm: "1000000",
+    output_multiplier_ppm: "1000000",
+  });
   const [policyForm, setPolicyForm] = useState({
     enabled: true,
-    input_multiplier_ppm: '1000000',
-    cached_input_multiplier_ppm: '1000000',
-    output_multiplier_ppm: '1000000',
-    input_price_microcredits: '',
-    cached_input_price_microcredits: '',
-    output_price_microcredits: '',
-  })
+    input_multiplier_ppm: "1000000",
+    cached_input_multiplier_ppm: "1000000",
+    output_multiplier_ppm: "1000000",
+    input_price_microcredits: "",
+    cached_input_price_microcredits: "",
+    output_price_microcredits: "",
+  });
 
-  const { data, isLoading, isFetching } = useQuery<ApiKeyGroupAdminListResponse>({
-    queryKey: ['adminApiKeyGroups'],
-    queryFn: groupsApi.adminList,
-    staleTime: 30_000,
-  })
+  const { data, isLoading, isFetching, refetch } =
+    useQuery<ApiKeyGroupAdminListResponse>({
+      queryKey: ["adminApiKeyGroups"],
+      queryFn: groupsApi.adminList,
+      staleTime: 30_000,
+    });
 
-  const groups = useMemo(() => data?.groups ?? [], [data])
-  const catalog = useMemo(() => data?.catalog ?? [], [data])
+  const groups = useMemo(
+    () =>
+      [...(data?.groups ?? [])].sort((left, right) => {
+        if (left.is_default !== right.is_default) {
+          return left.is_default ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name);
+      }),
+    [data?.groups],
+  );
+  const catalog = useMemo(() => data?.catalog ?? [], [data]);
   const currentGroup = useMemo(
     () => groups.find((item) => item.id === editingGroupId) ?? null,
     [editingGroupId, groups],
-  )
+  );
 
   const selectedPolicy = useMemo(() => {
-    if (!currentGroup || !selectedModel) return null
-    return currentGroup.policies.find((item) => item.model === selectedModel) ?? null
-  }, [currentGroup, selectedModel])
+    if (!currentGroup || !selectedModel) return null;
+    return (
+      currentGroup.policies.find((item) => item.model === selectedModel) ?? null
+    );
+  }, [currentGroup, selectedModel]);
 
   const selectedCatalogModel = useMemo(() => {
-    if (!selectedModel) return null
-    return catalog.find((item) => item.model === selectedModel) ?? null
-  }, [catalog, selectedModel])
+    if (!selectedModel) return null;
+    return catalog.find((item) => item.model === selectedModel) ?? null;
+  }, [catalog, selectedModel]);
 
   const resolveError = useCallback(
-    (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
+    (err: unknown, fallback: string) =>
+      localizeApiErrorDisplay(t, err, fallback).label,
     [t],
-  )
+  );
 
   const openEditor = useCallback(
     (group?: ApiKeyGroupItem | null) => {
-      const target = group ?? null
-      setEditingGroupId(target?.id ?? null)
+      const target = group ?? null;
+      setEditingGroupId(target?.id ?? null);
       setGroupForm({
-        id: target?.id ?? '',
-        name: target?.name ?? '',
-        description: target?.description ?? '',
+        id: target?.id ?? "",
+        name: target?.name ?? "",
+        description: target?.description ?? "",
         enabled: target?.enabled ?? true,
         is_default: target?.is_default ?? false,
         allow_all_models: target?.allow_all_models ?? false,
         input_multiplier_ppm: String(target?.input_multiplier_ppm ?? 1_000_000),
-        cached_input_multiplier_ppm: String(target?.cached_input_multiplier_ppm ?? 1_000_000),
-        output_multiplier_ppm: String(target?.output_multiplier_ppm ?? 1_000_000),
-      })
-      const firstModel = target?.policies[0]?.model ?? catalog[0]?.model ?? ''
-      setSelectedModel(firstModel)
-      setMobilePreviewExpanded(false)
-      const firstPolicy = target?.policies.find((item) => item.model === firstModel) ?? null
+        cached_input_multiplier_ppm: String(
+          target?.cached_input_multiplier_ppm ?? 1_000_000,
+        ),
+        output_multiplier_ppm: String(
+          target?.output_multiplier_ppm ?? 1_000_000,
+        ),
+      });
+      const firstModel =
+        target?.policies[0]?.model ??
+        target?.models[0]?.model ??
+        catalog[0]?.model ??
+        "";
+      setSelectedModel(firstModel);
+      setMobilePreviewExpanded(false);
+      const firstPolicy =
+        target?.policies.find((item) => item.model === firstModel) ?? null;
       setPolicyForm({
         enabled: firstPolicy?.enabled ?? true,
-        input_multiplier_ppm: String(firstPolicy?.input_multiplier_ppm ?? 1_000_000),
-        cached_input_multiplier_ppm: String(firstPolicy?.cached_input_multiplier_ppm ?? 1_000_000),
-        output_multiplier_ppm: String(firstPolicy?.output_multiplier_ppm ?? 1_000_000),
-        input_price_microcredits: firstPolicy?.input_price_microcredits != null ? String(firstPolicy.input_price_microcredits) : '',
-        cached_input_price_microcredits: firstPolicy?.cached_input_price_microcredits != null ? String(firstPolicy.cached_input_price_microcredits) : '',
-        output_price_microcredits: firstPolicy?.output_price_microcredits != null ? String(firstPolicy.output_price_microcredits) : '',
-      })
-      setError(null)
-      setNotice(null)
-      setEditorOpen(true)
+        input_multiplier_ppm: String(
+          firstPolicy?.input_multiplier_ppm ?? 1_000_000,
+        ),
+        cached_input_multiplier_ppm: String(
+          firstPolicy?.cached_input_multiplier_ppm ?? 1_000_000,
+        ),
+        output_multiplier_ppm: String(
+          firstPolicy?.output_multiplier_ppm ?? 1_000_000,
+        ),
+        input_price_microcredits:
+          firstPolicy?.input_price_microcredits != null
+            ? String(firstPolicy.input_price_microcredits)
+            : "",
+        cached_input_price_microcredits:
+          firstPolicy?.cached_input_price_microcredits != null
+            ? String(firstPolicy.cached_input_price_microcredits)
+            : "",
+        output_price_microcredits:
+          firstPolicy?.output_price_microcredits != null
+            ? String(firstPolicy.output_price_microcredits)
+            : "",
+      });
+      setError(null);
+      setNotice(null);
+      setEditorOpen(true);
     },
     [catalog],
-  )
+  );
 
   const upsertGroupMutation = useMutation({
     mutationFn: async () =>
@@ -158,518 +263,1021 @@ export default function Groups() {
         is_default: groupForm.is_default,
         allow_all_models: groupForm.allow_all_models,
         input_multiplier_ppm: Number(groupForm.input_multiplier_ppm),
-        cached_input_multiplier_ppm: Number(groupForm.cached_input_multiplier_ppm),
+        cached_input_multiplier_ppm: Number(
+          groupForm.cached_input_multiplier_ppm,
+        ),
         output_multiplier_ppm: Number(groupForm.output_multiplier_ppm),
       }),
     onSuccess: (response) => {
-      setError(null)
-      setNotice(t('groupsPage.messages.groupSaved', { defaultValue: 'Group saved: {{name}}', name: response.name }))
-      setEditingGroupId(response.id)
-      setGroupForm((prev) => ({ ...prev, id: response.id }))
-      queryClient.invalidateQueries({ queryKey: ['adminApiKeyGroups'] })
+      setError(null);
+      setNotice(t("groupsPage.messages.groupSaved", { name: response.name }));
+      setEditingGroupId(response.id);
+      setGroupForm((prev) => ({ ...prev, id: response.id }));
+      void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t('groupsPage.messages.groupSaveFailed', { defaultValue: 'Failed to save group.' })))
+      setError(resolveError(err, t("groupsPage.messages.groupSaveFailed")));
     },
-  })
+  });
 
   const deleteGroupMutation = useMutation({
     mutationFn: (groupId: string) => groupsApi.adminDelete(groupId),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('groupsPage.messages.groupDeleted', { defaultValue: 'Group deleted.' }))
-      setEditorOpen(false)
-      setEditingGroupId(null)
-      queryClient.invalidateQueries({ queryKey: ['adminApiKeyGroups'] })
+      setError(null);
+      setNotice(t("groupsPage.messages.groupDeleted"));
+      setEditorOpen(false);
+      setEditingGroupId(null);
+      void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t('groupsPage.messages.groupDeleteFailed', { defaultValue: 'Failed to delete group.' })))
+      setError(resolveError(err, t("groupsPage.messages.groupDeleteFailed")));
     },
-  })
+  });
 
   const upsertPolicyMutation = useMutation({
     mutationFn: async () => {
-      const groupId = editingGroupId || groupForm.id
+      const groupId = editingGroupId || groupForm.id;
       if (!groupId) {
-        throw new Error('group_not_saved')
+        throw new Error("group_not_saved");
       }
       if (!selectedModel) {
-        throw new Error('model_required')
+        throw new Error("model_required");
       }
       return groupsApi.adminUpsertPolicy({
         group_id: groupId,
         model: selectedModel,
         enabled: policyForm.enabled,
         input_multiplier_ppm: Number(policyForm.input_multiplier_ppm),
-        cached_input_multiplier_ppm: Number(policyForm.cached_input_multiplier_ppm),
+        cached_input_multiplier_ppm: Number(
+          policyForm.cached_input_multiplier_ppm,
+        ),
         output_multiplier_ppm: Number(policyForm.output_multiplier_ppm),
-        input_price_microcredits: policyForm.input_price_microcredits.trim() ? Number(policyForm.input_price_microcredits) : undefined,
-        cached_input_price_microcredits: policyForm.cached_input_price_microcredits.trim() ? Number(policyForm.cached_input_price_microcredits) : undefined,
-        output_price_microcredits: policyForm.output_price_microcredits.trim() ? Number(policyForm.output_price_microcredits) : undefined,
-      })
+        input_price_microcredits: policyForm.input_price_microcredits.trim()
+          ? Number(policyForm.input_price_microcredits)
+          : undefined,
+        cached_input_price_microcredits:
+          policyForm.cached_input_price_microcredits.trim()
+            ? Number(policyForm.cached_input_price_microcredits)
+            : undefined,
+        output_price_microcredits: policyForm.output_price_microcredits.trim()
+          ? Number(policyForm.output_price_microcredits)
+          : undefined,
+      });
     },
     onSuccess: () => {
-      setError(null)
-      setNotice(t('groupsPage.messages.policySaved', { defaultValue: 'Model policy saved.' }))
-      queryClient.invalidateQueries({ queryKey: ['adminApiKeyGroups'] })
+      setError(null);
+      setNotice(t("groupsPage.messages.policySaved"));
+      void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t('groupsPage.messages.policySaveFailed', { defaultValue: 'Failed to save model policy.' })))
+      setError(resolveError(err, t("groupsPage.messages.policySaveFailed")));
     },
-  })
+  });
 
   const deletePolicyMutation = useMutation({
     mutationFn: (policyId: string) => groupsApi.adminDeletePolicy(policyId),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('groupsPage.messages.policyDeleted', { defaultValue: 'Model policy deleted.' }))
-      queryClient.invalidateQueries({ queryKey: ['adminApiKeyGroups'] })
+      setError(null);
+      setNotice(t("groupsPage.messages.policyDeleted"));
+      void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t('groupsPage.messages.policyDeleteFailed', { defaultValue: 'Failed to delete model policy.' })))
+      setError(resolveError(err, t("groupsPage.messages.policyDeleteFailed")));
     },
-  })
+  });
 
-  const columns = useMemo<ColumnDef<ApiKeyGroupItem>[]>(
+  const filteredGroups = useMemo(() => {
+    const keyword = searchValue.trim().toLowerCase();
+
+    return groups.filter((group) => {
+      if (statusFilter === "enabled" && (!group.enabled || group.deleted_at)) {
+        return false;
+      }
+      if (statusFilter === "disabled" && (group.enabled || group.deleted_at)) {
+        return false;
+      }
+      if (statusFilter === "deleted" && !group.deleted_at) {
+        return false;
+      }
+      if (!keyword) {
+        return true;
+      }
+      return buildGroupSearchText(group).includes(keyword);
+    });
+  }, [groups, searchValue, statusFilter]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredGroups.length / rowsPerPage),
+  );
+  const resolvedPage = Math.min(currentPage, totalPages);
+  const paginatedGroups = useMemo(() => {
+    const start = (resolvedPage - 1) * rowsPerPage;
+    return filteredGroups.slice(start, start + rowsPerPage);
+  }, [filteredGroups, resolvedPage, rowsPerPage]);
+  const visibleRangeStart =
+    filteredGroups.length === 0 ? 0 : (resolvedPage - 1) * rowsPerPage + 1;
+  const visibleRangeEnd =
+    filteredGroups.length === 0
+      ? 0
+      : Math.min(filteredGroups.length, resolvedPage * rowsPerPage);
+
+  const mobilePreviewModels = useMemo(() => {
+    const models = currentGroup?.models ?? [];
+    return mobilePreviewExpanded ? models : models.slice(0, 3);
+  }, [currentGroup, mobilePreviewExpanded]);
+
+  const summaryCards = useMemo(
     () => [
       {
-        id: 'name',
-        header: t('groupsPage.columns.name', { defaultValue: 'Group' }),
-        accessorFn: (row) => row.name.toLowerCase(),
-        cell: ({ row }) => (
-          <div className="space-y-1">
-            <div className="font-medium">{row.original.name}</div>
-            <div className="text-xs text-muted-foreground">{row.original.description || '-'}</div>
-          </div>
-        ),
+        key: "total",
+        title: t("groupsPage.antigravity.metrics.total"),
+        value: groups.length,
+        description: t("groupsPage.antigravity.metrics.totalDesc"),
+        icon: FolderKanban,
+        toneClassName: "bg-primary/10 text-primary",
       },
       {
-        id: 'status',
-        header: t('groupsPage.columns.status', { defaultValue: 'Status' }),
-        accessorFn: (row) => `${row.deleted_at ? 'deleted' : row.enabled ? 'enabled' : 'disabled'} ${row.is_default ? 'default' : ''}`,
-        cell: ({ row }) => (
-          <div className="flex flex-wrap gap-2">
-            <Badge variant={groupStatusVariant(row.original)}>
-              {row.original.deleted_at
-                ? t('groupsPage.status.deleted', { defaultValue: 'Deleted' })
-                : row.original.enabled
-                  ? t('groupsPage.status.enabled', { defaultValue: 'Enabled' })
-                  : t('groupsPage.status.disabled', { defaultValue: 'Disabled' })}
-            </Badge>
-            {row.original.is_default ? (
-              <Badge variant="info">{t('groupsPage.status.default', { defaultValue: 'Default' })}</Badge>
-            ) : null}
-          </div>
-        ),
+        key: "enabled",
+        title: t("groupsPage.antigravity.metrics.enabled"),
+        value: groups.filter((group) => group.enabled && !group.deleted_at)
+          .length,
+        description: t("groupsPage.antigravity.metrics.enabledDesc"),
+        icon: ShieldCheck,
+        toneClassName: "bg-success/10 text-success",
       },
       {
-        id: 'multipliers',
-        header: t('groupsPage.columns.multipliers', { defaultValue: 'Multipliers' }),
-        accessorFn: (row) => `${row.input_multiplier_ppm}-${row.cached_input_multiplier_ppm}-${row.output_multiplier_ppm}`,
-        cell: ({ row }) => (
-          <div className="text-xs text-muted-foreground">
-            in {formatMultiplier(row.original.input_multiplier_ppm)} · cached {formatMultiplier(row.original.cached_input_multiplier_ppm)} · out {formatMultiplier(row.original.output_multiplier_ppm)}
-          </div>
-        ),
+        key: "defaults",
+        title: t("groupsPage.antigravity.metrics.defaults"),
+        value: groups.filter((group) => group.is_default && !group.deleted_at)
+          .length,
+        description: t("groupsPage.antigravity.metrics.defaultsDesc"),
+        icon: Boxes,
+        toneClassName: "bg-secondary/10 text-secondary",
       },
       {
-        id: 'usage',
-        header: t('groupsPage.columns.usage', { defaultValue: 'Usage' }),
-        accessorFn: (row) => `${row.api_key_count}-${row.model_count}`,
-        cell: ({ row }) => (
-          <div className="text-xs text-muted-foreground">
-            {t('groupsPage.columns.apiKeysCount', { defaultValue: 'API Keys {{count}}', count: row.original.api_key_count })}
-            {' · '}
-            {t('groupsPage.columns.modelsCount', { defaultValue: 'Models {{count}}', count: row.original.model_count })}
-          </div>
-        ),
-      },
-      {
-        id: 'actions',
-        header: t('groupsPage.columns.actions', { defaultValue: 'Actions' }),
-        cell: ({ row }) => (
-          <div className="flex gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => openEditor(row.original)}>
-              <SquarePen className="mr-2 h-4 w-4" />
-              {t('common.edit')}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => deleteGroupMutation.mutate(row.original.id)}
-              disabled={deleteGroupMutation.isPending || row.original.is_default}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {t('common.delete')}
-            </Button>
-          </div>
-        ),
+        key: "catalog",
+        title: t("groupsPage.antigravity.metrics.catalog"),
+        value: catalog.length,
+        description: t("groupsPage.antigravity.metrics.catalogDesc"),
+        icon: Boxes,
+        toneClassName: "bg-warning/10 text-warning",
       },
     ],
-    [deleteGroupMutation, openEditor, t],
-  )
+    [catalog.length, groups, t],
+  );
 
-  const handleSelectedModelChange = (model: string) => {
-    setSelectedModel(model)
-    const policy = currentGroup?.policies.find((item) => item.model === model) ?? null
+  const handleSelectedModelChange = (selection: Selection) => {
+    const model = normalizeSelection(selection);
+    setSelectedModel(model);
+    const policy =
+      currentGroup?.policies.find((item) => item.model === model) ?? null;
     setPolicyForm({
       enabled: policy?.enabled ?? true,
       input_multiplier_ppm: String(policy?.input_multiplier_ppm ?? 1_000_000),
-      cached_input_multiplier_ppm: String(policy?.cached_input_multiplier_ppm ?? 1_000_000),
+      cached_input_multiplier_ppm: String(
+        policy?.cached_input_multiplier_ppm ?? 1_000_000,
+      ),
       output_multiplier_ppm: String(policy?.output_multiplier_ppm ?? 1_000_000),
-      input_price_microcredits: policy?.input_price_microcredits != null ? String(policy.input_price_microcredits) : '',
-      cached_input_price_microcredits: policy?.cached_input_price_microcredits != null ? String(policy.cached_input_price_microcredits) : '',
-      output_price_microcredits: policy?.output_price_microcredits != null ? String(policy.output_price_microcredits) : '',
-    })
-  }
-
-  const mobilePreviewModels = useMemo(() => {
-    const models = currentGroup?.models ?? []
-    return mobilePreviewExpanded ? models : models.slice(0, 3)
-  }, [currentGroup, mobilePreviewExpanded])
+      input_price_microcredits:
+        policy?.input_price_microcredits != null
+          ? String(policy.input_price_microcredits)
+          : "",
+      cached_input_price_microcredits:
+        policy?.cached_input_price_microcredits != null
+          ? String(policy.cached_input_price_microcredits)
+          : "",
+      output_price_microcredits:
+        policy?.output_price_microcredits != null
+          ? String(policy.output_price_microcredits)
+          : "",
+    });
+  };
 
   return (
-    <div className="flex-1 space-y-6 p-4 sm:p-6 lg:space-y-7 lg:p-8">
-      <PageIntro
+    <PageContent className="space-y-6 lg:space-y-7">
+      <DockedPageIntro
         archetype="workspace"
-        title={t('groupsPage.title', { defaultValue: 'Group Management' })}
-        description={t('groupsPage.subtitle', {
-          defaultValue: 'Manage API key groups, model allowlists, multipliers, and group-level absolute prices.',
-        })}
-        meta={(
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>{t('accounts.filters.total', { count: groups.length, defaultValue: '{{count}} matched' })}</span>
-            <span className="text-border">/</span>
-            <span>{t('groupsPage.actions.create', { defaultValue: 'Create group' })}</span>
+        title={t("groupsPage.title")}
+        description={t("groupsPage.subtitle")}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button color="primary" onPress={() => openEditor(null)}>
+              {t("groupsPage.actions.create")}
+            </Button>
+            <Button
+              isLoading={isFetching}
+              startContent={
+                isFetching ? undefined : <RefreshCcw className="h-4 w-4" />
+              }
+              variant="light"
+              onPress={() => {
+                void refetch();
+              }}
+            >
+              {t("common.refresh")}
+            </Button>
           </div>
-        )}
-        actions={(
-          <Button type="button" className="w-full sm:w-auto" onClick={() => openEditor(null)}>
-            {t('groupsPage.actions.create', { defaultValue: 'Create group' })}
-          </Button>
-        )}
+        }
       />
 
-      {error ? (
-        <div className="rounded-[0.95rem] border border-destructive/35 bg-destructive/5 px-3.5 py-2.5 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="rounded-[0.95rem] border border-primary/25 bg-primary/5 px-3.5 py-2.5 text-sm text-primary">
-          {notice}
-        </div>
-      ) : null}
+      {error ? <SurfaceNotice tone="danger">{error}</SurfaceNotice> : null}
+      {notice ? <SurfaceNotice tone="brand">{notice}</SurfaceNotice> : null}
 
-      <section className="space-y-4 border-t border-border/70 pt-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>{t('accounts.filters.total', { count: groups.length, defaultValue: '{{count}} matched' })}</span>
-          {isFetching && !isLoading ? <span>{t('common.loading')}</span> : null}
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Card
+              key={card.key}
+              className="border-small border-default-200 bg-content1 shadow-small"
+            >
+              <CardBody className="px-5 py-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div
+                    className={`flex h-11 w-11 items-center justify-center rounded-large ${card.toneClassName}`}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="mt-5 text-xs font-semibold uppercase tracking-[0.14em] text-default-500">
+                  {card.title}
+                </div>
+                <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+                  {card.value}
+                </div>
+                <p className="mt-2 text-xs leading-5 text-default-500">
+                  {card.description}
+                </p>
+              </CardBody>
+            </Card>
+          );
+        })}
+      </div>
 
-        <div className="relative">
-          <LoadingOverlay
-            show={isFetching && !isLoading}
-            title={t('common.loading')}
-            size="compact"
-          />
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : (
-            <StandardDataTable
-              columns={columns}
-              data={groups}
-              defaultPageSize={20}
-              pageSizeOptions={[20, 50, 100]}
-              density="compact"
-              className={tableSurfaceClassName}
-              searchPlaceholder={t('groupsPage.searchPlaceholder', { defaultValue: 'Search groups by name, description or status' })}
-              emptyText={t('groupsPage.empty', { defaultValue: 'No groups yet' })}
+      <Card className="border-small border-default-200 bg-content1 shadow-small">
+        <CardHeader className="flex flex-col items-start gap-4 px-5 pb-4 pt-5">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                {t("groupsPage.antigravity.listTitle")}
+              </h2>
+              <Chip size="sm" variant="flat">
+                {t("common.table.totalItems", { count: filteredGroups.length })}
+              </Chip>
+              {isFetching && !isLoading ? (
+                <Chip color="primary" size="sm" variant="flat">
+                  {t("common.loading")}
+                </Chip>
+              ) : null}
+            </div>
+            <p className="text-sm leading-6 text-default-600">
+              {t("groupsPage.antigravity.listDescription")}
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(18rem,1fr)_12rem_10rem]">
+            <Input
+              aria-label={t("common.table.searchLabel")}
+              placeholder={t("groupsPage.searchPlaceholder")}
+              startContent={<Search className="h-4 w-4 text-default-400" />}
+              value={searchValue}
+              onValueChange={(value) => {
+                setSearchValue(value);
+                setCurrentPage(1);
+              }}
             />
-          )}
-        </div>
-      </section>
+
+            <Select
+              aria-label={t("groupsPage.filters.statusLabel")}
+              selectedKeys={[statusFilter]}
+              size="sm"
+              onSelectionChange={(selection) => {
+                const nextValue = normalizeSelection(selection);
+                if (!nextValue) {
+                  return;
+                }
+                setStatusFilter(nextValue as GroupStatusFilter);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectItem key="all">{t("groupsPage.filters.all")}</SelectItem>
+              <SelectItem key="enabled">
+                {t("groupsPage.filters.enabled")}
+              </SelectItem>
+              <SelectItem key="disabled">
+                {t("groupsPage.filters.disabled")}
+              </SelectItem>
+              <SelectItem key="deleted">
+                {t("groupsPage.filters.deleted")}
+              </SelectItem>
+            </Select>
+
+            <Select
+              aria-label={t("common.table.rowsPerPage")}
+              selectedKeys={[String(rowsPerPage)]}
+              size="sm"
+              onSelectionChange={(selection) => {
+                const nextValue = normalizeSelection(selection);
+                if (!nextValue) {
+                  return;
+                }
+                setRowsPerPage(Number(nextValue));
+                setCurrentPage(1);
+              }}
+            >
+              {TABLE_PAGE_SIZE_OPTIONS.map((size) => (
+                <SelectItem key={String(size)}>{size}</SelectItem>
+              ))}
+            </Select>
+          </div>
+        </CardHeader>
+
+        <CardBody className="gap-4 px-5 pb-5 pt-0">
+          <Table
+            isHeaderSticky
+            aria-label={t("groupsPage.title")}
+            classNames={{
+              base: "min-h-[28rem]",
+              wrapper: "bg-transparent px-0 py-0 shadow-none",
+              th: "bg-default-100/60 text-xs font-semibold uppercase tracking-[0.12em] text-default-500",
+              td: "align-top py-4 text-sm text-foreground",
+              tr: "data-[hover=true]:bg-content2/35 transition-colors",
+              emptyWrapper: "h-56",
+            }}
+          >
+            <TableHeader>
+              <TableColumn>{t("groupsPage.columns.name")}</TableColumn>
+              <TableColumn>{t("groupsPage.columns.status")}</TableColumn>
+              <TableColumn>{t("groupsPage.columns.multipliers")}</TableColumn>
+              <TableColumn>{t("groupsPage.columns.usage")}</TableColumn>
+              <TableColumn>{t("groupsPage.columns.updated")}</TableColumn>
+              <TableColumn>{t("groupsPage.columns.actions")}</TableColumn>
+            </TableHeader>
+            <TableBody
+              emptyContent={
+                <div className="flex flex-col items-center gap-3 py-12 text-default-500">
+                  <FolderKanban className="h-10 w-10 opacity-35" />
+                  <div className="text-sm font-medium">
+                    {t("groupsPage.empty")}
+                  </div>
+                </div>
+              }
+              isLoading={isLoading}
+              items={paginatedGroups}
+              loadingContent={<Spinner label={t("common.loading")} />}
+            >
+              {(group) => (
+                <TableRow key={group.id}>
+                  <TableCell>
+                    <div className="min-w-[240px] space-y-2">
+                      <div className="font-medium text-foreground">
+                        {group.name}
+                      </div>
+                      <div className="text-xs leading-5 text-default-500">
+                        {group.description || "-"}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[200px] space-y-2">
+                      <Chip
+                        color={getGroupStatusColor(group)}
+                        size="sm"
+                        variant="flat"
+                      >
+                        {group.deleted_at
+                          ? t("groupsPage.status.deleted")
+                          : group.enabled
+                            ? t("groupsPage.status.enabled")
+                            : t("groupsPage.status.disabled")}
+                      </Chip>
+                      <div className="flex flex-wrap gap-2">
+                        {group.is_default ? (
+                          <Chip color="primary" size="sm" variant="flat">
+                            {t("groupsPage.status.default")}
+                          </Chip>
+                        ) : null}
+                        <Chip
+                          color={
+                            group.allow_all_models ? "secondary" : "default"
+                          }
+                          size="sm"
+                          variant="flat"
+                        >
+                          {group.allow_all_models
+                            ? t("groupsPage.antigravity.allowAllModels")
+                            : t("groupsPage.antigravity.scopedPolicy")}
+                        </Chip>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[220px] space-y-1 text-xs leading-5 text-default-500">
+                      <div>
+                        {t("groupsPage.form.inputMultiplier")}:{" "}
+                        {formatMultiplier(group.input_multiplier_ppm)}
+                      </div>
+                      <div>
+                        {t("groupsPage.form.cachedInputMultiplier")}:{" "}
+                        {formatMultiplier(group.cached_input_multiplier_ppm)}
+                      </div>
+                      <div>
+                        {t("groupsPage.form.outputMultiplier")}:{" "}
+                        {formatMultiplier(group.output_multiplier_ppm)}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[180px] space-y-1 text-xs leading-5 text-default-500">
+                      <div>
+                        {t("groupsPage.columns.apiKeysCount", {
+                          count: group.api_key_count,
+                        })}
+                      </div>
+                      <div>
+                        {t("groupsPage.columns.modelsCount", {
+                          count: group.model_count,
+                        })}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-[180px] text-xs leading-5 text-default-500">
+                      {formatDateTime(group.updated_at)}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex min-w-[180px] flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        onPress={() => openEditor(group)}
+                      >
+                        <SquarePen className="h-4 w-4" />
+                        {t("common.edit")}
+                      </Button>
+                      <Button
+                        color="danger"
+                        isDisabled={
+                          deleteGroupMutation.isPending || group.is_default
+                        }
+                        size="sm"
+                        variant="light"
+                        onPress={() => deleteGroupMutation.mutate(group.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {t("common.delete")}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+
+          <div className="flex flex-col gap-3 border-t border-default-200 pt-3 text-xs text-default-500 sm:flex-row sm:items-center sm:justify-between">
+            <div className="tabular-nums">
+              {t("common.table.range", {
+                start: visibleRangeStart,
+                end: visibleRangeEnd,
+                total: filteredGroups.length,
+              })}
+            </div>
+            <Pagination
+              color="primary"
+              isCompact
+              page={resolvedPage}
+              total={totalPages}
+              onChange={setCurrentPage}
+            />
+          </div>
+        </CardBody>
+      </Card>
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden border border-border/70 bg-background/98 p-0 sm:h-auto sm:max-h-[92vh] sm:max-w-[min(96vw,1400px)]">
+        <AntigravityDialogShell
+          size="xl"
+          title={
+            groupForm.id
+              ? t("groupsPage.editor.editTitle")
+              : t("groupsPage.editor.createTitle")
+          }
+          description={t("groupsPage.editor.description")}
+          bodyClassName="p-0"
+          footer={
+            <AntigravityDialogActions>
+              <Button variant="light" onPress={() => setEditorOpen(false)}>
+                {t("common.close")}
+              </Button>
+            </AntigravityDialogActions>
+          }
+        >
           <div className="flex h-full flex-col">
-            <DialogHeader className="shrink-0 border-b border-border/70 bg-muted/[0.16] px-4 py-4 text-left sm:px-6">
-              <DialogTitle>
-                {groupForm.id
-                  ? t('groupsPage.editor.editTitle', { defaultValue: 'Edit group' })
-                  : t('groupsPage.editor.createTitle', { defaultValue: 'Create group' })}
-              </DialogTitle>
-              <DialogDescription>
-                {t('groupsPage.editor.description', { defaultValue: 'Configure group-wide multipliers and per-model pricing overrides.' })}
-              </DialogDescription>
-            </DialogHeader>
-
             <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 sm:px-6 sm:pb-6">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:gap-6">
-                <div className={editorSectionClassName}>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.form.name', { defaultValue: 'Group name' })}</label>
-                <Input value={groupForm.name} onChange={(event) => setGroupForm((prev) => ({ ...prev, name: event.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.form.description', { defaultValue: 'Description' })}</label>
-                <Textarea value={groupForm.description} onChange={(event) => setGroupForm((prev) => ({ ...prev, description: event.target.value }))} />
-              </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.form.inputMultiplier', { defaultValue: 'Input multiplier (ppm)' })}</label>
-                  <Input type="number" value={groupForm.input_multiplier_ppm} onChange={(event) => setGroupForm((prev) => ({ ...prev, input_multiplier_ppm: event.target.value }))} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.form.cachedInputMultiplier', { defaultValue: 'Cached input multiplier (ppm)' })}</label>
-                  <Input type="number" value={groupForm.cached_input_multiplier_ppm} onChange={(event) => setGroupForm((prev) => ({ ...prev, cached_input_multiplier_ppm: event.target.value }))} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.form.outputMultiplier', { defaultValue: 'Output multiplier (ppm)' })}</label>
-                  <Input type="number" value={groupForm.output_multiplier_ppm} onChange={(event) => setGroupForm((prev) => ({ ...prev, output_multiplier_ppm: event.target.value }))} />
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                <label className="inline-flex items-center gap-2">
-                  <Checkbox checked={groupForm.enabled} onCheckedChange={(checked) => setGroupForm((prev) => ({ ...prev, enabled: Boolean(checked) }))} />
-                  {t('groupsPage.form.enabled', { defaultValue: 'Enabled' })}
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <Checkbox checked={groupForm.is_default} onCheckedChange={(checked) => setGroupForm((prev) => ({ ...prev, is_default: Boolean(checked) }))} />
-                  {t('groupsPage.form.default', { defaultValue: 'Default group' })}
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <Checkbox checked={groupForm.allow_all_models} onCheckedChange={(checked) => setGroupForm((prev) => ({ ...prev, allow_all_models: Boolean(checked) }))} />
-                  {t('groupsPage.form.allowAllModels', { defaultValue: 'Allow all catalog models' })}
-                </label>
-              </div>
-              <div className="hidden flex-col gap-2 sm:flex sm:flex-row">
-                <Button type="button" onClick={() => upsertGroupMutation.mutate()} disabled={upsertGroupMutation.isPending}>
-                  {upsertGroupMutation.isPending ? <RotateCw className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {t('groupsPage.actions.saveGroup', { defaultValue: 'Save group' })}
-                </Button>
-                {groupForm.id ? (
-                  <Button type="button" variant="destructive" onClick={() => deleteGroupMutation.mutate(groupForm.id)} disabled={deleteGroupMutation.isPending || groupForm.is_default}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t('groupsPage.actions.deleteGroup', { defaultValue: 'Delete group' })}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.32fr)] lg:gap-6">
+                <SurfaceSection
+                  title={t("groupsPage.editor.groupSettingsTitle")}
+                  description={t("groupsPage.editor.groupSettingsDescription")}
+                  tone="muted"
+                >
+                  <div className="space-y-4">
+                    <Input
+                      label={t("groupsPage.form.name")}
+                      labelPlacement="outside"
+                      value={groupForm.name}
+                      onValueChange={(value) =>
+                        setGroupForm((prev) => ({ ...prev, name: value }))
+                      }
+                    />
+                    <Textarea
+                      label={t("groupsPage.form.description")}
+                      labelPlacement="outside"
+                      minRows={3}
+                      value={groupForm.description}
+                      onValueChange={(value) =>
+                        setGroupForm((prev) => ({
+                          ...prev,
+                          description: value,
+                        }))
+                      }
+                    />
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Input
+                        label={t("groupsPage.form.inputMultiplier")}
+                        labelPlacement="outside"
+                        type="number"
+                        value={groupForm.input_multiplier_ppm}
+                        onValueChange={(value) =>
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            input_multiplier_ppm: value,
+                          }))
+                        }
+                      />
+                      <Input
+                        label={t("groupsPage.form.cachedInputMultiplier")}
+                        labelPlacement="outside"
+                        type="number"
+                        value={groupForm.cached_input_multiplier_ppm}
+                        onValueChange={(value) =>
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            cached_input_multiplier_ppm: value,
+                          }))
+                        }
+                      />
+                      <Input
+                        label={t("groupsPage.form.outputMultiplier")}
+                        labelPlacement="outside"
+                        type="number"
+                        value={groupForm.output_multiplier_ppm}
+                        onValueChange={(value) =>
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            output_multiplier_ppm: value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Checkbox
+                        isSelected={groupForm.enabled}
+                        onValueChange={(checked) =>
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            enabled: checked,
+                          }))
+                        }
+                      >
+                        {t("groupsPage.form.enabled")}
+                      </Checkbox>
+                      <Checkbox
+                        isSelected={groupForm.is_default}
+                        onValueChange={(checked) =>
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            is_default: checked,
+                          }))
+                        }
+                      >
+                        {t("groupsPage.form.default")}
+                      </Checkbox>
+                      <Checkbox
+                        isSelected={groupForm.allow_all_models}
+                        onValueChange={(checked) =>
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            allow_all_models: checked,
+                          }))
+                        }
+                      >
+                        {t("groupsPage.form.allowAllModels")}
+                      </Checkbox>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        color="primary"
+                        isLoading={upsertGroupMutation.isPending}
+                        startContent={
+                          upsertGroupMutation.isPending ? undefined : (
+                            <RotateCw className="h-4 w-4" />
+                          )
+                        }
+                        onPress={() => upsertGroupMutation.mutate()}
+                      >
+                        {t("groupsPage.actions.saveGroup")}
+                      </Button>
+                      {groupForm.id ? (
+                        <Button
+                          color="danger"
+                          isDisabled={
+                            deleteGroupMutation.isPending ||
+                            groupForm.is_default
+                          }
+                          startContent={<Trash2 className="h-4 w-4" />}
+                          variant="light"
+                          onPress={() =>
+                            deleteGroupMutation.mutate(groupForm.id)
+                          }
+                        >
+                          {t("groupsPage.actions.deleteGroup")}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </SurfaceSection>
 
                 <div className="min-w-0 space-y-4">
-              <div className={editorSectionClassName}>
-                <div>
-                  <div className="font-medium">{t('groupsPage.policy.title', { defaultValue: 'Model policy' })}</div>
-                  <div className="text-xs text-muted-foreground">{t('groupsPage.policy.description', { defaultValue: 'Select a model from the unified catalog, then configure multipliers or absolute pricing.' })}</div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.policy.model', { defaultValue: 'Model' })}</label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={selectedModel}
-                    onChange={(event) => handleSelectedModelChange(event.target.value)}
+                  <SurfaceSection
+                    title={t("groupsPage.policy.title")}
+                    description={t("groupsPage.policy.description")}
+                    tone="muted"
                   >
-                    {catalog.map((item: ApiKeyGroupCatalogItem) => (
-                      <option key={item.model} value={item.model}>
-                        {item.model}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <div className="space-y-4">
+                      <Select
+                        aria-label={t("groupsPage.policy.model")}
+                        label={t("groupsPage.policy.model")}
+                        labelPlacement="outside"
+                        placeholder={t("groupsPage.policy.model")}
+                        selectedKeys={selectedModel ? [selectedModel] : []}
+                        onSelectionChange={handleSelectedModelChange}
+                      >
+                        {catalog.map((item: ApiKeyGroupCatalogItem) => (
+                          <SelectItem key={item.model}>{item.model}</SelectItem>
+                        ))}
+                      </Select>
 
-                <div className="text-xs text-muted-foreground">
-                  {selectedCatalogModel
-                    ? `${selectedCatalogModel.provider} · ${selectedCatalogModel.title || '-'} · base in ${formatMicrocredits(selectedCatalogModel.base_input_price_microcredits)} · cached ${formatMicrocredits(selectedCatalogModel.base_cached_input_price_microcredits)} · out ${formatMicrocredits(selectedCatalogModel.base_output_price_microcredits)}`
-                    : '-'}
-                </div>
+                      <SurfaceCard tone="default" shadow="none">
+                        <SurfaceCardBody className="p-3 text-xs leading-5 text-default-500">
+                          {selectedCatalogModel
+                            ? t("groupsPage.preview.basePricingSummary", {
+                                provider: selectedCatalogModel.provider,
+                                title: selectedCatalogModel.title || "-",
+                                input: formatMicrocredits(
+                                  selectedCatalogModel.base_input_price_microcredits,
+                                ),
+                                cached: formatMicrocredits(
+                                  selectedCatalogModel.base_cached_input_price_microcredits,
+                                ),
+                                output: formatMicrocredits(
+                                  selectedCatalogModel.base_output_price_microcredits,
+                                ),
+                              })
+                            : "-"}
+                        </SurfaceCardBody>
+                      </SurfaceCard>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.policy.inputMultiplier', { defaultValue: 'Input multiplier (ppm)' })}</label>
-                    <Input type="number" value={policyForm.input_multiplier_ppm} onChange={(event) => setPolicyForm((prev) => ({ ...prev, input_multiplier_ppm: event.target.value }))} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.policy.cachedInputMultiplier', { defaultValue: 'Cached input multiplier (ppm)' })}</label>
-                    <Input type="number" value={policyForm.cached_input_multiplier_ppm} onChange={(event) => setPolicyForm((prev) => ({ ...prev, cached_input_multiplier_ppm: event.target.value }))} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.policy.outputMultiplier', { defaultValue: 'Output multiplier (ppm)' })}</label>
-                    <Input type="number" value={policyForm.output_multiplier_ppm} onChange={(event) => setPolicyForm((prev) => ({ ...prev, output_multiplier_ppm: event.target.value }))} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.policy.inputAbsolutePrice', { defaultValue: 'Input absolute price' })}</label>
-                    <Input type="number" value={policyForm.input_price_microcredits} onChange={(event) => setPolicyForm((prev) => ({ ...prev, input_price_microcredits: event.target.value }))} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.policy.cachedInputAbsolutePrice', { defaultValue: 'Cached input absolute price' })}</label>
-                    <Input type="number" value={policyForm.cached_input_price_microcredits} onChange={(event) => setPolicyForm((prev) => ({ ...prev, cached_input_price_microcredits: event.target.value }))} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">{t('groupsPage.policy.outputAbsolutePrice', { defaultValue: 'Output absolute price' })}</label>
-                    <Input type="number" value={policyForm.output_price_microcredits} onChange={(event) => setPolicyForm((prev) => ({ ...prev, output_price_microcredits: event.target.value }))} />
-                  </div>
-                </div>
-
-                <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                  <Checkbox checked={policyForm.enabled} onCheckedChange={(checked) => setPolicyForm((prev) => ({ ...prev, enabled: Boolean(checked) }))} />
-                  {t('groupsPage.policy.enabled', { defaultValue: 'Policy enabled' })}
-                </label>
-
-                <div className="hidden flex-col gap-2 sm:flex sm:flex-row">
-                  <Button type="button" onClick={() => upsertPolicyMutation.mutate()} disabled={upsertPolicyMutation.isPending || !groupForm.id}>
-                    {upsertPolicyMutation.isPending ? <RotateCw className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {t('groupsPage.actions.savePolicy', { defaultValue: 'Save model policy' })}
-                  </Button>
-                  {selectedPolicy ? (
-                    <Button type="button" variant="destructive" onClick={() => deletePolicyMutation.mutate(selectedPolicy.id)} disabled={deletePolicyMutation.isPending}>
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {t('groupsPage.actions.deletePolicy', { defaultValue: 'Delete policy' })}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className={editorSectionClassName}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{t('groupsPage.preview.title', { defaultValue: 'Effective model preview' })}</div>
-                    <div className="text-xs text-muted-foreground">{t('groupsPage.preview.description', { defaultValue: 'Shows the final displayed price for the selected group.' })}</div>
-                  </div>
-                  {(currentGroup?.models?.length ?? 0) > 3 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0 md:hidden"
-                      onClick={() => setMobilePreviewExpanded((prev) => !prev)}
-                    >
-                      {mobilePreviewExpanded ? (
-                        <ChevronUp className="mr-2 h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="mr-2 h-4 w-4" />
-                      )}
-                      {mobilePreviewExpanded
-                        ? t('common.collapse', { defaultValue: 'Collapse' })
-                        : t('common.expand', { defaultValue: 'Expand' })}
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="space-y-2 md:hidden">
-                  {mobilePreviewModels.map((item) => {
-                    const pricingLine = pricingLineForModel(item)
-                    return (
-                      <div key={item.model} className="rounded-[0.9rem] border border-border/60 bg-background/[0.5] p-3 text-sm">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="font-mono text-xs break-all">{item.model}</div>
-                          <Badge variant={item.uses_absolute_pricing ? 'success' : 'secondary'}>
-                            {item.uses_absolute_pricing
-                              ? t('groupsPage.preview.mode.absolute', { defaultValue: 'Absolute override' })
-                              : t('groupsPage.preview.mode.formula', { defaultValue: 'Multiplier formula' })}
-                          </Badge>
-                        </div>
-                        <div className="mt-3 space-y-2 text-xs">
-                          <div>
-                            <div className="text-muted-foreground">{t('groupsPage.preview.columns.finalPrice', { defaultValue: 'Final price' })}</div>
-                            <div>{pricingLine.finalPricing}</div>
-                          </div>
-                          <div>
-                            <div className="text-muted-foreground">{t('groupsPage.preview.columns.formulaPrice', { defaultValue: 'Formula price' })}</div>
-                            <div className={item.uses_absolute_pricing ? 'line-through text-muted-foreground' : 'text-muted-foreground'}>{pricingLine.formula}</div>
-                          </div>
-                        </div>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <Input
+                          label={t("groupsPage.policy.inputMultiplier")}
+                          labelPlacement="outside"
+                          type="number"
+                          value={policyForm.input_multiplier_ppm}
+                          onValueChange={(value) =>
+                            setPolicyForm((prev) => ({
+                              ...prev,
+                              input_multiplier_ppm: value,
+                            }))
+                          }
+                        />
+                        <Input
+                          label={t("groupsPage.policy.cachedInputMultiplier")}
+                          labelPlacement="outside"
+                          type="number"
+                          value={policyForm.cached_input_multiplier_ppm}
+                          onValueChange={(value) =>
+                            setPolicyForm((prev) => ({
+                              ...prev,
+                              cached_input_multiplier_ppm: value,
+                            }))
+                          }
+                        />
+                        <Input
+                          label={t("groupsPage.policy.outputMultiplier")}
+                          labelPlacement="outside"
+                          type="number"
+                          value={policyForm.output_multiplier_ppm}
+                          onValueChange={(value) =>
+                            setPolicyForm((prev) => ({
+                              ...prev,
+                              output_multiplier_ppm: value,
+                            }))
+                          }
+                        />
                       </div>
-                    )
-                  })}
-                  {!mobilePreviewExpanded && (currentGroup?.models?.length ?? 0) > 3 ? (
-                    <div className="text-center text-xs text-muted-foreground">
-                      {t('groupsPage.preview.moreHidden', {
-                        defaultValue: '还有 {{count}} 个模型已折叠',
-                        count: (currentGroup?.models?.length ?? 0) - mobilePreviewModels.length,
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="hidden max-h-[360px] overflow-auto rounded-[0.95rem] border border-border/60 bg-background/[0.5] md:block">
-                  <table className="min-w-[720px] w-full text-sm">
-                    <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-2">{t('groupsPage.preview.columns.model', { defaultValue: 'Model' })}</th>
-                        <th className="px-3 py-2">{t('groupsPage.preview.columns.finalPrice', { defaultValue: 'Final price' })}</th>
-                        <th className="px-3 py-2">{t('groupsPage.preview.columns.formulaPrice', { defaultValue: 'Formula price' })}</th>
-                        <th className="px-3 py-2">{t('groupsPage.preview.columns.mode', { defaultValue: 'Mode' })}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(currentGroup?.models ?? []).map((item) => {
-                        const pricingLine = pricingLineForModel(item)
-                        return (
-                          <tr key={item.model} className="border-t align-top">
-                            <td className="px-3 py-2 font-mono text-xs">{item.model}</td>
-                            <td className="px-3 py-2 text-xs">{pricingLine.finalPricing}</td>
-                            <td className="px-3 py-2 text-xs text-muted-foreground">
-                              {item.uses_absolute_pricing ? <span className="line-through">{pricingLine.formula}</span> : pricingLine.formula}
-                            </td>
-                            <td className="px-3 py-2 text-xs">
-                              <Badge variant={item.uses_absolute_pricing ? 'success' : 'secondary'}>
-                                {item.uses_absolute_pricing
-                                  ? t('groupsPage.preview.mode.absolute', { defaultValue: 'Absolute override' })
-                                  : t('groupsPage.preview.mode.formula', { defaultValue: 'Multiplier formula' })}
-                              </Badge>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-                </div>
-              </div>
-            </div>
 
-            <div className="shrink-0 border-t border-border/70 bg-background/95 p-3 backdrop-blur sm:hidden">
-              <div className="grid gap-2">
-                <Button type="button" onClick={() => upsertGroupMutation.mutate()} disabled={upsertGroupMutation.isPending}>
-                  {upsertGroupMutation.isPending ? <RotateCw className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {t('groupsPage.actions.saveGroup', { defaultValue: 'Save group' })}
-                </Button>
-                {groupForm.id ? (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={() => deleteGroupMutation.mutate(groupForm.id)}
-                    disabled={deleteGroupMutation.isPending || groupForm.is_default}
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <Input
+                          label={t("groupsPage.policy.inputAbsolutePrice")}
+                          labelPlacement="outside"
+                          type="number"
+                          value={policyForm.input_price_microcredits}
+                          onValueChange={(value) =>
+                            setPolicyForm((prev) => ({
+                              ...prev,
+                              input_price_microcredits: value,
+                            }))
+                          }
+                        />
+                        <Input
+                          label={t(
+                            "groupsPage.policy.cachedInputAbsolutePrice",
+                          )}
+                          labelPlacement="outside"
+                          type="number"
+                          value={policyForm.cached_input_price_microcredits}
+                          onValueChange={(value) =>
+                            setPolicyForm((prev) => ({
+                              ...prev,
+                              cached_input_price_microcredits: value,
+                            }))
+                          }
+                        />
+                        <Input
+                          label={t("groupsPage.policy.outputAbsolutePrice")}
+                          labelPlacement="outside"
+                          type="number"
+                          value={policyForm.output_price_microcredits}
+                          onValueChange={(value) =>
+                            setPolicyForm((prev) => ({
+                              ...prev,
+                              output_price_microcredits: value,
+                            }))
+                          }
+                        />
+                      </div>
+
+                      <Checkbox
+                        isSelected={policyForm.enabled}
+                        onValueChange={(checked) =>
+                          setPolicyForm((prev) => ({
+                            ...prev,
+                            enabled: checked,
+                          }))
+                        }
+                      >
+                        {t("groupsPage.policy.enabled")}
+                      </Checkbox>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          color="primary"
+                          isDisabled={
+                            upsertPolicyMutation.isPending ||
+                            !groupForm.id ||
+                            !selectedModel
+                          }
+                          isLoading={upsertPolicyMutation.isPending}
+                          startContent={
+                            upsertPolicyMutation.isPending ? undefined : (
+                              <RotateCw className="h-4 w-4" />
+                            )
+                          }
+                          onPress={() => upsertPolicyMutation.mutate()}
+                        >
+                          {t("groupsPage.actions.savePolicy")}
+                        </Button>
+                        {selectedPolicy ? (
+                          <Button
+                            color="danger"
+                            isDisabled={deletePolicyMutation.isPending}
+                            startContent={<Trash2 className="h-4 w-4" />}
+                            variant="light"
+                            onPress={() =>
+                              deletePolicyMutation.mutate(selectedPolicy.id)
+                            }
+                          >
+                            {t("groupsPage.actions.deletePolicy")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </SurfaceSection>
+
+                  <SurfaceSection
+                    title={t("groupsPage.preview.title")}
+                    description={t("groupsPage.preview.description")}
+                    tone="muted"
                   >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t('groupsPage.actions.deleteGroup', { defaultValue: 'Delete group' })}
-                  </Button>
-                ) : null}
-                <Button type="button" variant="outline" onClick={() => upsertPolicyMutation.mutate()} disabled={upsertPolicyMutation.isPending || !groupForm.id}>
-                  {upsertPolicyMutation.isPending ? <RotateCw className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {t('groupsPage.actions.savePolicy', { defaultValue: 'Save model policy' })}
-                </Button>
-                {selectedPolicy ? (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={() => deletePolicyMutation.mutate(selectedPolicy.id)}
-                    disabled={deletePolicyMutation.isPending}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t('groupsPage.actions.deletePolicy', { defaultValue: 'Delete policy' })}
-                  </Button>
-                ) : null}
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <Chip size="sm" variant="flat">
+                            {t("groupsPage.columns.modelsCount", {
+                              count: currentGroup?.models.length ?? 0,
+                            })}
+                          </Chip>
+                          <Chip size="sm" variant="flat">
+                            {currentGroup?.allow_all_models
+                              ? t("groupsPage.antigravity.allowAllModels")
+                              : t("groupsPage.antigravity.scopedPolicy")}
+                          </Chip>
+                        </div>
+                        {(currentGroup?.models?.length ?? 0) > 3 ? (
+                          <Button
+                            className="shrink-0 md:hidden"
+                            size="sm"
+                            variant="light"
+                            onPress={() =>
+                              setMobilePreviewExpanded((prev) => !prev)
+                            }
+                          >
+                            {mobilePreviewExpanded ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                            {mobilePreviewExpanded
+                              ? t("common.collapse", {
+                                  defaultValue: "Collapse",
+                                })
+                              : t("common.expand", { defaultValue: "Expand" })}
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-2 md:hidden">
+                        {mobilePreviewModels.map((item) => {
+                          const pricingLine = pricingLineForModel(item, t);
+                          return (
+                            <SurfaceCard
+                              key={item.model}
+                              tone="default"
+                              shadow="none"
+                            >
+                              <SurfaceCardBody className="p-3 text-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="font-mono text-xs break-all">
+                                    {item.model}
+                                  </div>
+                                  <Chip
+                                    color={
+                                      item.uses_absolute_pricing
+                                        ? "success"
+                                        : "default"
+                                    }
+                                    size="sm"
+                                    variant="flat"
+                                  >
+                                    {item.uses_absolute_pricing
+                                      ? t("groupsPage.preview.mode.absolute")
+                                      : t("groupsPage.preview.mode.formula")}
+                                  </Chip>
+                                </div>
+                                <div className="mt-3 space-y-2 text-xs leading-5 text-default-500">
+                                  <div>
+                                    <div>
+                                      {t(
+                                        "groupsPage.preview.columns.finalPrice",
+                                      )}
+                                    </div>
+                                    <div className="text-foreground">
+                                      {pricingLine.finalPricing}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div>
+                                      {t(
+                                        "groupsPage.preview.columns.formulaPrice",
+                                      )}
+                                    </div>
+                                    <div
+                                      className={
+                                        item.uses_absolute_pricing
+                                          ? "line-through"
+                                          : ""
+                                      }
+                                    >
+                                      {pricingLine.formula}
+                                    </div>
+                                  </div>
+                                </div>
+                              </SurfaceCardBody>
+                            </SurfaceCard>
+                          );
+                        })}
+                        {!mobilePreviewExpanded &&
+                        (currentGroup?.models?.length ?? 0) > 3 ? (
+                          <div className="text-center text-xs text-muted-foreground">
+                            {t("groupsPage.preview.moreHidden", {
+                              count:
+                                (currentGroup?.models?.length ?? 0) -
+                                mobilePreviewModels.length,
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <Table
+                        aria-label={t("groupsPage.preview.title")}
+                        className="hidden md:block"
+                        classNames={{
+                          wrapper: "bg-transparent px-0 py-0 shadow-none",
+                          th: "bg-default-100/60 text-xs font-semibold uppercase tracking-[0.12em] text-default-500",
+                          td: "align-top py-3 text-sm text-foreground",
+                          emptyWrapper: "h-44",
+                        }}
+                      >
+                        <TableHeader>
+                          <TableColumn>
+                            {t("groupsPage.preview.columns.model")}
+                          </TableColumn>
+                          <TableColumn>
+                            {t("groupsPage.preview.columns.finalPrice")}
+                          </TableColumn>
+                          <TableColumn>
+                            {t("groupsPage.preview.columns.formulaPrice")}
+                          </TableColumn>
+                          <TableColumn>
+                            {t("groupsPage.preview.columns.mode")}
+                          </TableColumn>
+                        </TableHeader>
+                        <TableBody
+                          emptyContent={
+                            <div className="flex flex-col items-center gap-3 py-10 text-default-500">
+                              <Boxes className="h-10 w-10 opacity-35" />
+                              <div className="text-sm font-medium">
+                                {t("groupsPage.preview.empty")}
+                              </div>
+                            </div>
+                          }
+                          items={currentGroup?.models ?? []}
+                        >
+                          {(item) => {
+                            const pricingLine = pricingLineForModel(item, t);
+                            return (
+                              <TableRow key={item.model}>
+                                <TableCell>
+                                  <div className="font-mono text-xs text-default-500">
+                                    {item.model}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  {pricingLine.finalPricing}
+                                </TableCell>
+                                <TableCell>
+                                  <span
+                                    className={
+                                      item.uses_absolute_pricing
+                                        ? "line-through text-default-400"
+                                        : "text-default-500"
+                                    }
+                                  >
+                                    {pricingLine.formula}
+                                  </span>
+                                </TableCell>
+                                <TableCell>
+                                  <Chip
+                                    color={
+                                      item.uses_absolute_pricing
+                                        ? "success"
+                                        : "default"
+                                    }
+                                    size="sm"
+                                    variant="flat"
+                                  >
+                                    {item.uses_absolute_pricing
+                                      ? t("groupsPage.preview.mode.absolute")
+                                      : t("groupsPage.preview.mode.formula")}
+                                  </Chip>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          }}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </SurfaceSection>
+                </div>
               </div>
             </div>
           </div>
-        </DialogContent>
+        </AntigravityDialogShell>
       </Dialog>
-    </div>
-  )
+    </PageContent>
+  );
 }

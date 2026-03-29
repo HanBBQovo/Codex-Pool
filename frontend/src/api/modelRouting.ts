@@ -201,11 +201,15 @@ export const modelRoutingApi = {
   listProfiles: async () => {
     const response = await apiClient.get<RoutingProfilesResponse>('/admin/model-routing/profiles')
     return {
-      profiles: Array.isArray(response.profiles) ? response.profiles.map(normalizeProfile) : [],
+      profiles: Array.isArray(response.data.profiles)
+        ? response.data.profiles.map(normalizeProfile)
+        : [],
     }
   },
-  upsertProfile: (payload: UpsertRoutingProfileRequest) =>
-    apiClient.post<RoutingProfile>('/admin/model-routing/profiles', payload),
+  upsertProfile: async (payload: UpsertRoutingProfileRequest) => {
+    const response = await apiClient.post<RoutingProfile>('/admin/model-routing/profiles', payload)
+    return response.data
+  },
   deleteProfile: (profileId: string) =>
     apiClient.delete<void>(`/admin/model-routing/profiles/${profileId}`),
   listPolicies: async () => {
@@ -213,11 +217,18 @@ export const modelRoutingApi = {
       '/admin/model-routing/model-policies',
     )
     return {
-      policies: Array.isArray(response.policies) ? response.policies.map(normalizePolicy) : [],
+      policies: Array.isArray(response.data.policies)
+        ? response.data.policies.map(normalizePolicy)
+        : [],
     }
   },
-  upsertPolicy: (payload: UpsertModelRoutingPolicyRequest) =>
-    apiClient.post<ModelRoutingPolicy>('/admin/model-routing/model-policies', payload),
+  upsertPolicy: async (payload: UpsertModelRoutingPolicyRequest) => {
+    const response = await apiClient.post<ModelRoutingPolicy>(
+      '/admin/model-routing/model-policies',
+      payload,
+    )
+    return response.data
+  },
   deletePolicy: (policyId: string) =>
     apiClient.delete<void>(`/admin/model-routing/model-policies/${policyId}`),
   getSettings: async () => {
@@ -225,17 +236,24 @@ export const modelRoutingApi = {
       '/admin/model-routing/settings',
     )
     return {
-      settings: normalizeSettings(response.settings),
+      settings: normalizeSettings(response.data.settings),
     }
   },
-  updateSettings: (payload: UpdateModelRoutingSettingsRequest) =>
-    apiClient.put<ModelRoutingSettingsResponse>('/admin/model-routing/settings', payload),
+  updateSettings: async (payload: UpdateModelRoutingSettingsRequest) => {
+    const response = await apiClient.put<ModelRoutingSettingsResponse>(
+      '/admin/model-routing/settings',
+      payload,
+    )
+    return response.data
+  },
   listVersions: async () => {
     const response = await apiClient.get<RoutingPlanVersionsResponse>(
       '/admin/model-routing/versions',
     )
     return {
-      versions: Array.isArray(response.versions) ? response.versions.map(normalizeVersion) : [],
+      versions: Array.isArray(response.data.versions)
+        ? response.data.versions.map(normalizeVersion)
+        : [],
     }
   },
 }

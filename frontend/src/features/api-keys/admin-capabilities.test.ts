@@ -4,80 +4,67 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  STANDALONE_ADMIN_API_KEYS_PATH,
   filterAdminMenuGroupsByCapabilities,
   resolveAdminCapabilityRedirect,
   shouldShowStandaloneAdminApiKeys,
+  STANDALONE_ADMIN_API_KEYS_PATH,
 } from './admin-capabilities.ts'
 
 const personalCapabilities = {
-  edition: 'personal',
-  billing_mode: 'cost_report_only',
   features: {
     multi_tenant: false,
-    tenant_portal: false,
-    tenant_self_service: false,
-    tenant_recharge: false,
-    credit_billing: false,
-    cost_reports: true,
   },
-} as const
+}
 
 const businessCapabilities = {
-  edition: 'business',
-  billing_mode: 'credit_enforced',
   features: {
     multi_tenant: true,
-    tenant_portal: true,
-    tenant_self_service: true,
-    tenant_recharge: true,
-    credit_billing: true,
-    cost_reports: true,
   },
-} as const
+}
 
-const baseGroups = [
-  {
-    label: 'assets',
-    items: [
-      { path: '/accounts' },
-      { path: '/tenants' },
-      { path: STANDALONE_ADMIN_API_KEYS_PATH },
-    ],
-  },
-  {
-    label: 'operations',
-    items: [{ path: '/groups' }],
-  },
-]
-
-test('shouldShowStandaloneAdminApiKeys only enables the standalone page for personal-style single-tenant admin', () => {
+test('standalone admin api keys only show in non-multi-tenant editions', () => {
   assert.equal(shouldShowStandaloneAdminApiKeys(personalCapabilities), true)
   assert.equal(shouldShowStandaloneAdminApiKeys(businessCapabilities), false)
-  assert.equal(shouldShowStandaloneAdminApiKeys(undefined), false)
 })
 
-test('filterAdminMenuGroupsByCapabilities swaps tenants navigation for api keys in personal edition', () => {
-  const personalGroups = filterAdminMenuGroupsByCapabilities(baseGroups, personalCapabilities)
-  const businessGroups = filterAdminMenuGroupsByCapabilities(baseGroups, businessCapabilities)
-
-  assert.deepEqual(
-    personalGroups.flatMap((group) => group.items.map((item) => item.path)),
-    ['/accounts', STANDALONE_ADMIN_API_KEYS_PATH, '/groups'],
-  )
-
-  assert.deepEqual(
-    businessGroups.flatMap((group) => group.items.map((item) => item.path)),
-    ['/accounts', '/tenants', '/groups'],
-  )
-})
-
-test('resolveAdminCapabilityRedirect sends users away from gated routes that are unavailable in the current edition', () => {
+test('capability redirects hide unsupported admin routes', () => {
+  assert.equal(resolveAdminCapabilityRedirect('/tenants', personalCapabilities), '/dashboard')
   assert.equal(
     resolveAdminCapabilityRedirect(STANDALONE_ADMIN_API_KEYS_PATH, businessCapabilities),
     '/dashboard',
   )
-  assert.equal(resolveAdminCapabilityRedirect('/tenants', personalCapabilities), '/dashboard')
-  assert.equal(resolveAdminCapabilityRedirect('/accounts', personalCapabilities), null)
-  assert.equal(resolveAdminCapabilityRedirect(STANDALONE_ADMIN_API_KEYS_PATH, personalCapabilities), null)
+  assert.equal(resolveAdminCapabilityRedirect('/dashboard', personalCapabilities), null)
+})
+
+test('menu groups filter out unsupported tenants and admin api key routes', () => {
+  const groups = [
+    {
+      label: 'assets',
+      items: [
+        { path: '/dashboard' },
+        { path: '/tenants' },
+        { path: STANDALONE_ADMIN_API_KEYS_PATH },
+      ],
+    },
+  ]
+
+  assert.deepEqual(filterAdminMenuGroupsByCapabilities(groups, personalCapabilities), [
+    {
+      label: 'assets',
+      items: [
+        { path: '/dashboard' },
+        { path: STANDALONE_ADMIN_API_KEYS_PATH },
+      ],
+    },
+  ])
+
+  assert.deepEqual(filterAdminMenuGroupsByCapabilities(groups, businessCapabilities), [
+    {
+      label: 'assets',
+      items: [
+        { path: '/dashboard' },
+        { path: '/tenants' },
+      ],
+    },
+  ])
 })

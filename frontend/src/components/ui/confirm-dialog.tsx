@@ -1,7 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,24 +72,21 @@ export function useConfirmDialog() {
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel asChild>
-            <Button variant="outline">
-              {options?.cancelText ??
-                t("common.cancel", {
-                  defaultValue: "Cancel",
-                })}
-            </Button>
+          <AlertDialogCancel>
+            {options?.cancelText ??
+              t("common.cancel", {
+                defaultValue: "Cancel",
+              })}
           </AlertDialogCancel>
-          <AlertDialogAction asChild>
-            <Button
-              variant={options?.variant === "destructive" ? "destructive" : "default"}
-              onClick={() => resolveAndClose(true)}
-            >
-              {options?.confirmText ??
-                t("common.confirm", {
-                  defaultValue: "Confirm",
-                })}
-            </Button>
+          <AlertDialogAction
+            color={options?.variant === "destructive" ? "danger" : "primary"}
+            variant="solid"
+            onClick={() => resolveAndClose(true)}
+          >
+            {options?.confirmText ??
+              t("common.confirm", {
+                defaultValue: "Confirm",
+              })}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

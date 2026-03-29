@@ -177,6 +177,9 @@ jobs:
       - name: i18n runtime keys
         run: npm run i18n:runtime-check
 
+      - name: Frontend regression tests
+        run: npm run test
+
       - name: Lint
         run: npm run lint
 
