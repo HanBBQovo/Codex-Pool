@@ -965,6 +965,9 @@ pub trait ControlPlaneStore: Send + Sync {
     async fn refresh_oauth_account(&self, _account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
         Err(anyhow!("oauth account refresh is not implemented"))
     }
+    async fn reprobe_runtime_oauth_account(&self, account_id: Uuid) -> Result<()> {
+        self.refresh_oauth_account(account_id).await.map(|_| ())
+    }
     async fn oauth_account_status(&self, _account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
         Err(anyhow!("oauth account status query is not implemented"))
     }

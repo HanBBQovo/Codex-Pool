@@ -548,6 +548,12 @@ impl ControlPlaneStore for SqliteBackedStore {
         Ok(status)
     }
 
+    async fn reprobe_runtime_oauth_account(&self, account_id: Uuid) -> Result<()> {
+        self.inner.reprobe_runtime_oauth_account(account_id).await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
     async fn oauth_account_status(&self, account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
         self.inner.oauth_account_status(account_id).await
     }

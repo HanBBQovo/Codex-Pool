@@ -172,6 +172,10 @@ impl ControlPlaneStore for InMemoryStore {
         self.refresh_oauth_account_inner(account_id, true).await
     }
 
+    async fn reprobe_runtime_oauth_account(&self, account_id: Uuid) -> Result<()> {
+        self.reprobe_runtime_oauth_account_inner(account_id).await
+    }
+
     async fn oauth_account_status(&self, account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
         self.oauth_account_status_inner(account_id).await
     }

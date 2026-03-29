@@ -112,6 +112,7 @@ impl InMemoryStore {
 
     fn emit_probe_result_event_inner(
         &self,
+        source: &str,
         account_id: Uuid,
         checked_at: DateTime<Utc>,
         outcome: AccountProbeOutcome,
@@ -153,7 +154,7 @@ impl InMemoryStore {
             category: codex_pool_core::events::SystemEventCategory::Patrol,
             event_type,
             severity,
-            source: "control_plane.active_patrol".to_string(),
+            source: source.to_string(),
             tenant_id: None,
             account_id: Some(account_id),
             request_id: None,
@@ -238,6 +239,192 @@ impl InMemoryStore {
             })),
             secret_preview: None,
         });
+    }
+
+    async fn probe_runtime_oauth_account_inner(
+        &self,
+        account_id: Uuid,
+        source: &str,
+        success_message: &str,
+        quota_message: &str,
+        decrypt_failure_message: &str,
+    ) -> Result<AccountProbeOutcome> {
+        let account = self
+            .accounts
+            .read()
+            .unwrap()
+            .get(&account_id)
+            .cloned()
+            .ok_or_else(|| anyhow!("account not found"))?;
+        let provider = self.account_auth_provider(account_id);
+        let credential = self.oauth_credentials.read().unwrap().get(&account_id).cloned();
+        let session_profile = self
+            .session_profiles
+            .read()
+            .unwrap()
+            .get(&account_id)
+            .cloned();
+        let Some(token_source) = self.build_live_rate_limit_token_source_inner(
+            &account,
+            &provider,
+            credential.as_ref(),
+            session_profile.as_ref(),
+            Utc::now(),
+        ) else {
+            return Err(anyhow!("unsupported account pool action"));
+        };
+
+        let checked_at = Utc::now();
+        let access_token = match token_source {
+            InMemoryRateLimitRefreshTokenSource::EncryptedAccessToken(access_token_enc) => {
+                let cipher = self.require_credential_cipher()?;
+                match cipher.decrypt(&access_token_enc) {
+                    Ok(access_token) => access_token,
+                    Err(err) => {
+                        self.record_account_probe_result_inner(
+                            account_id,
+                            checked_at,
+                            AccountProbeOutcome::Fatal,
+                        );
+                        self.emit_probe_result_event_inner(
+                            source,
+                            account_id,
+                            checked_at,
+                            AccountProbeOutcome::Fatal,
+                            Some("credential_decrypt_failed".to_string()),
+                            None,
+                            Some(decrypt_failure_message.to_string()),
+                        );
+                        self.mark_upstream_account_pending_purge_inner(
+                            account_id,
+                            Some("credential_decrypt_failed".to_string()),
+                        )?;
+                        let _ = self.persist_rate_limit_cache_failure_inner(
+                            account_id,
+                            "credential_decrypt_failed",
+                            &truncate_error_message(err.to_string()),
+                        );
+                        return Ok(AccountProbeOutcome::Fatal);
+                    }
+                }
+            }
+            InMemoryRateLimitRefreshTokenSource::BearerToken(access_token) => access_token,
+        };
+
+        match self
+            .oauth_client
+            .fetch_rate_limits(
+                &access_token,
+                Some(&account.base_url),
+                account.chatgpt_account_id.as_deref(),
+            )
+            .await
+        {
+            Ok(rate_limits) => {
+                let (blocked_until, block_reason) =
+                    derive_rate_limit_block(&rate_limits, checked_at);
+                self.persist_rate_limit_cache_success_inner(account_id, rate_limits, checked_at);
+
+                if let Some(reason_code) = block_reason {
+                    self.record_account_probe_result_inner(
+                        account_id,
+                        checked_at,
+                        AccountProbeOutcome::Quota,
+                    );
+                    self.emit_probe_result_event_inner(
+                        source,
+                        account_id,
+                        checked_at,
+                        AccountProbeOutcome::Quota,
+                        Some(reason_code.clone()),
+                        blocked_until,
+                        Some(quota_message.to_string()),
+                    );
+                    self.set_account_pool_state_quarantine_inner(
+                        account_id,
+                        checked_at,
+                        blocked_until,
+                        Some(reason_code),
+                    )?;
+                    Ok(AccountProbeOutcome::Quota)
+                } else {
+                    self.record_account_probe_result_inner(
+                        account_id,
+                        checked_at,
+                        AccountProbeOutcome::Ok,
+                    );
+                    self.emit_probe_result_event_inner(
+                        source,
+                        account_id,
+                        checked_at,
+                        AccountProbeOutcome::Ok,
+                        None,
+                        None,
+                        Some(success_message.to_string()),
+                    );
+                    self.set_account_pool_state_active_inner(account_id, checked_at);
+                    Ok(AccountProbeOutcome::Ok)
+                }
+            }
+            Err(err) => {
+                let error_code = err.code().as_str().to_string();
+                let error_message = truncate_error_message(err.to_string());
+                let _ = self.persist_rate_limit_cache_failure_inner(
+                    account_id,
+                    &error_code,
+                    &error_message,
+                );
+                let (outcome, reason_code, retry_after) = self.classify_runtime_probe_failure(
+                    &provider,
+                    checked_at,
+                    &error_code,
+                    &error_message,
+                );
+                self.record_account_probe_result_inner(account_id, checked_at, outcome);
+                self.emit_probe_result_event_inner(
+                    source,
+                    account_id,
+                    checked_at,
+                    outcome,
+                    Some(reason_code.clone()),
+                    retry_after,
+                    Some(error_message.clone()),
+                );
+                match outcome {
+                    AccountProbeOutcome::Ok => {
+                        self.set_account_pool_state_active_inner(account_id, checked_at);
+                    }
+                    AccountProbeOutcome::Fatal => {
+                        self.mark_upstream_account_pending_purge_inner(
+                            account_id,
+                            Some(reason_code),
+                        )?;
+                    }
+                    AccountProbeOutcome::Quota | AccountProbeOutcome::Transient => {
+                        self.set_account_pool_state_quarantine_inner(
+                            account_id,
+                            checked_at,
+                            retry_after,
+                            Some(reason_code),
+                        )?;
+                    }
+                }
+                Ok(outcome)
+            }
+        }
+    }
+
+    pub(super) async fn reprobe_runtime_oauth_account_inner(&self, account_id: Uuid) -> Result<()> {
+        let _ = self
+            .probe_runtime_oauth_account_inner(
+                account_id,
+                "control_plane.account_pool_reprobe",
+                "manual reprobe succeeded",
+                "manual reprobe observed a quota block",
+                "failed to decrypt oauth access token for reprobe",
+            )
+            .await?;
+        Ok(())
     }
 
     pub(crate) fn emit_rate_limit_refresh_batch_summary_inner(
@@ -2021,9 +2208,6 @@ impl InMemoryStore {
             return Ok(0);
         }
 
-        let providers = self.account_auth_providers.read().unwrap().clone();
-        let credentials = self.oauth_credentials.read().unwrap().clone();
-        let session_profiles = self.session_profiles.read().unwrap().clone();
         let mut patrolled = 0_u64;
         let mut ok_count = 0_u64;
         let mut quota_count = 0_u64;
@@ -2031,170 +2215,27 @@ impl InMemoryStore {
         let mut transient_count = 0_u64;
 
         for account_id in candidate_ids {
-            let Some(account) = self.accounts.read().unwrap().get(&account_id).cloned() else {
-                continue;
-            };
-            let Some(provider) = providers.get(&account_id) else {
-                continue;
-            };
-            let Some(token_source) = self.build_live_rate_limit_token_source_inner(
-                &account,
-                provider,
-                credentials.get(&account_id),
-                session_profiles.get(&account_id),
-                Utc::now(),
-            )
-            else {
-                continue;
-            };
-            let checked_at = Utc::now();
-            let access_token = match token_source {
-                InMemoryRateLimitRefreshTokenSource::EncryptedAccessToken(access_token_enc) => {
-                    let cipher = self.require_credential_cipher()?;
-                    match cipher.decrypt(&access_token_enc) {
-                        Ok(access_token) => access_token,
-                        Err(err) => {
-                            self.record_account_probe_result_inner(
-                                account_id,
-                                checked_at,
-                                AccountProbeOutcome::Fatal,
-                            );
-                            fatal_count = fatal_count.saturating_add(1);
-                            self.emit_probe_result_event_inner(
-                                account_id,
-                                checked_at,
-                                AccountProbeOutcome::Fatal,
-                                Some("credential_decrypt_failed".to_string()),
-                                None,
-                                Some("failed to decrypt oauth access token for patrol".to_string()),
-                            );
-                            self.mark_upstream_account_pending_purge_inner(
-                                account_id,
-                                Some("credential_decrypt_failed".to_string()),
-                            )?;
-                            let _ = self.persist_rate_limit_cache_failure_inner(
-                                account_id,
-                                "credential_decrypt_failed",
-                                &truncate_error_message(err.to_string()),
-                            );
-                            patrolled = patrolled.saturating_add(1);
-                            continue;
-                        }
-                    }
-                }
-                InMemoryRateLimitRefreshTokenSource::BearerToken(access_token) => access_token,
-            };
-
-            match self
-                .oauth_client
-                .fetch_rate_limits(
-                    &access_token,
-                    Some(&account.base_url),
-                    account.chatgpt_account_id.as_deref(),
+            let outcome = match self
+                .probe_runtime_oauth_account_inner(
+                    account_id,
+                    "control_plane.active_patrol",
+                    "active patrol probe succeeded",
+                    "active patrol observed a quota block",
+                    "failed to decrypt oauth access token for patrol",
                 )
                 .await
             {
-                Ok(rate_limits) => {
-                    let (blocked_until, block_reason) =
-                        derive_rate_limit_block(&rate_limits, checked_at);
-                    self.persist_rate_limit_cache_success_inner(
-                        account_id,
-                        rate_limits,
-                        checked_at,
-                    );
-
-                    if let Some(reason_code) = block_reason {
-                        self.record_account_probe_result_inner(
-                            account_id,
-                            checked_at,
-                            AccountProbeOutcome::Quota,
-                        );
-                        quota_count = quota_count.saturating_add(1);
-                        self.emit_probe_result_event_inner(
-                            account_id,
-                            checked_at,
-                            AccountProbeOutcome::Quota,
-                            Some(reason_code.clone()),
-                            blocked_until,
-                            Some("active patrol observed a quota block".to_string()),
-                        );
-                        self.set_account_pool_state_quarantine_inner(
-                            account_id,
-                            checked_at,
-                            blocked_until,
-                            Some(reason_code),
-                        )?;
-                    } else {
-                        self.record_account_probe_result_inner(
-                            account_id,
-                            checked_at,
-                            AccountProbeOutcome::Ok,
-                        );
-                        ok_count = ok_count.saturating_add(1);
-                        self.emit_probe_result_event_inner(
-                            account_id,
-                            checked_at,
-                            AccountProbeOutcome::Ok,
-                            None,
-                            None,
-                            Some("active patrol probe succeeded".to_string()),
-                        );
-                        self.set_account_pool_state_active_inner(account_id, checked_at);
-                    }
-                }
-                Err(err) => {
-                    let error_code = err.code().as_str().to_string();
-                    let error_message = truncate_error_message(err.to_string());
-                    let _ = self.persist_rate_limit_cache_failure_inner(
-                        account_id,
-                        &error_code,
-                        &error_message,
-                    );
-                    let (outcome, reason_code, retry_after) = self.classify_runtime_probe_failure(
-                        provider,
-                        checked_at,
-                        &error_code,
-                        &error_message,
-                    );
-                    self.record_account_probe_result_inner(account_id, checked_at, outcome);
-                    match outcome {
-                        AccountProbeOutcome::Ok => ok_count = ok_count.saturating_add(1),
-                        AccountProbeOutcome::Quota => quota_count = quota_count.saturating_add(1),
-                        AccountProbeOutcome::Fatal => fatal_count = fatal_count.saturating_add(1),
-                        AccountProbeOutcome::Transient => {
-                            transient_count = transient_count.saturating_add(1)
-                        }
-                    }
-                    self.emit_probe_result_event_inner(
-                        account_id,
-                        checked_at,
-                        outcome,
-                        Some(reason_code.clone()),
-                        retry_after,
-                        Some(error_message.clone()),
-                    );
-                    match outcome {
-                        AccountProbeOutcome::Ok => {
-                            self.set_account_pool_state_active_inner(account_id, checked_at);
-                        }
-                        AccountProbeOutcome::Fatal => {
-                            self.mark_upstream_account_pending_purge_inner(
-                                account_id,
-                                Some(reason_code),
-                            )?;
-                        }
-                        AccountProbeOutcome::Quota | AccountProbeOutcome::Transient => {
-                            self.set_account_pool_state_quarantine_inner(
-                                account_id,
-                                checked_at,
-                                retry_after,
-                                Some(reason_code),
-                            )?;
-                        }
-                    }
+                Ok(outcome) => outcome,
+                Err(_) => continue,
+            };
+            match outcome {
+                AccountProbeOutcome::Ok => ok_count = ok_count.saturating_add(1),
+                AccountProbeOutcome::Quota => quota_count = quota_count.saturating_add(1),
+                AccountProbeOutcome::Fatal => fatal_count = fatal_count.saturating_add(1),
+                AccountProbeOutcome::Transient => {
+                    transient_count = transient_count.saturating_add(1)
                 }
             }
-
             patrolled = patrolled.saturating_add(1);
         }
 

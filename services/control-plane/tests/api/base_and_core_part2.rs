@@ -1345,7 +1345,21 @@ async fn internal_oauth_refresh_route_returns_status_for_legacy_bearer_account()
 
 #[tokio::test]
 async fn account_pool_reprobe_supports_runtime_legacy_bearer_account() {
-    let store = Arc::new(InMemoryStore::default());
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(InventoryProbeOAuthTokenClient {
+            rate_limits: vec![OAuthRateLimitSnapshot {
+                limit_id: Some("five_hours".to_string()),
+                limit_name: Some("5 hours".to_string()),
+                primary: Some(OAuthRateLimitWindow {
+                    used_percent: 18.0,
+                    window_minutes: Some(300),
+                    resets_at: Some(chrono::Utc::now() + chrono::Duration::minutes(35)),
+                }),
+                secondary: None,
+            }],
+        }),
+        None,
+    );
     store
         .upsert_one_time_session_account(UpsertOneTimeSessionAccountRequest {
             label: "legacy-bearer-account-pool-reprobe".to_string(),
@@ -1362,7 +1376,7 @@ async fn account_pool_reprobe_supports_runtime_legacy_bearer_account() {
         .await
         .expect("create legacy bearer account");
 
-    let app = build_app_with_store(store);
+    let app = build_app_with_store(Arc::new(store));
     let admin_token = login_admin_token(&app).await;
 
     let records_response = app
@@ -1388,8 +1402,15 @@ async fn account_pool_reprobe_supports_runtime_legacy_bearer_account() {
         .and_then(|item| item["id"].as_str())
         .expect("legacy bearer account pool record")
         .to_string();
+    let initial_record = records
+        .iter()
+        .find(|item| item["id"] == record_id)
+        .expect("initial legacy bearer record");
+    assert!(initial_record["last_probe_at"].is_null());
+    assert!(initial_record["rate_limits_fetched_at"].is_null());
 
     let reprobe_response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1414,6 +1435,28 @@ async fn account_pool_reprobe_supports_runtime_legacy_bearer_account() {
     let reprobe_json: Value = serde_json::from_slice(&reprobe_body).unwrap();
     assert_eq!(reprobe_json["success_count"], 1);
     assert_eq!(reprobe_json["failed_count"], 0);
+
+    let reprobed_record_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/account-pool/accounts/{record_id}"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reprobed_record_response.status(), StatusCode::OK);
+    let reprobed_record_body = to_bytes(reprobed_record_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let reprobed_record: Value = serde_json::from_slice(&reprobed_record_body).unwrap();
+    assert!(reprobed_record["last_probe_at"].is_string());
+    assert_eq!(reprobed_record["health_freshness"], "fresh");
+    assert_eq!(reprobed_record["last_probe_outcome"], "ok");
+    assert!(reprobed_record["rate_limits_fetched_at"].is_string());
+    assert_eq!(reprobed_record["rate_limits"][0]["limit_id"], "five_hours");
 }
 
 #[tokio::test]

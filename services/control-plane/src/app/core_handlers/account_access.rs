@@ -1352,9 +1352,7 @@ async fn operate_account_pool_records(
                     Some(
                         UpstreamAuthProvider::OAuthRefreshToken
                         | UpstreamAuthProvider::LegacyBearer,
-                    ) => {
-                        store.refresh_oauth_account(record_id).await.map(|_| ())
-                    }
+                    ) => store.reprobe_runtime_oauth_account(record_id).await,
                     _ => Err(anyhow!("unsupported account pool action")),
                 },
             },
