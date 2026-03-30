@@ -65,6 +65,7 @@ import {
   getImportStatusFilterOptions,
   getImportStatusLabel,
 } from "@/features/import-jobs/utils";
+import { notify } from "@/lib/notification";
 import { cn } from "@/lib/utils";
 
 const JOB_ITEMS_PAGE_SIZE = 200;
@@ -279,6 +280,15 @@ export default function ImportJobs() {
       setCurrentPage(1);
       setSelectedJobId(summary.job_id);
     },
+    onError: (error) => {
+      const fallback = t("importJobs.messages.uploadFailedTitle");
+      const description = localizeApiErrorDisplay(t, error, fallback).label;
+      notify({
+        variant: "error",
+        title: fallback,
+        description: description !== fallback ? description : undefined,
+      });
+    },
   });
 
   const pauseMutation = useMutation({
@@ -417,13 +427,6 @@ export default function ImportJobs() {
       : Math.min(filteredItems.length, resolvedPage * rowsPerPage);
 
   const selectedProgress = calcProgress(selectedSummary ?? undefined);
-  const uploadError = uploadMutation.error
-    ? localizeApiErrorDisplay(
-        t,
-        uploadMutation.error,
-        t("importJobs.messages.uploadFailedTitle"),
-      ).label
-    : null;
   const itemsError = selectedItemsQuery.error
     ? localizeApiErrorDisplay(
         t,
@@ -627,12 +630,6 @@ export default function ImportJobs() {
                 </span>
               </div>
 
-              {uploadError ? (
-                <div className="flex items-start gap-3 rounded-large border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-danger-700 dark:text-danger-300">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div>{uploadError}</div>
-                </div>
-              ) : null}
             </CardBody>
           </Card>
 

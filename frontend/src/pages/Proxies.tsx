@@ -15,6 +15,7 @@ import {
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { proxiesApi } from '@/api/proxies'
 import type { ProxyFailMode, UpdateAdminProxyPoolSettingsRequest } from '@/api/types'
 import {
@@ -23,9 +24,10 @@ import {
   PagePanel,
   SectionHeader,
 } from '@/components/layout/page-archetypes'
-import { SurfaceInset, SurfaceNotice } from '@/components/ui/surface'
+import { SurfaceInset } from '@/components/ui/surface'
 import { createProxySettingsDraft, mapProxyNodesToCards, type ProxyHealth } from '@/features/proxies/contracts'
 import { formatDurationMs } from '@/lib/duration-format'
+import { notify } from '@/lib/notification'
 
 const statusColorMap: Record<ProxyHealth, 'success' | 'warning' | 'danger' | 'default'> = {
   healthy: 'success',
@@ -58,8 +60,6 @@ export default function Proxies() {
   const queryClient = useQueryClient()
   const [settingsDraft, setSettingsDraft] = useState<UpdateAdminProxyPoolSettingsRequest | null>(null)
   const [editorDraft, setEditorDraft] = useState<ProxyEditorDraft | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [pendingProxyId, setPendingProxyId] = useState<string | null>(null)
 
   const { data: proxyPool, isLoading, isFetching } = useQuery({
@@ -79,39 +79,56 @@ export default function Proxies() {
     await queryClient.invalidateQueries({ queryKey: ['proxies'] })
   }
 
+  const notifyProxyError = (error: unknown, fallbackTitle: string) => {
+    const description = localizeApiErrorDisplay(t, error, fallbackTitle).label
+    notify({
+      variant: 'error',
+      title: fallbackTitle,
+      description: description !== fallbackTitle ? description : undefined,
+    })
+  }
+
   const settingsMutation = useMutation({
     mutationFn: proxiesApi.updateSettings,
     onSuccess: async () => {
-      setMessage(t('proxies.notifications.settingsSavedDescription', {
-        defaultValue: 'The global outbound proxy pool settings have been saved.',
-      }))
-      setError(null)
       setSettingsDraft(null)
       await invalidate()
+      notify({
+        variant: 'success',
+        title: t('proxies.notifications.settingsSavedDescription', {
+          defaultValue: 'The global outbound proxy pool settings have been saved.',
+        }),
+      })
     },
-    onError: () => {
-      setMessage(null)
-      setError(t('proxies.notifications.settingsFailedTitle', {
-        defaultValue: 'Failed to save proxy settings',
-      }))
+    onError: (error) => {
+      notifyProxyError(
+        error,
+        t('proxies.notifications.settingsFailedTitle', {
+          defaultValue: 'Failed to save proxy settings',
+        }),
+      )
     },
   })
 
   const createMutation = useMutation({
     mutationFn: proxiesApi.createProxy,
     onSuccess: async () => {
-      setMessage(t('proxies.notifications.nodeCreatedDescription', {
-        defaultValue: 'The proxy node has been added to the global pool.',
-      }))
-      setError(null)
       setEditorDraft(null)
       await invalidate()
+      notify({
+        variant: 'success',
+        title: t('proxies.notifications.nodeCreatedDescription', {
+          defaultValue: 'The proxy node has been added to the global pool.',
+        }),
+      })
     },
-    onError: () => {
-      setMessage(null)
-      setError(t('proxies.notifications.nodeCreateFailedTitle', {
-        defaultValue: 'Failed to create proxy',
-      }))
+    onError: (error) => {
+      notifyProxyError(
+        error,
+        t('proxies.notifications.nodeCreateFailedTitle', {
+          defaultValue: 'Failed to create proxy',
+        }),
+      )
     },
   })
 
@@ -124,18 +141,22 @@ export default function Proxies() {
         weight: Number(payload.weight) || 1,
       }),
     onSuccess: async () => {
-      setMessage(t('proxies.notifications.nodeUpdatedDescription', {
-        defaultValue: 'The proxy node has been updated.',
-      }))
-      setError(null)
       setEditorDraft(null)
       await invalidate()
+      notify({
+        variant: 'success',
+        title: t('proxies.notifications.nodeUpdatedDescription', {
+          defaultValue: 'The proxy node has been updated.',
+        }),
+      })
     },
-    onError: () => {
-      setMessage(null)
-      setError(t('proxies.notifications.nodeUpdateFailedTitle', {
-        defaultValue: 'Failed to update proxy',
-      }))
+    onError: (error) => {
+      notifyProxyError(
+        error,
+        t('proxies.notifications.nodeUpdateFailedTitle', {
+          defaultValue: 'Failed to update proxy',
+        }),
+      )
     },
   })
 
@@ -145,17 +166,21 @@ export default function Proxies() {
       setPendingProxyId(proxyId)
     },
     onSuccess: async () => {
-      setMessage(t('proxies.notifications.nodeDeletedDescription', {
-        defaultValue: 'The proxy node has been removed from the global pool.',
-      }))
-      setError(null)
       await invalidate()
+      notify({
+        variant: 'success',
+        title: t('proxies.notifications.nodeDeletedDescription', {
+          defaultValue: 'The proxy node has been removed from the global pool.',
+        }),
+      })
     },
-    onError: () => {
-      setMessage(null)
-      setError(t('proxies.notifications.nodeDeleteFailedTitle', {
-        defaultValue: 'Failed to delete proxy',
-      }))
+    onError: (error) => {
+      notifyProxyError(
+        error,
+        t('proxies.notifications.nodeDeleteFailedTitle', {
+          defaultValue: 'Failed to delete proxy',
+        }),
+      )
     },
     onSettled: () => {
       setPendingProxyId(null)
@@ -165,18 +190,22 @@ export default function Proxies() {
   const testAllMutation = useMutation({
     mutationFn: proxiesApi.testAll,
     onSuccess: async () => {
-      setMessage(t('proxies.notifications.testCompletedDescription', {
-        count: nodes.length,
-        defaultValue: 'Finished testing {{count}} proxy nodes.',
-      }))
-      setError(null)
       await invalidate()
+      notify({
+        variant: 'success',
+        title: t('proxies.notifications.testCompletedDescription', {
+          count: nodes.length,
+          defaultValue: 'Finished testing {{count}} proxy nodes.',
+        }),
+      })
     },
-    onError: () => {
-      setMessage(null)
-      setError(t('proxies.notifications.testFailedTitle', {
-        defaultValue: 'Proxy test failed',
-      }))
+    onError: (error) => {
+      notifyProxyError(
+        error,
+        t('proxies.notifications.testFailedTitle', {
+          defaultValue: 'Proxy test failed',
+        }),
+      )
     },
   })
 
@@ -186,17 +215,21 @@ export default function Proxies() {
       return proxiesApi.testProxy(proxyId)
     },
     onSuccess: async () => {
-      setMessage(t('proxies.notifications.singleTestCompletedDescription', {
-        defaultValue: 'The proxy test has finished.',
-      }))
-      setError(null)
       await invalidate()
+      notify({
+        variant: 'success',
+        title: t('proxies.notifications.singleTestCompletedDescription', {
+          defaultValue: 'The proxy test has finished.',
+        }),
+      })
     },
-    onError: () => {
-      setMessage(null)
-      setError(t('proxies.notifications.testFailedTitle', {
-        defaultValue: 'Proxy test failed',
-      }))
+    onError: (error) => {
+      notifyProxyError(
+        error,
+        t('proxies.notifications.testFailedTitle', {
+          defaultValue: 'Proxy test failed',
+        }),
+      )
     },
     onSettled: () => {
       setPendingProxyId(null)
@@ -205,8 +238,6 @@ export default function Proxies() {
 
   const beginCreate = () => {
     setEditorDraft(createEmptyDraft())
-    setMessage(null)
-    setError(null)
   }
 
   const beginEdit = (proxyId: string) => {
@@ -221,8 +252,6 @@ export default function Proxies() {
       enabled: node.enabled,
       weight: String(node.weight),
     })
-    setMessage(null)
-    setError(null)
   }
 
   const handleSaveSettings = () => {
@@ -285,14 +314,6 @@ export default function Proxies() {
           </>
         )}
       />
-
-      {message ? (
-        <SurfaceNotice tone="success">{message}</SurfaceNotice>
-      ) : null}
-
-      {error ? (
-        <SurfaceNotice tone="danger">{error}</SurfaceNotice>
-      ) : null}
 
       <PagePanel>
         <SectionHeader

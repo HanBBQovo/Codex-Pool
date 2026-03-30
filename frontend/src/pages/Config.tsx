@@ -17,6 +17,7 @@ import { Monitor, Moon, RefreshCcw, Save, Settings, ShieldCheck, Sun, Workflow }
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import type { RuntimeConfigSnapshot } from '@/api/types'
 import { systemApi } from '@/api/system'
 import { useTheme } from '@/components/use-theme'
@@ -26,6 +27,7 @@ import {
   PageContent,
 } from '@/components/layout/page-archetypes'
 import { buildRuntimeConfigUpdateRequest } from '@/features/config/contracts'
+import { notify } from '@/lib/notification'
 
 function hasRuntimeChanges(
   config: RuntimeConfigSnapshot | null,
@@ -50,8 +52,6 @@ export default function Config() {
     setThemeRadius,
   } = useUiPreferences()
   const [formDraft, setFormDraft] = useState<RuntimeConfigSnapshot | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const { data: remoteConfig, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['systemConfig'],
@@ -71,8 +71,6 @@ export default function Config() {
 
   const resetDraft = () => {
     setFormDraft(null)
-    setMessage(null)
-    setError(null)
   }
 
   const mutation = useMutation({
@@ -80,12 +78,19 @@ export default function Config() {
     onSuccess: (nextConfig) => {
       queryClient.setQueryData(['systemConfig'], nextConfig)
       setFormDraft(nextConfig)
-      setError(null)
-      setMessage(t('config.success'))
+      notify({
+        variant: 'success',
+        title: t('config.success'),
+      })
     },
-    onError: () => {
-      setMessage(null)
-      setError(t('config.antigravity.saveFailed'))
+    onError: (error) => {
+      const fallback = t('config.antigravity.saveFailed')
+      const description = localizeApiErrorDisplay(t, error, fallback).label
+      notify({
+        variant: 'error',
+        title: fallback,
+        description: description !== fallback ? description : undefined,
+      })
     },
   })
 
@@ -197,22 +202,6 @@ export default function Config() {
           </div>
         )}
       />
-
-      {message ? (
-        <Card className="border-small border-success-200 bg-success-50/90 shadow-none dark:bg-success/10">
-          <CardBody className="py-3 text-sm font-medium text-success-700 dark:text-success-300">
-            {message}
-          </CardBody>
-        </Card>
-      ) : null}
-
-      {error ? (
-        <Card className="border-small border-danger-200 bg-danger-50/90 shadow-none dark:bg-danger/10">
-          <CardBody className="py-3 text-sm font-medium text-danger-700 dark:text-danger-300">
-            {error}
-          </CardBody>
-        </Card>
-      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {overviewCards.map((card) => (

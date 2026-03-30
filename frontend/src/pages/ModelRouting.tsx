@@ -73,9 +73,9 @@ import {
   SurfaceCardBody,
   SurfaceCode,
   SurfaceInset,
-  SurfaceNotice,
 } from '@/components/ui/surface'
 import { Textarea } from '@/components/ui/textarea'
+import { notify } from '@/lib/notification'
 import { cn } from '@/lib/utils'
 
 type ProfileFormState = {
@@ -408,8 +408,6 @@ function EmptyState({
 export default function ModelRouting() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [policyDialogOpen, setPolicyDialogOpen] = useState(false)
   const [profileForm, setProfileForm] = useState<ProfileFormState>(DEFAULT_PROFILE_FORM)
@@ -430,6 +428,25 @@ export default function ModelRouting() {
   const resolveErrorLabel = useCallback(
     (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
     [t],
+  )
+
+  const notifySuccess = useCallback((title: string) => {
+    notify({
+      variant: 'success',
+      title,
+    })
+  }, [])
+
+  const notifyError = useCallback(
+    (error: unknown, fallback: string) => {
+      const description = resolveErrorLabel(error, fallback)
+      notify({
+        variant: 'error',
+        title: fallback,
+        description: description !== fallback ? description : undefined,
+      })
+    },
+    [resolveErrorLabel],
   )
 
   const { data, isLoading, isFetching } = useQuery({
@@ -587,13 +604,12 @@ export default function ModelRouting() {
       })
     },
     onSuccess: () => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.settingsSaved'))
+      notifySuccess(t('modelRoutingPage.messages.settingsSaved'))
       setSettingsDraftOverride(null)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.settingsSaveFailed')))
+      notifyError(err, t('modelRoutingPage.messages.settingsSaveFailed'))
     },
   })
 
@@ -615,15 +631,12 @@ export default function ModelRouting() {
       })
     },
     onSuccess: () => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.errorLearningSettingsSaved'))
+      notifySuccess(t('modelRoutingPage.messages.errorLearningSettingsSaved'))
       setErrorLearningDraftOverride(null)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(
-        resolveErrorLabel(err, t('modelRoutingPage.messages.errorLearningSettingsSaveFailed')),
-      )
+      notifyError(err, t('modelRoutingPage.messages.errorLearningSettingsSaveFailed'))
     },
   })
 
@@ -644,26 +657,24 @@ export default function ModelRouting() {
         },
       }),
     onSuccess: (profile) => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.profileSaved', { name: profile.name }))
+      notifySuccess(t('modelRoutingPage.messages.profileSaved', { name: profile.name }))
       setProfileDialogOpen(false)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.profileSaveFailed')))
+      notifyError(err, t('modelRoutingPage.messages.profileSaveFailed'))
     },
   })
 
   const deleteProfileMutation = useMutation({
     mutationFn: (profileId: string) => modelRoutingApi.deleteProfile(profileId),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.profileDeleted'))
+      notifySuccess(t('modelRoutingPage.messages.profileDeleted'))
       setProfileDialogOpen(false)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.profileDeleteFailed')))
+      notifyError(err, t('modelRoutingPage.messages.profileDeleteFailed'))
     },
   })
 
@@ -680,26 +691,24 @@ export default function ModelRouting() {
         priority: Number(policyForm.priority) || 0,
       }),
     onSuccess: (policy) => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.policySaved', { name: policy.name }))
+      notifySuccess(t('modelRoutingPage.messages.policySaved', { name: policy.name }))
       setPolicyDialogOpen(false)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.policySaveFailed')))
+      notifyError(err, t('modelRoutingPage.messages.policySaveFailed'))
     },
   })
 
   const deletePolicyMutation = useMutation({
     mutationFn: (policyId: string) => modelRoutingApi.deletePolicy(policyId),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.policyDeleted'))
+      notifySuccess(t('modelRoutingPage.messages.policyDeleted'))
       setPolicyDialogOpen(false)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.policyDeleteFailed')))
+      notifyError(err, t('modelRoutingPage.messages.policyDeleteFailed'))
     },
   })
 
@@ -707,58 +716,54 @@ export default function ModelRouting() {
     mutationFn: ({ templateId, payload }: UpdateTemplateMutationPayload) =>
       aiErrorLearningApi.updateTemplate(templateId, payload),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.templateSaved'))
+      notifySuccess(t('modelRoutingPage.messages.templateSaved'))
       setEditingTemplateId(null)
       setEditingTemplateDraft(null)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateSaveFailed')))
+      notifyError(err, t('modelRoutingPage.messages.templateSaveFailed'))
     },
   })
 
   const approveTemplateMutation = useMutation({
     mutationFn: (templateId: string) => aiErrorLearningApi.approveTemplate(templateId),
     onSuccess: ({ template }) => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.templateApproved'))
+      notifySuccess(t('modelRoutingPage.messages.templateApproved'))
       if (editingTemplateId === template.id) {
         setEditingTemplateId(null)
       }
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateApproveFailed')))
+      notifyError(err, t('modelRoutingPage.messages.templateApproveFailed'))
     },
   })
 
   const rejectTemplateMutation = useMutation({
     mutationFn: (templateId: string) => aiErrorLearningApi.rejectTemplate(templateId),
     onSuccess: ({ template }) => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.templateRejected'))
+      notifySuccess(t('modelRoutingPage.messages.templateRejected'))
       if (editingTemplateId === template.id) {
         setEditingTemplateId(null)
       }
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateRejectFailed')))
+      notifyError(err, t('modelRoutingPage.messages.templateRejectFailed'))
     },
   })
 
   const rewriteTemplateMutation = useMutation({
     mutationFn: (templateId: string) => aiErrorLearningApi.rewriteTemplate(templateId),
     onSuccess: ({ template }) => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.templateRewritten'))
+      notifySuccess(t('modelRoutingPage.messages.templateRewritten'))
       setEditingTemplateId(template.id)
       setEditingTemplateDraft(createUpstreamErrorTemplateDraft(template))
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateRewriteFailed')))
+      notifyError(err, t('modelRoutingPage.messages.templateRewriteFailed'))
     },
   })
 
@@ -766,14 +771,13 @@ export default function ModelRouting() {
     mutationFn: ({ kind, code, payload }: UpdateBuiltinTemplateMutationPayload) =>
       aiErrorLearningApi.updateBuiltinTemplate(kind, code, payload),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.builtinTemplateSaved'))
+      notifySuccess(t('modelRoutingPage.messages.builtinTemplateSaved'))
       setEditingBuiltinTemplateKey(null)
       setEditingBuiltinTemplateDraft(null)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.builtinTemplateSaveFailed')))
+      notifyError(err, t('modelRoutingPage.messages.builtinTemplateSaveFailed'))
     },
   })
 
@@ -781,16 +785,13 @@ export default function ModelRouting() {
     mutationFn: ({ kind, code }: { kind: BuiltinErrorTemplateKind; code: string }) =>
       aiErrorLearningApi.rewriteBuiltinTemplate(kind, code),
     onSuccess: ({ template }) => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.builtinTemplateRewritten'))
+      notifySuccess(t('modelRoutingPage.messages.builtinTemplateRewritten'))
       setEditingBuiltinTemplateKey(builtinErrorTemplateKey(template))
       setEditingBuiltinTemplateDraft(createBuiltinErrorTemplateDraft(template))
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(
-        resolveErrorLabel(err, t('modelRoutingPage.messages.builtinTemplateRewriteFailed')),
-      )
+      notifyError(err, t('modelRoutingPage.messages.builtinTemplateRewriteFailed'))
     },
   })
 
@@ -798,14 +799,13 @@ export default function ModelRouting() {
     mutationFn: ({ kind, code }: { kind: BuiltinErrorTemplateKind; code: string }) =>
       aiErrorLearningApi.resetBuiltinTemplate(kind, code),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('modelRoutingPage.messages.builtinTemplateReset'))
+      notifySuccess(t('modelRoutingPage.messages.builtinTemplateReset'))
       setEditingBuiltinTemplateKey(null)
       setEditingBuiltinTemplateDraft(null)
       queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
     },
     onError: (err) => {
-      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.builtinTemplateResetFailed')))
+      notifyError(err, t('modelRoutingPage.messages.builtinTemplateResetFailed'))
     },
   })
 
@@ -926,9 +926,6 @@ export default function ModelRouting() {
             </>
           )}
         />
-
-        {error ? <SurfaceNotice tone="danger">{error}</SurfaceNotice> : null}
-        {notice ? <SurfaceNotice tone="success">{notice}</SurfaceNotice> : null}
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.28fr)_minmax(18rem,0.72fr)]">
           <PagePanel className="relative overflow-hidden space-y-5">

@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/surface'
 import { DataTable } from '@/components/DataTable'
 import { TenantUsageSection } from '@/features/tenants/tenant-usage-section'
+import { notify } from '@/lib/notification'
 import {
   LABEL_CLASS_NAME,
   USAGE_API_KEY_FILTER_ALL,
@@ -97,9 +98,6 @@ export default function Tenants() {
     staleTime: 5 * 60_000,
   })
 
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-
   const [createForm, setCreateForm] = useState({
     name: '',
     status: 'active',
@@ -137,6 +135,25 @@ export default function Tenants() {
     [dateTimeFormatter],
   )
 
+  const notifySuccess = useCallback((title: string) => {
+    notify({
+      variant: 'success',
+      title,
+    })
+  }, [])
+
+  const notifyError = useCallback(
+    (error: unknown, fallback: string) => {
+      const description = localizeApiErrorDisplay(t, error, fallback).label
+      notify({
+        variant: 'error',
+        title: fallback,
+        description: description !== fallback ? description : undefined,
+      })
+    },
+    [t],
+  )
+
   const tenantsQuery = useQuery({
     queryKey: ['adminTenants'],
     queryFn: () => adminTenantsApi.listTenants(),
@@ -159,8 +176,7 @@ export default function Tenants() {
         expires_at: toIsoDatetime(createForm.expires_at),
       }),
     onSuccess: (tenant) => {
-      setError(null)
-      setNotice(
+      notifySuccess(
         t('tenants.messages.createSuccess', {
           defaultValue: 'Tenant created: {{name}} ({{id}})',
           name: tenant.name,
@@ -172,7 +188,7 @@ export default function Tenants() {
     },
     onError: (err) => {
       const fallback = t('tenants.messages.createFailed', { defaultValue: 'Failed to create tenant' })
-      setError(localizeApiErrorDisplay(t, err, fallback).label)
+      notifyError(err, fallback)
     },
   })
 
@@ -188,8 +204,7 @@ export default function Tenants() {
       })
     },
     onSuccess: (tenant) => {
-      setError(null)
-      setNotice(
+      notifySuccess(
         t('tenants.messages.updateSuccess', {
           defaultValue: 'Tenant updated: {{name}}',
           name: tenant.name,
@@ -199,7 +214,7 @@ export default function Tenants() {
     },
     onError: (err) => {
       const fallback = t('tenants.messages.updateFailed', { defaultValue: 'Failed to update tenant' })
-      setError(localizeApiErrorDisplay(t, err, fallback).label)
+      notifyError(err, fallback)
     },
   })
 
@@ -214,8 +229,7 @@ export default function Tenants() {
       })
     },
     onSuccess: (response) => {
-      setError(null)
-      setNotice(
+      notifySuccess(
         t('tenants.messages.rechargeSuccess', {
           defaultValue: 'Recharge successful: +{{amount}}, current balance {{balance}}',
           amount: formatMicrocredits(response.amount_microcredits),
@@ -225,7 +239,7 @@ export default function Tenants() {
     },
     onError: (err) => {
       const fallback = t('tenants.messages.rechargeFailed', { defaultValue: 'Failed to recharge tenant' })
-      setError(localizeApiErrorDisplay(t, err, fallback).label)
+      notifyError(err, fallback)
     },
   })
 
@@ -240,30 +254,36 @@ export default function Tenants() {
       })
     },
     onSuccess: (response) => {
-      setError(null)
       setLastImpersonation(response)
-      setNotice(t('tenants.messages.impersonationCreated', { defaultValue: 'Impersonation session created (token returned)' }))
+      notifySuccess(
+        t('tenants.messages.impersonationCreated', {
+          defaultValue: 'Impersonation session created (token returned)',
+        }),
+      )
     },
     onError: (err) => {
       const fallback = t('tenants.messages.impersonationCreateFailed', {
         defaultValue: 'Failed to create impersonation',
       })
-      setError(localizeApiErrorDisplay(t, err, fallback).label)
+      notifyError(err, fallback)
     },
   })
 
   const revokeImpersonationMutation = useMutation({
     mutationFn: async (sessionId: string) => adminTenantsApi.deleteImpersonation(sessionId),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('tenants.messages.impersonationRevoked', { defaultValue: 'Impersonation session revoked' }))
       setLastImpersonation(null)
+      notifySuccess(
+        t('tenants.messages.impersonationRevoked', {
+          defaultValue: 'Impersonation session revoked',
+        }),
+      )
     },
     onError: (err) => {
       const fallback = t('tenants.messages.impersonationRevokeFailed', {
         defaultValue: 'Failed to revoke impersonation',
       })
-      setError(localizeApiErrorDisplay(t, err, fallback).label)
+      notifyError(err, fallback)
     },
   })
 
@@ -279,9 +299,8 @@ export default function Tenants() {
       return apiKeysApi.createKey(name, undefined, profileTenant.id)
     },
     onSuccess: (payload) => {
-      setError(null)
       setCreatedKey(payload)
-      setNotice(
+      notifySuccess(
         t('tenants.messages.apiKeyCreateSuccess', {
           defaultValue: 'Created API key for tenant {{tenantName}}: {{keyName}}',
           tenantName: profileTenant?.name ?? '',
@@ -293,7 +312,7 @@ export default function Tenants() {
     },
     onError: (err) => {
       const fallback = t('tenants.messages.apiKeyCreateFailed', { defaultValue: 'Failed to create API key' })
-      setError(localizeApiErrorDisplay(t, err, fallback).label)
+      notifyError(err, fallback)
     },
   })
 
@@ -303,14 +322,13 @@ export default function Tenants() {
     onMutate: ({ keyId }) => setPendingKeyId(keyId),
     onSettled: () => setPendingKeyId(null),
     onSuccess: () => {
-      setError(null)
       queryClient.invalidateQueries({ queryKey: ['apiKeys'] })
     },
     onError: (err) => {
       const fallback = t('tenants.messages.apiKeyToggleFailed', {
         defaultValue: 'Failed to update API key status',
       })
-      setError(localizeApiErrorDisplay(t, err, fallback).label)
+      notifyError(err, fallback)
     },
   })
 
@@ -610,17 +628,6 @@ export default function Tenants() {
             </Button>
           )}
         />
-
-        {error ? (
-          <SurfaceNotice tone="danger" role="status" aria-live="polite">
-            {error}
-          </SurfaceNotice>
-        ) : null}
-        {notice ? (
-          <SurfaceNotice tone="success" role="status" aria-live="polite">
-            {notice}
-          </SurfaceNotice>
-        ) : null}
 
       <PagePanel className="space-y-4">
         <SectionHeader

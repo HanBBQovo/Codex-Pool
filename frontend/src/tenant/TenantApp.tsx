@@ -1,7 +1,8 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@heroui/react'
+import { isAxiosError } from 'axios'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -18,7 +19,7 @@ import { BrandStage, PagePanel } from '@/components/layout/page-archetypes'
 import { LanguageToggle } from '@/components/LanguageToggle'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { SurfaceInset, SurfaceNotice } from '@/components/ui/surface'
+import { SurfaceInset } from '@/components/ui/surface'
 import { tenantAuthApi } from '@/api/tenantAuth'
 import type { SystemCapabilitiesResponse } from '@/api/types'
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
@@ -26,6 +27,7 @@ import {
   TENANT_AUTH_REQUIRED_EVENT,
   TENANT_LOGIN_FAILED_EVENT,
 } from '@/api/tenantClient'
+import { notify } from '@/lib/notification'
 import { clearTenantAccessToken, setTenantAccessToken } from '@/lib/tenant-session'
 
 const TenantDashboardPage = lazy(() =>
@@ -74,8 +76,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
   const allowTenantSelfService = capabilities.features.tenant_self_service
   const [authChecked, setAuthChecked] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authScreen, setAuthScreen] = useState<AuthScreen>('auth')
   const [forgotStep, setForgotStep] = useState<ForgotStep>('request')
@@ -104,16 +104,26 @@ export function TenantApp({ capabilities }: TenantAppProps) {
     [t],
   )
 
-  const clearFeedback = () => {
-    setError(null)
-    setNotice(null)
-  }
+  const notifySuccess = useCallback((title: string) => {
+    notify({
+      variant: 'success',
+      title,
+    })
+  }, [])
+
+  const notifyError = useCallback((fallback: string, error?: unknown) => {
+    const description = error ? localizeApiErrorDisplay(t, error, fallback).label : undefined
+    notify({
+      variant: 'error',
+      title: fallback,
+      description: description && description !== fallback ? description : undefined,
+    })
+  }, [t])
 
   const openAuthScreen = (mode: AuthMode = 'login') => {
     setAuthScreen('auth')
     setAuthMode(allowTenantSelfService ? mode : 'login')
     setForgotStep('request')
-    clearFeedback()
   }
 
   useEffect(() => {
@@ -149,10 +159,13 @@ export function TenantApp({ capabilities }: TenantAppProps) {
       setAuthScreen('auth')
       setAuthMode('login')
       setForgotStep('request')
-      setNotice(t('tenantApp.auth.notice.sessionExpired'))
+      notify({
+        variant: 'warning',
+        title: t('tenantApp.auth.notice.sessionExpired'),
+      })
     }
     const onLoginFailed = () => {
-      setError(t('tenantApp.auth.error.invalidCredentialsOrUnverified'))
+      notifyError(t('tenantApp.auth.error.invalidCredentialsOrUnverified'))
     }
     window.addEventListener(TENANT_AUTH_REQUIRED_EVENT, onAuthRequired)
     window.addEventListener(TENANT_LOGIN_FAILED_EVENT, onLoginFailed)
@@ -160,7 +173,7 @@ export function TenantApp({ capabilities }: TenantAppProps) {
       window.removeEventListener(TENANT_AUTH_REQUIRED_EVENT, onAuthRequired)
       window.removeEventListener(TENANT_LOGIN_FAILED_EVENT, onLoginFailed)
     }
-  }, [queryClient, t])
+  }, [notifyError, queryClient, t])
 
   const loginMutation = useMutation({
     mutationFn: async () => tenantAuthApi.login(loginForm.email, loginForm.password),
@@ -168,52 +181,51 @@ export function TenantApp({ capabilities }: TenantAppProps) {
       setTenantAccessToken(response.access_token)
       setAuthenticated(true)
       setAuthChecked(true)
-      setError(null)
-      setNotice(t('tenantApp.auth.notice.loginSuccess'))
+      notifySuccess(t('tenantApp.auth.notice.loginSuccess'))
     },
     onError: (err) => {
-      setError(localizeApiErrorDisplay(t, err, t('tenantApp.auth.error.loginFailed')).label)
+      if (isAxiosError(err) && err.response?.status === 401) {
+        return
+      }
+      notifyError(t('tenantApp.auth.error.loginFailed'), err)
     },
   })
 
   const registerMutation = useMutation({
     mutationFn: async () => tenantAuthApi.register(registerForm),
     onSuccess: () => {
-      setError(null)
       setVerifyForm((prev) => ({ ...prev, email: registerForm.email }))
       setAuthScreen('verify')
       setAuthMode('login')
       setRegisterConfirmPassword('')
-      setNotice(t('tenantApp.auth.notice.registerSuccess'))
+      notifySuccess(t('tenantApp.auth.notice.registerSuccess'))
     },
     onError: (err) => {
-      setError(localizeApiErrorDisplay(t, err, t('tenantApp.auth.error.registerFailed')).label)
+      notifyError(t('tenantApp.auth.error.registerFailed'), err)
     },
   })
 
   const verifyMutation = useMutation({
     mutationFn: async () => tenantAuthApi.verifyEmail(verifyForm.email, verifyForm.code),
     onSuccess: () => {
-      setError(null)
       setAuthScreen('auth')
       setAuthMode('login')
-      setNotice(t('tenantApp.auth.notice.emailVerified'))
+      notifySuccess(t('tenantApp.auth.notice.emailVerified'))
     },
     onError: (err) => {
-      setError(localizeApiErrorDisplay(t, err, t('tenantApp.auth.error.verificationFailed')).label)
+      notifyError(t('tenantApp.auth.error.verificationFailed'), err)
     },
   })
 
   const forgotMutation = useMutation({
     mutationFn: async () => tenantAuthApi.forgotPassword(forgotForm.email),
     onSuccess: () => {
-      setError(null)
       setResetForm((prev) => ({ ...prev, email: forgotForm.email }))
       setForgotStep('reset')
-      setNotice(t('tenantApp.auth.notice.resetCodeSentIfExists'))
+      notifySuccess(t('tenantApp.auth.notice.resetCodeSentIfExists'))
     },
     onError: (err) => {
-      setError(localizeApiErrorDisplay(t, err, t('tenantApp.auth.error.sendResetCodeFailed')).label)
+      notifyError(t('tenantApp.auth.error.sendResetCodeFailed'), err)
     },
   })
 
@@ -221,14 +233,13 @@ export function TenantApp({ capabilities }: TenantAppProps) {
     mutationFn: async () =>
       tenantAuthApi.resetPassword(resetForm.email, resetForm.code, resetForm.new_password),
     onSuccess: () => {
-      setError(null)
       setForgotStep('request')
       setAuthScreen('auth')
       setAuthMode('login')
-      setNotice(t('tenantApp.auth.notice.passwordResetSuccess'))
+      notifySuccess(t('tenantApp.auth.notice.passwordResetSuccess'))
     },
     onError: (err) => {
-      setError(localizeApiErrorDisplay(t, err, t('tenantApp.auth.error.passwordResetFailed')).label)
+      notifyError(t('tenantApp.auth.error.passwordResetFailed'), err)
     },
   })
 
@@ -292,15 +303,13 @@ export function TenantApp({ capabilities }: TenantAppProps) {
 
   const handleLoginSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    clearFeedback()
     loginMutation.mutate()
   }
 
   const handleRegisterSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    clearFeedback()
     if (registerForm.password !== registerConfirmPassword) {
-      setError(t('tenantApp.auth.error.passwordMismatch'))
+      notifyError(t('tenantApp.auth.error.passwordMismatch'))
       return
     }
     registerMutation.mutate()
@@ -308,19 +317,16 @@ export function TenantApp({ capabilities }: TenantAppProps) {
 
   const handleVerifySubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    clearFeedback()
     verifyMutation.mutate()
   }
 
   const handleForgotRequestSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    clearFeedback()
     forgotMutation.mutate()
   }
 
   const handleResetSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    clearFeedback()
     resetMutation.mutate()
   }
 
@@ -329,23 +335,7 @@ export function TenantApp({ capabilities }: TenantAppProps) {
     setResetForm((prev) => ({ ...prev, email: loginForm.email }))
     setForgotStep('request')
     setAuthScreen('forgot')
-    clearFeedback()
   }
-
-  const statusNode = (
-    <div className="space-y-2">
-      {error ? (
-        <SurfaceNotice tone="danger" role="alert">
-          {error}
-        </SurfaceNotice>
-      ) : null}
-      {notice ? (
-        <SurfaceNotice tone="success" role="status" aria-live="polite">
-          {notice}
-        </SurfaceNotice>
-      ) : null}
-    </div>
-  )
 
   const authCard = (
     <div className={CARD_CLASS_NAME}>
@@ -372,7 +362,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
             className="h-11"
             onClick={() => {
               setAuthMode('login')
-              clearFeedback()
             }}
           >
             {t('tenantApp.auth.tabs.login')}
@@ -384,7 +373,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
             className="h-11"
             onClick={() => {
               setAuthMode('register')
-              clearFeedback()
             }}
           >
             {t('tenantApp.auth.tabs.register')}
@@ -575,7 +563,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
               className="h-11 px-2"
               onClick={() => {
                 setAuthMode('register')
-                clearFeedback()
               }}
             >
               {t('tenantApp.auth.actions.switchToRegister')}
@@ -587,7 +574,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
               className="h-11 px-2"
               onClick={() => {
                 setAuthMode('login')
-                clearFeedback()
               }}
             >
               {t('tenantApp.auth.actions.switchToLogin')}
@@ -595,8 +581,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
           )}
         </div>
       ) : null}
-
-      <div className="mt-3 sm:mt-4">{statusNode}</div>
     </div>
   )
 
@@ -670,8 +654,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
           {t('tenantApp.auth.actions.backToLogin')}
         </Button>
       </div>
-
-      <div className="mt-3 sm:mt-4">{statusNode}</div>
     </div>
   )
 
@@ -799,8 +781,6 @@ export function TenantApp({ capabilities }: TenantAppProps) {
           {t('tenantApp.auth.actions.backToLogin')}
         </Button>
       </div>
-
-      <div className="mt-3 sm:mt-4">{statusNode}</div>
     </div>
   )
 

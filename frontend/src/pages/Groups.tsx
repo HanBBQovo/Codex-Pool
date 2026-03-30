@@ -51,10 +51,10 @@ import {
   PageContent,
 } from "@/components/layout/page-archetypes";
 import { Dialog } from "@/components/ui/dialog";
+import { notify } from "@/lib/notification";
 import {
   SurfaceCard,
   SurfaceCardBody,
-  SurfaceNotice,
   SurfaceSection,
 } from "@/components/ui/surface";
 
@@ -122,8 +122,6 @@ function pricingLineForModel(
 export default function Groups() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("");
@@ -194,6 +192,25 @@ export default function Groups() {
     [t],
   );
 
+  const notifyError = useCallback(
+    (err: unknown, fallback: string) => {
+      const description = resolveError(err, fallback);
+      notify({
+        variant: "error",
+        title: fallback,
+        description: description !== fallback ? description : undefined,
+      });
+    },
+    [resolveError],
+  );
+
+  const notifySuccess = useCallback((title: string) => {
+    notify({
+      variant: "success",
+      title,
+    });
+  }, []);
+
   const openEditor = useCallback(
     (group?: ApiKeyGroupItem | null) => {
       const target = group ?? null;
@@ -246,8 +263,6 @@ export default function Groups() {
             ? String(firstPolicy.output_price_microcredits)
             : "",
       });
-      setError(null);
-      setNotice(null);
       setEditorOpen(true);
     },
     [catalog],
@@ -269,28 +284,26 @@ export default function Groups() {
         output_multiplier_ppm: Number(groupForm.output_multiplier_ppm),
       }),
     onSuccess: (response) => {
-      setError(null);
-      setNotice(t("groupsPage.messages.groupSaved", { name: response.name }));
+      notifySuccess(t("groupsPage.messages.groupSaved", { name: response.name }));
       setEditingGroupId(response.id);
       setGroupForm((prev) => ({ ...prev, id: response.id }));
       void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t("groupsPage.messages.groupSaveFailed")));
+      notifyError(err, t("groupsPage.messages.groupSaveFailed"));
     },
   });
 
   const deleteGroupMutation = useMutation({
     mutationFn: (groupId: string) => groupsApi.adminDelete(groupId),
     onSuccess: () => {
-      setError(null);
-      setNotice(t("groupsPage.messages.groupDeleted"));
+      notifySuccess(t("groupsPage.messages.groupDeleted"));
       setEditorOpen(false);
       setEditingGroupId(null);
       void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t("groupsPage.messages.groupDeleteFailed")));
+      notifyError(err, t("groupsPage.messages.groupDeleteFailed"));
     },
   });
 
@@ -325,24 +338,22 @@ export default function Groups() {
       });
     },
     onSuccess: () => {
-      setError(null);
-      setNotice(t("groupsPage.messages.policySaved"));
+      notifySuccess(t("groupsPage.messages.policySaved"));
       void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t("groupsPage.messages.policySaveFailed")));
+      notifyError(err, t("groupsPage.messages.policySaveFailed"));
     },
   });
 
   const deletePolicyMutation = useMutation({
     mutationFn: (policyId: string) => groupsApi.adminDeletePolicy(policyId),
     onSuccess: () => {
-      setError(null);
-      setNotice(t("groupsPage.messages.policyDeleted"));
+      notifySuccess(t("groupsPage.messages.policyDeleted"));
       void queryClient.invalidateQueries({ queryKey: ["adminApiKeyGroups"] });
     },
     onError: (err) => {
-      setError(resolveError(err, t("groupsPage.messages.policyDeleteFailed")));
+      notifyError(err, t("groupsPage.messages.policyDeleteFailed"));
     },
   });
 
@@ -480,9 +491,6 @@ export default function Groups() {
           </div>
         }
       />
-
-      {error ? <SurfaceNotice tone="danger">{error}</SurfaceNotice> : null}
-      {notice ? <SurfaceNotice tone="brand">{notice}</SurfaceNotice> : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {summaryCards.map((card) => {

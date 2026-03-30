@@ -6,7 +6,7 @@ import { isAxiosError } from 'axios'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { LanguageToggle } from '@/components/LanguageToggle'
-import { SurfaceNotice } from '@/components/ui/surface'
+import { notify } from '@/lib/notification'
 import { ThemeToggleButton } from '@/components/ui/theme-toggle-button'
 import SoftAurora from '@/components/ui/soft-aurora'
 
@@ -19,20 +19,19 @@ export default function Login({ onLogin }: LoginProps) {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setLoading(true)
     try {
-      setErrorMsg('')
       await onLogin(username.trim(), password)
     } catch (err: unknown) {
-      if (isAxiosError(err) && err.response?.status === 401) {
-        setErrorMsg(t('login.messages.invalidCredentials'))
-      } else {
-        setErrorMsg(t('login.messages.failed'))
+      if (!isAxiosError(err) || err.response?.status !== 401) {
+        notify({
+          variant: 'error',
+          title: t('login.messages.failed'),
+        })
       }
     } finally {
       setLoading(false)
@@ -93,12 +92,6 @@ export default function Login({ onLogin }: LoginProps) {
             {t('login.subtitle')}
           </p>
         </div>
-
-        {errorMsg ? (
-          <SurfaceNotice tone="danger" className="mb-4">
-            {errorMsg}
-          </SurfaceNotice>
-        ) : null}
 
         <Form
           className="flex flex-col gap-3"
