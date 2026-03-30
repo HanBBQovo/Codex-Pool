@@ -125,8 +125,17 @@ impl SqliteUsageRepo {
                 model_id TEXT PRIMARY KEY,
                 owned_by TEXT NULL,
                 title TEXT NULL,
+                display_name TEXT NULL,
+                tagline TEXT NULL,
+                family TEXT NULL,
+                family_label TEXT NULL,
                 description TEXT NULL,
+                avatar_remote_url TEXT NULL,
+                avatar_local_path TEXT NULL,
+                avatar_synced_at TEXT NULL,
+                deprecated INTEGER NULL,
                 context_window_tokens INTEGER NULL,
+                max_input_tokens INTEGER NULL,
                 max_output_tokens INTEGER NULL,
                 knowledge_cutoff TEXT NULL,
                 reasoning_token_support INTEGER NULL,
@@ -134,9 +143,18 @@ impl SqliteUsageRepo {
                 cached_input_price_microcredits INTEGER NULL,
                 output_price_microcredits INTEGER NULL,
                 pricing_notes TEXT NULL,
+                pricing_note_items_json TEXT NULL,
                 input_modalities_json TEXT NULL,
                 output_modalities_json TEXT NULL,
                 endpoints_json TEXT NULL,
+                supported_features_json TEXT NULL,
+                supported_tools_json TEXT NULL,
+                snapshots_json TEXT NULL,
+                modality_items_json TEXT NULL,
+                endpoint_items_json TEXT NULL,
+                feature_items_json TEXT NULL,
+                tool_items_json TEXT NULL,
+                snapshot_items_json TEXT NULL,
                 source_url TEXT NULL,
                 raw_text TEXT NULL,
                 synced_at TEXT NULL
@@ -169,12 +187,48 @@ impl SqliteUsageRepo {
 
         Self::ensure_column_exists(pool, "openai_models_catalog", "owned_by", "TEXT NULL").await?;
         Self::ensure_column_exists(pool, "openai_models_catalog", "title", "TEXT NULL").await?;
+        Self::ensure_column_exists(pool, "openai_models_catalog", "display_name", "TEXT NULL")
+            .await?;
+        Self::ensure_column_exists(pool, "openai_models_catalog", "tagline", "TEXT NULL").await?;
+        Self::ensure_column_exists(pool, "openai_models_catalog", "family", "TEXT NULL").await?;
+        Self::ensure_column_exists(pool, "openai_models_catalog", "family_label", "TEXT NULL")
+            .await?;
         Self::ensure_column_exists(pool, "openai_models_catalog", "description", "TEXT NULL")
             .await?;
         Self::ensure_column_exists(
             pool,
             "openai_models_catalog",
+            "avatar_remote_url",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "avatar_local_path",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "avatar_synced_at",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(pool, "openai_models_catalog", "deprecated", "INTEGER NULL")
+            .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
             "context_window_tokens",
+            "INTEGER NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "max_input_tokens",
             "INTEGER NULL",
         )
         .await?;
@@ -204,6 +258,13 @@ impl SqliteUsageRepo {
         Self::ensure_column_exists(
             pool,
             "openai_models_catalog",
+            "pricing_note_items_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
             "input_modalities_json",
             "TEXT NULL",
         )
@@ -217,6 +278,62 @@ impl SqliteUsageRepo {
         .await?;
         Self::ensure_column_exists(pool, "openai_models_catalog", "endpoints_json", "TEXT NULL")
             .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "supported_features_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "supported_tools_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "snapshots_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "modality_items_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "endpoint_items_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "feature_items_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "tool_items_json",
+            "TEXT NULL",
+        )
+        .await?;
+        Self::ensure_column_exists(
+            pool,
+            "openai_models_catalog",
+            "snapshot_items_json",
+            "TEXT NULL",
+        )
+        .await?;
         Self::ensure_column_exists(pool, "openai_models_catalog", "source_url", "TEXT NULL")
             .await?;
         Self::ensure_column_exists(pool, "openai_models_catalog", "raw_text", "TEXT NULL").await?;
@@ -764,8 +881,17 @@ impl SqliteUsageRepo {
                 model_id,
                 owned_by,
                 title,
+                display_name,
+                tagline,
+                family,
+                family_label,
                 description,
+                avatar_remote_url,
+                avatar_local_path,
+                avatar_synced_at,
+                deprecated,
                 context_window_tokens,
+                max_input_tokens,
                 max_output_tokens,
                 knowledge_cutoff,
                 reasoning_token_support,
@@ -773,9 +899,18 @@ impl SqliteUsageRepo {
                 cached_input_price_microcredits,
                 output_price_microcredits,
                 pricing_notes,
+                pricing_note_items_json,
                 input_modalities_json,
                 output_modalities_json,
                 endpoints_json,
+                supported_features_json,
+                supported_tools_json,
+                snapshots_json,
+                modality_items_json,
+                endpoint_items_json,
+                feature_items_json,
+                tool_items_json,
+                snapshot_items_json,
                 source_url,
                 raw_text,
                 synced_at
@@ -797,8 +932,21 @@ impl SqliteUsageRepo {
                     title: row
                         .try_get::<Option<String>, _>("title")?
                         .unwrap_or_else(|| row.try_get("model_id").unwrap_or_default()),
+                    display_name: row.try_get("display_name")?,
+                    tagline: row.try_get("tagline")?,
+                    family: row.try_get("family")?,
+                    family_label: row.try_get("family_label")?,
                     description: row.try_get("description")?,
+                    avatar_remote_url: row.try_get("avatar_remote_url")?,
+                    avatar_local_path: row.try_get("avatar_local_path")?,
+                    avatar_synced_at: row
+                        .try_get::<Option<String>, _>("avatar_synced_at")?
+                        .as_deref()
+                        .map(Self::parse_created_at)
+                        .transpose()?,
+                    deprecated: row.try_get("deprecated")?,
                     context_window_tokens: row.try_get("context_window_tokens")?,
+                    max_input_tokens: row.try_get("max_input_tokens")?,
                     max_output_tokens: row.try_get("max_output_tokens")?,
                     knowledge_cutoff: row.try_get("knowledge_cutoff")?,
                     reasoning_token_support: row.try_get("reasoning_token_support")?,
@@ -807,6 +955,12 @@ impl SqliteUsageRepo {
                         .try_get("cached_input_price_microcredits")?,
                     output_price_microcredits: row.try_get("output_price_microcredits")?,
                     pricing_notes: row.try_get("pricing_notes")?,
+                    pricing_note_items: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("pricing_note_items_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite pricing note items json")?,
                     input_modalities: serde_json::from_str(
                         row.try_get::<Option<String>, _>("input_modalities_json")?
                             .as_deref()
@@ -825,6 +979,54 @@ impl SqliteUsageRepo {
                             .unwrap_or("[]"),
                     )
                     .context("failed to decode sqlite endpoints json")?,
+                    supported_features: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("supported_features_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite supported features json")?,
+                    supported_tools: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("supported_tools_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite supported tools json")?,
+                    snapshots: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("snapshots_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite snapshots json")?,
+                    modality_items: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("modality_items_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite modality items json")?,
+                    endpoint_items: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("endpoint_items_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite endpoint items json")?,
+                    feature_items: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("feature_items_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite feature items json")?,
+                    tool_items: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("tool_items_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite tool items json")?,
+                    snapshot_items: serde_json::from_str(
+                        row.try_get::<Option<String>, _>("snapshot_items_json")?
+                            .as_deref()
+                            .unwrap_or("[]"),
+                    )
+                    .context("failed to decode sqlite snapshot items json")?,
                     source_url: row
                         .try_get::<Option<String>, _>("source_url")?
                         .unwrap_or_else(|| {
@@ -863,8 +1065,17 @@ impl SqliteUsageRepo {
                     model_id,
                     owned_by,
                     title,
+                    display_name,
+                    tagline,
+                    family,
+                    family_label,
                     description,
+                    avatar_remote_url,
+                    avatar_local_path,
+                    avatar_synced_at,
+                    deprecated,
                     context_window_tokens,
+                    max_input_tokens,
                     max_output_tokens,
                     knowledge_cutoff,
                     reasoning_token_support,
@@ -872,19 +1083,37 @@ impl SqliteUsageRepo {
                     cached_input_price_microcredits,
                     output_price_microcredits,
                     pricing_notes,
+                    pricing_note_items_json,
                     input_modalities_json,
                     output_modalities_json,
                     endpoints_json,
+                    supported_features_json,
+                    supported_tools_json,
+                    snapshots_json,
+                    modality_items_json,
+                    endpoint_items_json,
+                    feature_items_json,
+                    tool_items_json,
+                    snapshot_items_json,
                     source_url,
                     raw_text,
                     synced_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(model_id) DO UPDATE SET
                     owned_by = excluded.owned_by,
                     title = excluded.title,
+                    display_name = excluded.display_name,
+                    tagline = excluded.tagline,
+                    family = excluded.family,
+                    family_label = excluded.family_label,
                     description = excluded.description,
+                    avatar_remote_url = excluded.avatar_remote_url,
+                    avatar_local_path = excluded.avatar_local_path,
+                    avatar_synced_at = excluded.avatar_synced_at,
+                    deprecated = excluded.deprecated,
                     context_window_tokens = excluded.context_window_tokens,
+                    max_input_tokens = excluded.max_input_tokens,
                     max_output_tokens = excluded.max_output_tokens,
                     knowledge_cutoff = excluded.knowledge_cutoff,
                     reasoning_token_support = excluded.reasoning_token_support,
@@ -892,9 +1121,18 @@ impl SqliteUsageRepo {
                     cached_input_price_microcredits = excluded.cached_input_price_microcredits,
                     output_price_microcredits = excluded.output_price_microcredits,
                     pricing_notes = excluded.pricing_notes,
+                    pricing_note_items_json = excluded.pricing_note_items_json,
                     input_modalities_json = excluded.input_modalities_json,
                     output_modalities_json = excluded.output_modalities_json,
                     endpoints_json = excluded.endpoints_json,
+                    supported_features_json = excluded.supported_features_json,
+                    supported_tools_json = excluded.supported_tools_json,
+                    snapshots_json = excluded.snapshots_json,
+                    modality_items_json = excluded.modality_items_json,
+                    endpoint_items_json = excluded.endpoint_items_json,
+                    feature_items_json = excluded.feature_items_json,
+                    tool_items_json = excluded.tool_items_json,
+                    snapshot_items_json = excluded.snapshot_items_json,
                     source_url = excluded.source_url,
                     raw_text = excluded.raw_text,
                     synced_at = excluded.synced_at
@@ -903,8 +1141,17 @@ impl SqliteUsageRepo {
             .bind(&item.model_id)
             .bind(&item.owned_by)
             .bind(&item.title)
+            .bind(&item.display_name)
+            .bind(&item.tagline)
+            .bind(&item.family)
+            .bind(&item.family_label)
             .bind(&item.description)
+            .bind(&item.avatar_remote_url)
+            .bind(&item.avatar_local_path)
+            .bind(item.avatar_synced_at.map(|value| value.to_rfc3339()))
+            .bind(item.deprecated)
             .bind(item.context_window_tokens)
+            .bind(item.max_input_tokens)
             .bind(item.max_output_tokens)
             .bind(&item.knowledge_cutoff)
             .bind(item.reasoning_token_support)
@@ -912,9 +1159,18 @@ impl SqliteUsageRepo {
             .bind(item.cached_input_price_microcredits)
             .bind(item.output_price_microcredits)
             .bind(&item.pricing_notes)
+            .bind(serde_json::to_string(&item.pricing_note_items)?)
             .bind(serde_json::to_string(&item.input_modalities)?)
             .bind(serde_json::to_string(&item.output_modalities)?)
             .bind(serde_json::to_string(&item.endpoints)?)
+            .bind(serde_json::to_string(&item.supported_features)?)
+            .bind(serde_json::to_string(&item.supported_tools)?)
+            .bind(serde_json::to_string(&item.snapshots)?)
+            .bind(serde_json::to_string(&item.modality_items)?)
+            .bind(serde_json::to_string(&item.endpoint_items)?)
+            .bind(serde_json::to_string(&item.feature_items)?)
+            .bind(serde_json::to_string(&item.tool_items)?)
+            .bind(serde_json::to_string(&item.snapshot_items)?)
             .bind(&item.source_url)
             .bind(&item.raw_text)
             .bind(item.synced_at.to_rfc3339())
@@ -1870,8 +2126,20 @@ mod tests {
                 model_id: "gpt-5.4".to_string(),
                 owned_by: "openai".to_string(),
                 title: "GPT-5.4".to_string(),
+                display_name: Some("GPT-5.4".to_string()),
+                tagline: Some("Latest reasoning flagship".to_string()),
+                family: Some("frontier".to_string()),
+                family_label: Some("Frontier models".to_string()),
                 description: Some("Latest reasoning model".to_string()),
+                avatar_remote_url: Some(
+                    "https://developers.openai.com/images/api/models/icons/gpt-5.4.png"
+                        .to_string(),
+                ),
+                avatar_local_path: Some("gpt-5.4.png".to_string()),
+                avatar_synced_at: Some(synced_at),
+                deprecated: Some(false),
                 context_window_tokens: Some(400_000),
+                max_input_tokens: Some(272_000),
                 max_output_tokens: Some(128_000),
                 knowledge_cutoff: Some("Mar 1, 2025".to_string()),
                 reasoning_token_support: Some(true),
@@ -1879,9 +2147,47 @@ mod tests {
                 cached_input_price_microcredits: Some(125_000),
                 output_price_microcredits: Some(10_000_000),
                 pricing_notes: None,
+                pricing_note_items: vec!["Pricing note".to_string()],
                 input_modalities: vec!["text".to_string()],
                 output_modalities: vec!["text".to_string()],
                 endpoints: vec!["v1/responses".to_string()],
+                supported_features: vec!["streaming".to_string()],
+                supported_tools: vec!["web_search".to_string()],
+                snapshots: vec!["gpt-5.4-2026-03-05".to_string()],
+                modality_items: vec![crate::tenant::OpenAiModelSectionItem {
+                    key: "text".to_string(),
+                    label: "Text".to_string(),
+                    detail: Some("Input and output".to_string()),
+                    status: Some("input_output".to_string()),
+                    icon_svg: None,
+                }],
+                endpoint_items: vec![crate::tenant::OpenAiModelSectionItem {
+                    key: "responses".to_string(),
+                    label: "Responses".to_string(),
+                    detail: Some("v1/responses".to_string()),
+                    status: Some("supported".to_string()),
+                    icon_svg: None,
+                }],
+                feature_items: vec![crate::tenant::OpenAiModelSectionItem {
+                    key: "streaming".to_string(),
+                    label: "Streaming".to_string(),
+                    detail: Some("Supported".to_string()),
+                    status: Some("supported".to_string()),
+                    icon_svg: None,
+                }],
+                tool_items: vec![crate::tenant::OpenAiModelSectionItem {
+                    key: "web_search".to_string(),
+                    label: "Web search".to_string(),
+                    detail: Some("Supported".to_string()),
+                    status: Some("supported".to_string()),
+                    icon_svg: None,
+                }],
+                snapshot_items: vec![crate::tenant::OpenAiModelSnapshotItem {
+                    alias: "gpt-5.4".to_string(),
+                    label: "GPT-5.4".to_string(),
+                    latest_snapshot: Some("gpt-5.4-2026-03-05".to_string()),
+                    versions: vec!["gpt-5.4-2026-03-05".to_string()],
+                }],
                 source_url: "https://developers.openai.com/api/docs/models/gpt-5.4".to_string(),
                 raw_text: Some("model page".to_string()),
                 synced_at,
@@ -1897,7 +2203,25 @@ mod tests {
         assert_eq!(catalog.len(), 1);
         assert_eq!(catalog[0].model_id, "gpt-5.4");
         assert_eq!(catalog[0].title, "GPT-5.4");
+        assert_eq!(catalog[0].display_name.as_deref(), Some("GPT-5.4"));
+        assert_eq!(catalog[0].tagline.as_deref(), Some("Latest reasoning flagship"));
+        assert_eq!(catalog[0].family.as_deref(), Some("frontier"));
+        assert_eq!(catalog[0].family_label.as_deref(), Some("Frontier models"));
+        assert_eq!(catalog[0].avatar_local_path.as_deref(), Some("gpt-5.4.png"));
+        assert_eq!(catalog[0].max_input_tokens, Some(272_000));
+        assert_eq!(catalog[0].pricing_note_items, vec!["Pricing note".to_string()]);
         assert_eq!(catalog[0].endpoints, vec!["v1/responses".to_string()]);
+        assert_eq!(catalog[0].supported_features, vec!["streaming".to_string()]);
+        assert_eq!(catalog[0].supported_tools, vec!["web_search".to_string()]);
+        assert_eq!(catalog[0].modality_items.len(), 1);
+        assert_eq!(catalog[0].endpoint_items.len(), 1);
+        assert_eq!(catalog[0].feature_items.len(), 1);
+        assert_eq!(catalog[0].tool_items.len(), 1);
+        assert_eq!(catalog[0].snapshot_items.len(), 1);
+        assert_eq!(
+            catalog[0].snapshots,
+            vec!["gpt-5.4-2026-03-05".to_string()]
+        );
 
         let pricing = repo
             .upsert_model_pricing(crate::tenant::ModelPricingUpsertRequest {

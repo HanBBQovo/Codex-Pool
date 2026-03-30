@@ -577,8 +577,17 @@ impl PostgresStore {
                 model_id TEXT PRIMARY KEY,
                 owned_by TEXT NOT NULL,
                 title TEXT NOT NULL,
+                display_name TEXT NULL,
+                tagline TEXT NULL,
+                family TEXT NULL,
+                family_label TEXT NULL,
                 description TEXT NULL,
+                avatar_remote_url TEXT NULL,
+                avatar_local_path TEXT NULL,
+                avatar_synced_at TIMESTAMPTZ NULL,
+                deprecated BOOLEAN NULL,
                 context_window_tokens BIGINT NULL,
+                max_input_tokens BIGINT NULL,
                 max_output_tokens BIGINT NULL,
                 knowledge_cutoff TEXT NULL,
                 reasoning_token_support BOOLEAN NULL,
@@ -586,9 +595,18 @@ impl PostgresStore {
                 cached_input_price_microcredits BIGINT NULL,
                 output_price_microcredits BIGINT NULL,
                 pricing_notes TEXT NULL,
+                pricing_note_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                 input_modalities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                 output_modalities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                 endpoints_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                supported_features_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                supported_tools_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                snapshots_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                modality_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                endpoint_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                feature_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                tool_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                snapshot_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                 source_url TEXT NOT NULL,
                 raw_text TEXT NULL,
                 synced_at TIMESTAMPTZ NOT NULL
@@ -598,6 +616,32 @@ impl PostgresStore {
         .execute(tx.as_mut())
         .await
         .context("failed to create openai_models_catalog table")?;
+
+        for statement in [
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS display_name TEXT NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS tagline TEXT NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS family TEXT NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS family_label TEXT NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS avatar_remote_url TEXT NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS avatar_local_path TEXT NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS avatar_synced_at TIMESTAMPTZ NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS deprecated BOOLEAN NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS max_input_tokens BIGINT NULL",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS pricing_note_items_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS supported_features_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS supported_tools_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS snapshots_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS modality_items_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS endpoint_items_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS feature_items_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS tool_items_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "ALTER TABLE openai_models_catalog ADD COLUMN IF NOT EXISTS snapshot_items_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+        ] {
+            sqlx::query(statement)
+                .execute(tx.as_mut())
+                .await
+                .with_context(|| format!("failed to run schema statement: {statement}"))?;
+        }
 
         sqlx::query(
             r#"

@@ -1,3 +1,16 @@
+fn resolve_openai_model_avatar_url(item: &crate::tenant::OpenAiModelCatalogItem) -> Option<String> {
+    item.avatar_local_path
+        .as_deref()
+        .map(|path| {
+            format!(
+                "{}/{}",
+                crate::tenant::OPENAI_MODEL_ICON_ASSET_PREFIX,
+                path.trim_start_matches('/')
+            )
+        })
+        .or_else(|| item.avatar_remote_url.clone())
+}
+
 async fn build_admin_models_response(
     state: &AppState,
     official_catalog: Vec<crate::tenant::OpenAiModelCatalogItem>,
@@ -82,6 +95,7 @@ fn build_admin_model_items(
         .into_iter()
         .map(|item| {
             let override_pricing = pricing_overrides_by_model.get(&item.model_id).cloned();
+            let avatar_url = resolve_openai_model_avatar_url(&item);
             let effective_pricing = if let Some(override_item) = override_pricing.as_ref() {
                 AdminModelPricingView {
                     input_price_microcredits: Some(override_item.input_price_microcredits),
@@ -113,15 +127,31 @@ fn build_admin_model_items(
                 availability_error: probe.and_then(|entry| entry.error.clone()),
                 official: AdminModelOfficialInfo {
                     title: item.title,
+                    display_name: item.display_name,
+                    tagline: item.tagline,
+                    family: item.family,
+                    family_label: item.family_label,
                     description: item.description,
+                    avatar_url,
+                    deprecated: item.deprecated,
                     context_window_tokens: item.context_window_tokens,
+                    max_input_tokens: item.max_input_tokens,
                     max_output_tokens: item.max_output_tokens,
                     knowledge_cutoff: item.knowledge_cutoff,
                     reasoning_token_support: item.reasoning_token_support,
                     pricing_notes: item.pricing_notes,
+                    pricing_note_items: item.pricing_note_items,
                     input_modalities: item.input_modalities,
                     output_modalities: item.output_modalities,
                     endpoints: item.endpoints,
+                    supported_features: item.supported_features,
+                    supported_tools: item.supported_tools,
+                    snapshots: item.snapshots,
+                    modality_items: item.modality_items,
+                    endpoint_items: item.endpoint_items,
+                    feature_items: item.feature_items,
+                    tool_items: item.tool_items,
+                    snapshot_items: item.snapshot_items,
                     source_url: item.source_url,
                     synced_at: item.synced_at,
                     raw_text: item.raw_text,
@@ -170,15 +200,31 @@ fn build_admin_model_items(
             availability_error: entry.error.clone(),
             official: AdminModelOfficialInfo {
                 title: model_id.clone(),
+                display_name: Some(model_id.clone()),
+                tagline: None,
+                family: None,
+                family_label: None,
                 description: None,
+                avatar_url: None,
+                deprecated: None,
                 context_window_tokens: None,
+                max_input_tokens: None,
                 max_output_tokens: None,
                 knowledge_cutoff: None,
                 reasoning_token_support: None,
                 pricing_notes: None,
+                pricing_note_items: Vec::new(),
                 input_modalities: Vec::new(),
                 output_modalities: Vec::new(),
                 endpoints: vec!["v1/models".to_string()],
+                supported_features: Vec::new(),
+                supported_tools: Vec::new(),
+                snapshots: Vec::new(),
+                modality_items: Vec::new(),
+                endpoint_items: Vec::new(),
+                feature_items: Vec::new(),
+                tool_items: Vec::new(),
+                snapshot_items: Vec::new(),
                 source_url: String::new(),
                 synced_at: entry.checked_at,
                 raw_text: None,
@@ -956,8 +1002,17 @@ mod models_probe_tests {
             model_id: model_id.to_string(),
             owned_by: "openai".to_string(),
             title: model_id.to_string(),
+            display_name: Some(model_id.to_uppercase()),
+            tagline: Some("test tagline".to_string()),
+            family: Some("frontier".to_string()),
+            family_label: Some("Frontier models".to_string()),
             description: None,
+            avatar_remote_url: Some(format!("https://example.com/{model_id}.png")),
+            avatar_local_path: Some(format!("{model_id}.png")),
+            avatar_synced_at: Some(Utc::now()),
+            deprecated: Some(false),
             context_window_tokens: None,
+            max_input_tokens: Some(200_000),
             max_output_tokens: None,
             knowledge_cutoff: None,
             reasoning_token_support: None,
@@ -965,9 +1020,47 @@ mod models_probe_tests {
             cached_input_price_microcredits: None,
             output_price_microcredits: None,
             pricing_notes: None,
+            pricing_note_items: vec!["Pricing note".to_string()],
             input_modalities: Vec::new(),
             output_modalities: Vec::new(),
             endpoints: vec!["responses".to_string()],
+            supported_features: vec!["streaming".to_string()],
+            supported_tools: vec!["web_search".to_string()],
+            snapshots: vec![format!("{model_id}-2026-03-05")],
+            modality_items: vec![crate::tenant::OpenAiModelSectionItem {
+                key: "text".to_string(),
+                label: "Text".to_string(),
+                detail: Some("Input and output".to_string()),
+                status: Some("input_output".to_string()),
+                icon_svg: None,
+            }],
+            endpoint_items: vec![crate::tenant::OpenAiModelSectionItem {
+                key: "responses".to_string(),
+                label: "Responses".to_string(),
+                detail: Some("v1/responses".to_string()),
+                status: Some("supported".to_string()),
+                icon_svg: None,
+            }],
+            feature_items: vec![crate::tenant::OpenAiModelSectionItem {
+                key: "streaming".to_string(),
+                label: "Streaming".to_string(),
+                detail: Some("Supported".to_string()),
+                status: Some("supported".to_string()),
+                icon_svg: None,
+            }],
+            tool_items: vec![crate::tenant::OpenAiModelSectionItem {
+                key: "web_search".to_string(),
+                label: "Web search".to_string(),
+                detail: Some("Supported".to_string()),
+                status: Some("supported".to_string()),
+                icon_svg: None,
+            }],
+            snapshot_items: vec![crate::tenant::OpenAiModelSnapshotItem {
+                alias: model_id.to_string(),
+                label: model_id.to_uppercase(),
+                latest_snapshot: Some(format!("{model_id}-2026-03-05")),
+                versions: vec![format!("{model_id}-2026-03-05")],
+            }],
             source_url: format!("https://example.com/{model_id}"),
             raw_text: None,
             synced_at: Utc::now(),
@@ -1489,11 +1582,53 @@ mod models_probe_tests {
         assert_eq!(items.len(), 2);
         assert_eq!(probe_only.owned_by, "codex-oauth");
         assert_eq!(probe_only.official.title, "codex-mini-latest");
+        assert_eq!(
+            probe_only.official.display_name.as_deref(),
+            Some("codex-mini-latest")
+        );
         assert_eq!(probe_only.official.endpoints, vec!["v1/models".to_string()]);
         assert!(probe_only.official.source_url.is_empty());
         assert_eq!(
             probe_only.availability_status,
             AdminModelAvailabilityStatus::Available
+        );
+    }
+
+    #[test]
+    fn build_admin_model_items_maps_rich_official_catalog_fields() {
+        let official_catalog = vec![test_catalog_item("gpt-5.4")];
+        let pricing_overrides = std::collections::HashMap::new();
+        let cache_entries = std::collections::HashMap::new();
+
+        let items = build_admin_model_items(official_catalog, &pricing_overrides, &cache_entries);
+        let item = items
+            .iter()
+            .find(|row| row.id == "gpt-5.4")
+            .expect("catalog item must exist");
+
+        assert_eq!(item.official.display_name.as_deref(), Some("GPT-5.4"));
+        assert_eq!(item.official.tagline.as_deref(), Some("test tagline"));
+        assert_eq!(item.official.family.as_deref(), Some("frontier"));
+        assert_eq!(
+            item.official.family_label.as_deref(),
+            Some("Frontier models")
+        );
+        assert_eq!(
+            item.official.avatar_url.as_deref(),
+            Some("/api/v1/admin/assets/openai-model-icons/gpt-5.4.png")
+        );
+        assert_eq!(item.official.max_input_tokens, Some(200_000));
+        assert_eq!(item.official.pricing_note_items, vec!["Pricing note".to_string()]);
+        assert_eq!(item.official.supported_features, vec!["streaming".to_string()]);
+        assert_eq!(item.official.supported_tools, vec!["web_search".to_string()]);
+        assert_eq!(item.official.modality_items.len(), 1);
+        assert_eq!(item.official.endpoint_items.len(), 1);
+        assert_eq!(item.official.feature_items.len(), 1);
+        assert_eq!(item.official.tool_items.len(), 1);
+        assert_eq!(item.official.snapshot_items.len(), 1);
+        assert_eq!(
+            item.official.snapshots,
+            vec!["gpt-5.4-2026-03-05".to_string()]
         );
     }
 }

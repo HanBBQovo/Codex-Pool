@@ -514,13 +514,44 @@ pub struct ModelPricingItem {
 }
 
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenAiModelSectionItem {
+    pub key: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub icon_svg: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenAiModelSnapshotItem {
+    pub alias: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub latest_snapshot: Option<String>,
+    #[serde(default)]
+    pub versions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenAiModelCatalogItem {
     pub model_id: String,
     pub owned_by: String,
     pub title: String,
+    pub display_name: Option<String>,
+    pub tagline: Option<String>,
+    pub family: Option<String>,
+    pub family_label: Option<String>,
     pub description: Option<String>,
+    pub avatar_remote_url: Option<String>,
+    pub avatar_local_path: Option<String>,
+    pub avatar_synced_at: Option<DateTime<Utc>>,
+    pub deprecated: Option<bool>,
     pub context_window_tokens: Option<i64>,
+    pub max_input_tokens: Option<i64>,
     pub max_output_tokens: Option<i64>,
     pub knowledge_cutoff: Option<String>,
     pub reasoning_token_support: Option<bool>,
@@ -528,9 +559,18 @@ pub struct OpenAiModelCatalogItem {
     pub cached_input_price_microcredits: Option<i64>,
     pub output_price_microcredits: Option<i64>,
     pub pricing_notes: Option<String>,
+    pub pricing_note_items: Vec<String>,
     pub input_modalities: Vec<String>,
     pub output_modalities: Vec<String>,
     pub endpoints: Vec<String>,
+    pub supported_features: Vec<String>,
+    pub supported_tools: Vec<String>,
+    pub snapshots: Vec<String>,
+    pub modality_items: Vec<OpenAiModelSectionItem>,
+    pub endpoint_items: Vec<OpenAiModelSectionItem>,
+    pub feature_items: Vec<OpenAiModelSectionItem>,
+    pub tool_items: Vec<OpenAiModelSectionItem>,
+    pub snapshot_items: Vec<OpenAiModelSnapshotItem>,
     pub source_url: String,
     pub raw_text: Option<String>,
     pub synced_at: DateTime<Utc>,

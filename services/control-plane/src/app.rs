@@ -131,6 +131,15 @@ fn ensure_request_id(headers: &mut HeaderMap) -> String {
     request_id
 }
 
+fn is_safe_runtime_asset_file_name(file_name: &str) -> bool {
+    let trimmed = file_name.trim();
+    !trimmed.is_empty()
+        && trimmed != "."
+        && trimmed != ".."
+        && !trimmed.contains('/')
+        && !trimmed.contains('\\')
+}
+
 async fn request_id_middleware(mut req: Request<Body>, next: Next) -> Response {
     let request_id = ensure_request_id(req.headers_mut());
     let mut response = next.run(req).await;
@@ -139,6 +148,27 @@ async fn request_id_middleware(mut req: Request<Body>, next: Next) -> Response {
             .headers_mut()
             .insert(HeaderName::from_static(REQUEST_ID_HEADER), header_value);
     }
+    response
+}
+
+async fn get_admin_openai_model_icon(Path(file_name): Path<String>) -> Response {
+    if !is_safe_runtime_asset_file_name(&file_name) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let Ok(assets_dir) = crate::tenant::openai_model_icon_runtime_dir() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let asset_path = assets_dir.join(&file_name);
+    let Ok(bytes) = tokio::fs::read(&asset_path).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("image/png"),
+    );
     response
 }
 
@@ -275,9 +305,23 @@ struct AdminModelPricingView {
 struct AdminModelOfficialInfo {
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tagline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    family: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    family_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    avatar_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deprecated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     context_window_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_input_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_output_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -286,9 +330,18 @@ struct AdminModelOfficialInfo {
     reasoning_token_support: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pricing_notes: Option<String>,
+    pricing_note_items: Vec<String>,
     input_modalities: Vec<String>,
     output_modalities: Vec<String>,
     endpoints: Vec<String>,
+    supported_features: Vec<String>,
+    supported_tools: Vec<String>,
+    snapshots: Vec<String>,
+    modality_items: Vec<crate::tenant::OpenAiModelSectionItem>,
+    endpoint_items: Vec<crate::tenant::OpenAiModelSectionItem>,
+    feature_items: Vec<crate::tenant::OpenAiModelSectionItem>,
+    tool_items: Vec<crate::tenant::OpenAiModelSectionItem>,
+    snapshot_items: Vec<crate::tenant::OpenAiModelSnapshotItem>,
     source_url: String,
     synced_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -825,8 +878,20 @@ mod capabilities_tests {
                     model_id: "gpt-5.4".to_string(),
                     owned_by: "openai".to_string(),
                     title: "GPT-5.4".to_string(),
+                    display_name: Some("GPT-5.4".to_string()),
+                    tagline: Some("Latest reasoning flagship".to_string()),
+                    family: Some("frontier".to_string()),
+                    family_label: Some("Frontier models".to_string()),
                     description: Some("Latest reasoning model".to_string()),
+                    avatar_remote_url: Some(
+                        "https://developers.openai.com/images/api/models/icons/gpt-5.4.png"
+                            .to_string(),
+                    ),
+                    avatar_local_path: Some("gpt-5.4.png".to_string()),
+                    avatar_synced_at: Some(chrono::Utc::now()),
+                    deprecated: Some(false),
                     context_window_tokens: Some(400_000),
+                    max_input_tokens: Some(272_000),
                     max_output_tokens: Some(128_000),
                     knowledge_cutoff: Some("Mar 1, 2025".to_string()),
                     reasoning_token_support: Some(true),
@@ -834,9 +899,49 @@ mod capabilities_tests {
                     cached_input_price_microcredits: Some(125_000),
                     output_price_microcredits: Some(10_000_000),
                     pricing_notes: None,
+                    pricing_note_items: vec![
+                        "Pricing is based on the number of tokens used.".to_string(),
+                    ],
                     input_modalities: vec!["text".to_string()],
                     output_modalities: vec!["text".to_string()],
                     endpoints: vec!["v1/responses".to_string()],
+                    supported_features: vec!["streaming".to_string()],
+                    supported_tools: vec!["web_search".to_string()],
+                    snapshots: vec!["gpt-5.4-2026-03-05".to_string()],
+                    modality_items: vec![crate::tenant::OpenAiModelSectionItem {
+                        key: "text".to_string(),
+                        label: "Text".to_string(),
+                        detail: Some("Input and output".to_string()),
+                        status: Some("input_output".to_string()),
+                        icon_svg: None,
+                    }],
+                    endpoint_items: vec![crate::tenant::OpenAiModelSectionItem {
+                        key: "responses".to_string(),
+                        label: "Responses".to_string(),
+                        detail: Some("v1/responses".to_string()),
+                        status: Some("supported".to_string()),
+                        icon_svg: None,
+                    }],
+                    feature_items: vec![crate::tenant::OpenAiModelSectionItem {
+                        key: "streaming".to_string(),
+                        label: "Streaming".to_string(),
+                        detail: Some("Supported".to_string()),
+                        status: Some("supported".to_string()),
+                        icon_svg: None,
+                    }],
+                    tool_items: vec![crate::tenant::OpenAiModelSectionItem {
+                        key: "web_search".to_string(),
+                        label: "Web search".to_string(),
+                        detail: Some("Supported".to_string()),
+                        status: Some("supported".to_string()),
+                        icon_svg: None,
+                    }],
+                    snapshot_items: vec![crate::tenant::OpenAiModelSnapshotItem {
+                        alias: "gpt-5.4".to_string(),
+                        label: "GPT-5.4".to_string(),
+                        latest_snapshot: Some("gpt-5.4-2026-03-05".to_string()),
+                        versions: vec!["gpt-5.4-2026-03-05".to_string()],
+                    }],
                     source_url: "https://developers.openai.com/api/docs/models/gpt-5.4".to_string(),
                     raw_text: Some("model page".to_string()),
                     synced_at: chrono::Utc::now(),
@@ -2171,6 +2276,10 @@ pub fn build_app_with_store_and_services(
             get(get_admin_runtime_config).put(update_admin_runtime_config),
         )
         .route("/api/v1/admin/logs", get(list_admin_logs))
+        .route(
+            "/api/v1/admin/assets/openai-model-icons/{file_name}",
+            get(get_admin_openai_model_icon),
+        )
         .route(
             "/api/v1/admin/proxies",
             get(list_admin_proxies).post(create_admin_outbound_proxy_node),
