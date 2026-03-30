@@ -18,7 +18,7 @@ import {
   type CredentialKindShort,
   type RateLimitBucket,
   type RateLimitDisplay,
-} from './types'
+} from './types.ts'
 
 export function isSessionMode(mode: string) {
   return SESSION_MODES.has(mode)

@@ -29,6 +29,7 @@ import {
   TableHeader,
   TableRow,
   type Selection,
+  type SortDescriptor,
 } from '@heroui/react'
 import {
   Archive,
@@ -52,6 +53,11 @@ import {
 import { localizeApiErrorDisplay, localizeOAuthErrorCodeDisplay } from '@/api/errorI18n'
 import { SignalHeatmapCanvas, SignalHeatmapMini } from '@/features/accounts/signal-heatmap-canvas'
 import {
+  sortAccountPoolRecords,
+  type AccountPoolSortColumn,
+  type AccountPoolSortDescriptor,
+} from '@/features/accounts/account-pool-sorting'
+import {
   DockedPageIntro,
   PageContent,
 } from '@/components/layout/page-archetypes'
@@ -71,6 +77,12 @@ type ScopeFilter = 'all' | AccountPoolRecordScope
 type ReasonClassFilter = 'all' | AccountPoolReasonClass
 
 const TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50]
+const ACCOUNT_POOL_SORTABLE_COLUMNS = new Set<AccountPoolSortColumn>([
+  'account',
+  'operationalStatus',
+  'quota',
+  'recentSignal',
+])
 
 function normalizeSelection(selection: Selection) {
   if (selection === 'all') {
@@ -79,6 +91,24 @@ function normalizeSelection(selection: Selection) {
 
   const [first] = Array.from(selection)
   return first === undefined ? '' : String(first)
+}
+
+function normalizeAccountPoolSortDescriptor(
+  descriptor: SortDescriptor | null,
+): AccountPoolSortDescriptor | null {
+  if (!descriptor) {
+    return null
+  }
+
+  const column = String(descriptor.column) as AccountPoolSortColumn
+  if (!ACCOUNT_POOL_SORTABLE_COLUMNS.has(column)) {
+    return null
+  }
+
+  return {
+    column,
+    direction: descriptor.direction === 'descending' ? 'descending' : 'ascending',
+  }
 }
 
 function formatDateTime(value?: string) {
@@ -518,6 +548,7 @@ export default function Accounts() {
   const [searchValue, setSearchValue] = useState('')
   const [rowsPerPage, setRowsPerPage] = useState(20)
   const [currentPage, setCurrentPage] = useState(1)
+  const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor | null>(null)
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
   /** 乐观反馈：记录 ID → 当前动效状态 */
   const [rowFeedback, setRowFeedback] = useState<Map<string, 'pending' | 'success' | 'error'>>(new Map())
@@ -588,15 +619,20 @@ export default function Accounts() {
     })
   }, [reasonClassFilter, records, scopeFilter, searchValue, stateFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / rowsPerPage))
+  const sortedRecords = useMemo(
+    () => sortAccountPoolRecords(filteredRecords, normalizeAccountPoolSortDescriptor(sortDescriptor)),
+    [filteredRecords, sortDescriptor],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(sortedRecords.length / rowsPerPage))
   const resolvedPage = Math.min(currentPage, totalPages)
   const paginatedRecords = useMemo(() => {
     const start = (resolvedPage - 1) * rowsPerPage
-    return filteredRecords.slice(start, start + rowsPerPage)
-  }, [filteredRecords, resolvedPage, rowsPerPage])
-  const visibleRangeStart = filteredRecords.length === 0 ? 0 : (resolvedPage - 1) * rowsPerPage + 1
+    return sortedRecords.slice(start, start + rowsPerPage)
+  }, [resolvedPage, rowsPerPage, sortedRecords])
+  const visibleRangeStart = sortedRecords.length === 0 ? 0 : (resolvedPage - 1) * rowsPerPage + 1
   const visibleRangeEnd =
-    filteredRecords.length === 0 ? 0 : Math.min(filteredRecords.length, resolvedPage * rowsPerPage)
+    sortedRecords.length === 0 ? 0 : Math.min(sortedRecords.length, resolvedPage * rowsPerPage)
 
   const invalidateQueries = useCallback(async () => {
     await Promise.all([
@@ -960,6 +996,7 @@ export default function Accounts() {
           <Table
             isHeaderSticky
             aria-label={t('accountPool.sections.recordsTitle')}
+            sortDescriptor={sortDescriptor ?? undefined}
             classNames={{
               base: 'min-h-[30rem]',
               wrapper: 'bg-transparent px-0 py-0 shadow-none',
@@ -968,13 +1005,17 @@ export default function Accounts() {
               tr: 'data-[hover=true]:bg-content2/35 transition-colors',
               emptyWrapper: 'h-56',
             }}
+            onSortChange={(descriptor) => {
+              setCurrentPage(1)
+              setSortDescriptor(descriptor)
+            }}
           >
             <TableHeader>
-              <TableColumn>{t('accountPool.columns.account')}</TableColumn>
-              <TableColumn>{t('accountPool.columns.operationalStatus')}</TableColumn>
-              <TableColumn>{t('accountPool.columns.quota')}</TableColumn>
-              <TableColumn>{t('accountPool.columns.recentSignal')}</TableColumn>
-              <TableColumn>{t('accountPool.columns.actions')}</TableColumn>
+              <TableColumn key="account" allowsSorting>{t('accountPool.columns.account')}</TableColumn>
+              <TableColumn key="operationalStatus" allowsSorting>{t('accountPool.columns.operationalStatus')}</TableColumn>
+              <TableColumn key="quota" allowsSorting>{t('accountPool.columns.quota')}</TableColumn>
+              <TableColumn key="recentSignal" allowsSorting>{t('accountPool.columns.recentSignal')}</TableColumn>
+              <TableColumn key="actions">{t('accountPool.columns.actions')}</TableColumn>
             </TableHeader>
             <TableBody
               emptyContent={(
@@ -1107,6 +1148,8 @@ export default function Accounts() {
                             <>
                               <SignalHeatmapMini
                                 intensityLevels={heatmap.intensity_levels}
+                                activeCounts={heatmap.active_counts}
+                                passiveCounts={heatmap.passive_counts}
                                 successCounts={heatmap.success_counts}
                                 errorCounts={heatmap.error_counts}
                                 bucketMinutes={heatmap.bucket_minutes}

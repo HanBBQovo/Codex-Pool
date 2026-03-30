@@ -39,7 +39,6 @@ import {
 
 import { useSpringNumber } from '@/lib/use-spring-number'
 import { accountPoolApi } from '@/api/accounts'
-import { PoolArcChart, type PoolArcSegment } from '@/features/dashboard/pool-arc-chart'
 import { dashboardApi } from '@/api/dashboard'
 import { adminApi } from '@/api/settings'
 import { usageApi } from '@/api/usage'
@@ -70,6 +69,13 @@ const POOL_PROGRESS_COLORS = {
   success: 'success',
   warning: 'warning',
   danger: 'danger',
+} as const
+
+const POOL_ACCENT_CLASS_NAMES = {
+  brand: 'bg-primary',
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
 } as const
 
 function formatNumber(n: number): string {
@@ -278,34 +284,15 @@ export default function Dashboard() {
     [poolOverviewMetrics],
   )
 
-  const poolArcSegments = useMemo<PoolArcSegment[]>(
-    () => [
-      {
-        label: t('dashboard.poolOverview.inventory'),
-        value: accountPoolSummary?.inventory ?? 0,
-        color: 'oklch(55% 0.14 180)',
-        colorDark: 'oklch(72% 0.14 180)',
-      },
-      {
-        label: t('dashboard.poolOverview.routable'),
-        value: accountPoolSummary?.routable ?? 0,
-        color: 'oklch(50% 0.18 145)',
-        colorDark: 'oklch(70% 0.18 145)',
-      },
-      {
-        label: t('dashboard.poolOverview.cooling'),
-        value: accountPoolSummary?.cooling ?? 0,
-        color: 'oklch(62% 0.16 70)',
-        colorDark: 'oklch(78% 0.16 70)',
-      },
-      {
-        label: t('dashboard.poolOverview.pendingDelete'),
-        value: accountPoolSummary?.pending_delete ?? 0,
-        color: 'oklch(50% 0.20 25)',
-        colorDark: 'oklch(68% 0.20 25)',
-      },
-    ],
-    [accountPoolSummary, t],
+  const poolOverviewSummaryMetrics = useMemo(
+    () =>
+      poolOverviewMetrics.map((metric) => ({
+        ...metric,
+        ratio: totalManagedPool > 0
+          ? Math.round((metric.value / totalManagedPool) * 100)
+          : 0,
+      })),
+    [poolOverviewMetrics, totalManagedPool],
   )
 
   const healthSignalMetrics = useMemo(
@@ -406,7 +393,7 @@ export default function Dashboard() {
         </div>
 
         <Card className="border-small border-default-200 bg-content1 shadow-small">
-          <CardHeader className="px-5 pb-3 pt-5">
+          <CardHeader className="flex flex-col gap-4 px-5 pb-0 pt-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-1">
               <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
                 {t('dashboard.poolOverview.title')}
@@ -415,46 +402,78 @@ export default function Dashboard() {
                 {t('dashboard.poolOverview.description')}
               </p>
             </div>
-          </CardHeader>
-          <CardBody className="flex gap-6 px-5 pb-5 pt-1">
-            {/* 弧形分布图：仅在 lg+ 宽度显示 */}
-            <div className="hidden lg:flex lg:w-[120px] lg:shrink-0 lg:flex-col lg:items-center lg:gap-3 lg:pt-1">
-              <div className="relative">
-                <PoolArcChart segments={poolArcSegments} size={108} thickness={16} />
-                <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
-                  <span className="text-[11px] text-default-400">
+
+            <div className="w-full rounded-large border border-default-200 bg-content2/55 px-4 py-4 lg:max-w-[520px]">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-default-500">
                     {t('dashboard.poolOverview.totalLabel', { defaultValue: '总计' })}
-                  </span>
-                  <span className="tabular-nums text-lg font-semibold text-foreground">
-                    {totalManagedPool}
-                  </span>
+                  </div>
+                  <div className="tabular-nums text-[clamp(1.8rem,3vw,2.5rem)] font-semibold leading-none tracking-[-0.05em] text-foreground">
+                    {formatNumber(totalManagedPool)}
+                  </div>
+                </div>
+
+                <Dropdown placement="bottom-end">
+                  <DropdownTrigger>
+                    <Button
+                      aria-label={t('dashboard.actions.openMenu', { defaultValue: 'Open actions menu' })}
+                      radius="full"
+                      size="sm"
+                      variant="flat"
+                    >
+                      <Icon icon="solar:menu-dots-bold" className="text-lg text-default-500" />
+                    </Button>
+                  </DropdownTrigger>
+                  <DropdownMenu aria-label={t('dashboard.poolOverview.title')} onAction={handlePoolOverviewAction}>
+                    <DropdownItem key="accounts">
+                      {t('dashboard.actions.viewAccounts', { defaultValue: 'View accounts' })}
+                    </DropdownItem>
+                    <DropdownItem key="logs">
+                      {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
+                    </DropdownItem>
+                    <DropdownItem key="imports">
+                      {t('dashboard.actions.viewImports', { defaultValue: 'View imports' })}
+                    </DropdownItem>
+                  </DropdownMenu>
+                </Dropdown>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div className="flex h-2 overflow-hidden rounded-full bg-default-100">
+                  {poolOverviewSummaryMetrics.map((metric) => (
+                    metric.value > 0 ? (
+                      <span
+                        key={metric.title}
+                        aria-hidden="true"
+                        className={cn('h-full', POOL_ACCENT_CLASS_NAMES[metric.tone])}
+                        style={{ flexBasis: 0, flexGrow: metric.value }}
+                      />
+                    ) : null
+                  ))}
+                  {totalManagedPool === 0 ? (
+                    <span aria-hidden="true" className="h-full flex-1 bg-default-200" />
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {poolOverviewSummaryMetrics.map((metric) => (
+                    <div key={metric.title} className="flex items-center gap-2 text-xs text-default-600">
+                      <span className={cn('h-2 w-2 shrink-0 rounded-full', POOL_ACCENT_CLASS_NAMES[metric.tone])} />
+                      <span>{metric.title}</span>
+                      <span className="tabular-nums text-default-500">{metric.ratio}%</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <div className="w-full space-y-1.5">
-                {poolOverviewMetrics.map((metric) => (
-                  <div key={metric.title} className="flex items-center gap-1.5 text-[11px] text-default-500">
-                    <span className={cn('h-2 w-2 shrink-0 rounded-full', {
-                      'bg-primary': metric.tone === 'brand',
-                      'bg-success': metric.tone === 'success',
-                      'bg-warning': metric.tone === 'warning',
-                      'bg-danger': metric.tone === 'danger',
-                    })} />
-                    <span className="truncate">{metric.title}</span>
-                  </div>
-                ))}
-              </div>
             </div>
-            {/* 4 张明细卡 */}
-            <div className="flex-1 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            {poolOverviewMetrics.map((metric) => {
-            const ratio = totalManagedPool > 0
-              ? Math.round((metric.value / totalManagedPool) * 100)
-              : 0
+          </CardHeader>
 
-            return (
+          <CardBody className="grid gap-5 px-5 pb-5 pt-5 sm:grid-cols-2 xl:grid-cols-4">
+            {poolOverviewSummaryMetrics.map((metric) => (
               <div
                 key={metric.title}
-                className="flex h-full flex-col gap-5 rounded-large border-small border-default-200 p-4"
+                className="flex h-full flex-col gap-5 rounded-large border-small border-default-200 bg-content1 p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div
@@ -465,30 +484,9 @@ export default function Dashboard() {
                   >
                     {metric.icon}
                   </div>
-                  <Dropdown placement="bottom-end">
-                    <DropdownTrigger>
-                      <Button
-                        isIconOnly
-                        aria-label={t('dashboard.actions.openMenu', { defaultValue: 'Open actions menu' })}
-                        radius="full"
-                        size="sm"
-                        variant="light"
-                      >
-                        <Icon icon="solar:menu-dots-bold" className="text-lg text-default-500" />
-                      </Button>
-                    </DropdownTrigger>
-                    <DropdownMenu aria-label={metric.title} onAction={handlePoolOverviewAction}>
-                      <DropdownItem key="accounts">
-                        {t('dashboard.actions.viewAccounts', { defaultValue: 'View accounts' })}
-                      </DropdownItem>
-                      <DropdownItem key="logs">
-                        {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
-                      </DropdownItem>
-                      <DropdownItem key="imports">
-                        {t('dashboard.actions.viewImports', { defaultValue: 'View imports' })}
-                      </DropdownItem>
-                    </DropdownMenu>
-                  </Dropdown>
+                  <Chip color={POOL_PROGRESS_COLORS[metric.tone]} size="sm" variant="flat">
+                    {metric.ratio}%
+                  </Chip>
                 </div>
 
                 <div className="space-y-2">
@@ -502,24 +500,8 @@ export default function Dashboard() {
                     {metric.description}
                   </p>
                 </div>
-
-                <div className="mt-auto space-y-2">
-                  <div className="flex items-center justify-between gap-3 text-xs font-medium text-default-500">
-                    <span>{t('dashboard.poolOverview.shareOfPool')}</span>
-                    <span>{ratio}%</span>
-                  </div>
-                  <Progress
-                    aria-label={metric.title}
-                    color={POOL_PROGRESS_COLORS[metric.tone]}
-                    radius="full"
-                    size="sm"
-                    value={ratio}
-                  />
-                </div>
               </div>
-            )
-          })}
-            </div>
+            ))}
           </CardBody>
         </Card>
       </div>

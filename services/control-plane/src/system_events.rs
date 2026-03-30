@@ -333,6 +333,16 @@ fn summarize_account_signal_heatmap_details(
                         .iter()
                         .map(|bucket| bucket.intensity)
                         .collect(),
+                    active_counts: detail
+                        .buckets
+                        .iter()
+                        .map(|bucket| bucket.active_count)
+                        .collect(),
+                    passive_counts: detail
+                        .buckets
+                        .iter()
+                        .map(|bucket| bucket.passive_count)
+                        .collect(),
                     success_counts: detail
                         .buckets
                         .iter()
@@ -1910,6 +1920,8 @@ mod tests {
         assert_eq!(summary.intensity_levels.len(), 12);
         assert_eq!(summary.success_counts.len(), 12);
         assert_eq!(summary.error_counts.len(), 12);
+        assert_eq!(summary.active_counts.len(), 12);
+        assert_eq!(summary.passive_counts.len(), 12);
         assert_eq!(summary.intensity_levels[6], 1);
         assert_eq!(summary.intensity_levels[10], 2);
         assert_eq!(summary.intensity_levels[11], 0);
@@ -1917,6 +1929,10 @@ mod tests {
         assert_eq!(summary.error_counts[6], 0);
         assert_eq!(summary.success_counts[10], 2);
         assert_eq!(summary.error_counts[10], 0);
+        assert_eq!(summary.active_counts[6], 0);
+        assert_eq!(summary.passive_counts[6], 1);
+        assert_eq!(summary.active_counts[10], 1);
+        assert_eq!(summary.passive_counts[10], 1);
     }
 
     #[tokio::test]

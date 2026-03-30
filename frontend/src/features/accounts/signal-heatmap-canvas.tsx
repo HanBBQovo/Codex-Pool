@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AccountSignalHeatmapBucket } from '@/api/accounts'
+import { bucketSourceKind, sourceAccentFill } from './signal-heatmap-source-visual.ts'
 
 // ── 结果分类 ──────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,43 @@ function shadowColor(isDark: boolean, outcome: BucketOutcome): string {
   if (outcome === 'error') return isDark ? 'rgba(252,165,165,0.5)' : 'rgba(220,38,38,0.4)'
   if (outcome === 'mixed') return isDark ? 'rgba(252,211,77,0.5)' : 'rgba(217,119,6,0.4)'
   return isDark ? 'rgba(45,212,191,0.5)' : 'rgba(13,148,136,0.4)'
+}
+
+function drawSourceAccent(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  requestCount: number,
+  patrolCount: number,
+  isDark: boolean,
+) {
+  const kind = bucketSourceKind(requestCount, patrolCount)
+  if (kind === 'none') {
+    return
+  }
+
+  const accentHeight = Math.max(2, Math.min(3, h * 0.28))
+  const accentY = y + h - accentHeight
+
+  ctx.save()
+  roundRect(ctx, x, accentY, w, accentHeight, Math.min(2, accentHeight / 2))
+  ctx.clip()
+
+  if (kind === 'mixed') {
+    const total = requestCount + patrolCount
+    const requestWidth = total > 0 ? (w * requestCount) / total : w / 2
+    ctx.fillStyle = sourceAccentFill('request', isDark)
+    ctx.fillRect(x, accentY, requestWidth, accentHeight)
+    ctx.fillStyle = sourceAccentFill('patrol', isDark)
+    ctx.fillRect(x + requestWidth, accentY, w - requestWidth, accentHeight)
+  } else {
+    ctx.fillStyle = sourceAccentFill(kind, isDark)
+    ctx.fillRect(x, accentY, w, accentHeight)
+  }
+
+  ctx.restore()
 }
 
 // ── 圆角矩形 ──────────────────────────────────────────────────────────────────
@@ -180,6 +218,16 @@ export function SignalHeatmapCanvas({ buckets, bucketMinutes }: SignalHeatmapCan
       ctx.fillStyle = intensityToFill(bucket.intensity, isDark, hover, outcome)
       roundRect(ctx, x, y, cellW, cellH, 2)
       ctx.fill()
+      drawSourceAccent(
+        ctx,
+        x,
+        y,
+        cellW,
+        cellH,
+        bucket.active_count,
+        bucket.passive_count,
+        isDark,
+      )
     })
     ctx.shadowBlur = 0
   }, [buckets, cols, rows, isDark])
@@ -253,6 +301,8 @@ export function SignalHeatmapCanvas({ buckets, bucketMinutes }: SignalHeatmapCan
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-[2px] bg-primary/60" />{t('accountPool.recentSignal.legend.success', { defaultValue: '成功' })}</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-[2px] bg-amber-500/60" />{t('accountPool.recentSignal.legend.mixed', { defaultValue: '部分失败' })}</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-[2px] bg-red-500/60" />{t('accountPool.recentSignal.legend.error', { defaultValue: '全部失败' })}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-1 w-3 rounded-full bg-sky-500/80" />{t('accountPool.recentSignal.legend.request', { defaultValue: '用户请求' })}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-1 w-3 rounded-full bg-indigo-500/80" />{t('accountPool.recentSignal.legend.patrol', { defaultValue: '主动巡检' })}</span>
       </div>
       {tooltip ? (
         <div
@@ -274,8 +324,10 @@ export function SignalHeatmapCanvas({ buckets, bucketMinutes }: SignalHeatmapCan
 
 interface SignalHeatmapMiniProps {
   intensityLevels: number[]
-  successCounts: number[]
-  errorCounts: number[]
+  activeCounts?: number[]
+  passiveCounts?: number[]
+  successCounts?: number[]
+  errorCounts?: number[]
   bucketMinutes: number
   windowStart: string
   visibleCount?: number
@@ -283,6 +335,8 @@ interface SignalHeatmapMiniProps {
 
 function buildMiniTooltip(
   intensity: number,
+  requestCount: number,
+  patrolCount: number,
   successCount: number,
   errorCount: number,
   bucketStartIso: string,
@@ -290,19 +344,27 @@ function buildMiniTooltip(
 ): string {
   const time = fmtTime(bucketStartIso, bucketMinutes)
   if (intensity === 0) return `${time}\n本时段无信号`
+  const lines = [`${time}`]
+
   if (errorCount > 0) {
-    return `${time}\n成功 ${successCount} 次 · 失败 ${errorCount} 次`
-  }
-  const label = intensity === 1
+    lines.push(`成功 ${successCount} 次 · 失败 ${errorCount} 次`)
+  } else {
+    const label = intensity === 1
     ? '偶有请求（1–2 次）'
     : intensity === 2
       ? '中等活跃（3–5 次）'
       : '频繁请求（6 次以上）'
-  return `${time}\n${label}`
+    lines.push(label)
+  }
+  if (requestCount > 0) lines.push(`用户请求  ${requestCount} 次`)
+  if (patrolCount > 0) lines.push(`主动巡检  ${patrolCount} 次`)
+  return lines.join('\n')
 }
 
 export function SignalHeatmapMini({
   intensityLevels,
+  activeCounts,
+  passiveCounts,
   successCounts,
   errorCounts,
   bucketMinutes,
@@ -315,9 +377,11 @@ export function SignalHeatmapMini({
   const [hovered, setHovered] = useState<number | null>(null)
   const [tooltip, setTooltip] = useState<{ text: string; x: number } | null>(null)
 
-  const levels = intensityLevels.slice(-visibleCount)
-  const successes = successCounts.slice(-visibleCount)
-  const errors = errorCounts.slice(-visibleCount)
+  const levels = (intensityLevels ?? []).slice(-visibleCount)
+  const active = (activeCounts ?? []).slice(-visibleCount)
+  const passive = (passiveCounts ?? []).slice(-visibleCount)
+  const successes = (successCounts ?? []).slice(-visibleCount)
+  const errors = (errorCounts ?? []).slice(-visibleCount)
   const n = levels.length
   const gap = 2, cellH = 10
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
@@ -347,9 +411,19 @@ export function SignalHeatmapMini({
       ctx.fillStyle = intensityToFill(intensity, isDark, hover, outcome)
       roundRect(ctx, x, 0, cellW, cellH, 2)
       ctx.fill()
+      drawSourceAccent(
+        ctx,
+        x,
+        0,
+        cellW,
+        cellH,
+        active[i] ?? 0,
+        passive[i] ?? 0,
+        isDark,
+      )
     })
     ctx.shadowBlur = 0
-  }, [levels, successes, errors, n, isDark])
+  }, [levels, active, passive, successes, errors, n, isDark])
 
   useEffect(() => { draw(hovered) }, [draw, hovered])
 
@@ -392,13 +466,21 @@ export function SignalHeatmapMini({
       const rect = containerRef.current?.getBoundingClientRect()
       if (!rect) return
       setTooltip({
-        text: buildMiniTooltip(levels[idx], successes[idx] ?? 0, errors[idx] ?? 0, getBucketStart(idx), bucketMinutes),
+        text: buildMiniTooltip(
+          levels[idx],
+          active[idx] ?? 0,
+          passive[idx] ?? 0,
+          successes[idx] ?? 0,
+          errors[idx] ?? 0,
+          getBucketStart(idx),
+          bucketMinutes,
+        ),
         x: e.clientX - rect.left,
       })
     } else {
       setTooltip(null)
     }
-  }, [getHoveredIndex, levels, successes, errors, getBucketStart, bucketMinutes])
+  }, [getHoveredIndex, levels, active, passive, successes, errors, getBucketStart, bucketMinutes])
 
   const handleMouseLeave = useCallback(() => { setHovered(null); setTooltip(null) }, [])
 

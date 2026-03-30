@@ -241,6 +241,8 @@ export interface AccountSignalHeatmapSummary {
   window_minutes: number
   window_start: string
   intensity_levels: number[]
+  active_counts: number[]
+  passive_counts: number[]
   success_counts: number[]
   error_counts: number[]
   latest_signal_at?: string
