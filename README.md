@@ -123,6 +123,48 @@ target/release/codex-pool-personal
 - 管理台：`http://127.0.0.1:${PERSONAL_APP_PORT:-8090}`
 - 健康检查：`http://127.0.0.1:${PERSONAL_APP_PORT:-8090}/health`
 
+## 通过 GitHub Actions 发布到 GHCR
+
+仓库已提供 [`build-images.yml`](./.github/workflows/build-images.yml)，会在 `main` / `master` 分支 push，或手动触发 `workflow_dispatch` 时构建并推送两个镜像到 GHCR：
+
+- `ghcr.io/<owner>/codex-pool-rust:latest`
+- `ghcr.io/<owner>/codex-pool-frontend:latest`
+
+其中：
+
+- `codex-pool-rust` 基于 [`docker/rust-runtime.Dockerfile`](./docker/rust-runtime.Dockerfile) 构建，内含 `control-plane`、`data-plane`、`usage-worker` 三个可执行文件
+- `codex-pool-frontend` 基于 [`docker/frontend.runtime.Dockerfile`](./docker/frontend.runtime.Dockerfile) 构建
+
+### 使用前准备
+
+1. 把代码推到 GitHub 仓库。
+2. 在 GitHub 仓库设置里确认 `Actions > General > Workflow permissions` 允许工作流写入包。
+3. 首次运行后，到仓库的 `Actions` 页面手动触发一次，或直接向 `main` / `master` push。
+
+工作流默认会推送两个 tag：
+
+- `latest`
+- `${GITHUB_SHA}`
+
+### 在 Compose 中使用 GHCR 镜像
+
+如果你使用根目录的多服务编排，可以这样指定镜像：
+
+```bash
+export CONTROL_PLANE_IMAGE="ghcr.io/<owner>/codex-pool-rust:latest"
+export DATA_PLANE_IMAGE="ghcr.io/<owner>/codex-pool-rust:latest"
+export USAGE_WORKER_IMAGE="ghcr.io/<owner>/codex-pool-rust:latest"
+export FRONTEND_IMAGE="ghcr.io/<owner>/codex-pool-frontend:latest"
+docker compose up -d
+```
+
+如果你使用 `personal` 或 `team` 编排，只需要覆盖 `CONTROL_PLANE_IMAGE`，例如：
+
+```bash
+export CONTROL_PLANE_IMAGE="ghcr.io/<owner>/codex-pool-rust:latest"
+docker compose -f docker-compose.personal.yml up -d
+```
+
 ## 管理员鉴权
 
 管理员登录接口：
